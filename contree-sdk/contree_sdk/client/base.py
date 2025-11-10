@@ -8,7 +8,6 @@ from contree_sdk.client.decorator import EMPTY
 from contree_sdk.client.helpers import convert_data_to_type
 from contree_sdk.client.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk.client.types import ApiEndpointInfo, ReturnType
-from contree_sdk.client.v1.common import V1Mixin
 
 
 class ClientBase(ABC):
@@ -21,8 +20,9 @@ class ClientBase(ABC):
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
         return self._client.build_request(
             method=endpoint_info.method.upper(),
-            url=endpoint_info.path,
-            params=data,  # todo parse real path params, query params and body params
+            url=endpoint_info.get_path_by_data(data),
+            params=endpoint_info.get_query_data_by_data(data),
+            # todo parse real body params
         )
 
     @overload
@@ -65,9 +65,6 @@ class ClientBase(ABC):
     ) -> ReturnType | dict | Response: ...
     @abstractmethod
     def _handle_api_call(self, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response: ...
-
-
-class ContreeClientBase(ClientBase, V1Mixin, ABC): ...
 
 
 # todo add config here

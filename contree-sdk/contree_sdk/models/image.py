@@ -12,8 +12,22 @@ class ImageKind(IntEnum):
 ImageTag = str
 
 
+class ImageSize(BaseModel):
+    logical: int
+    physical: int
+
+
 class ContreeImage(BaseModel):
     uuid: str
-    tag: str
+    # source: Optional[str] = None
+    tag: str | None = None
     created_at: datetime
-    # kind: ImageKind
+    # size: Optional[ImageSize] = None
+
+
+class InspectImageResponse(BaseModel):
+    uuid: str
+    source: str | None = None
+    tag: str | None = None
+    created_at: int
+    size: ImageSize

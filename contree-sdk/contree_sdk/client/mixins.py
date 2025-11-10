@@ -19,7 +19,7 @@ class SyncClientMixin:
         self: ClientBase
 
         request = self._build_request(endpoint_info=endpoint_info, data=data)
-        resp = self._client.send(request)
+        resp = self._send_request(request)
         return self._parse_response(response=resp, endpoint_info=endpoint_info)
 
 
@@ -34,5 +34,6 @@ class AsyncClientMixin:
         self: ClientBase
 
         request = self._build_request(endpoint_info=endpoint_info, data=data)
-        resp = await self._client.send(request)
+
+        resp = await self._send_request(request)
         return self._parse_response(response=resp, endpoint_info=endpoint_info)
