@@ -2,10 +2,11 @@ from typing import TYPE_CHECKING
 
 from httpx import AsyncClient, Client, Request, Response
 
-from contree_sdk.client.types import ApiEndpointInfo, ReturnType
+from contree_sdk.lib.types import ApiEndpointInfo, ReturnType
+
 
 if TYPE_CHECKING:
-    from contree_sdk.client.base import ClientBase
+    from contree_sdk.lib.base import ClientBase
 
 
 class SyncClientMixin:
@@ -15,9 +16,7 @@ class SyncClientMixin:
     def _send_request(self, request: Request) -> Response:
         return self._client.send(request)
 
-    def _handle_api_call(self, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response:
-        self: ClientBase
-
+    def _handle_api_call(self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response:
         request = self._build_request(endpoint_info=endpoint_info, data=data)
         resp = self._send_request(request)
         return self._parse_response(response=resp, endpoint_info=endpoint_info)
@@ -30,9 +29,9 @@ class AsyncClientMixin:
     async def _send_request(self, request: Request) -> Response:
         return await self._client.send(request)
 
-    async def _handle_api_call(self, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response:
-        self: ClientBase
-
+    async def _handle_api_call(
+        self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict
+    ) -> ReturnType | dict | Response:
         request = self._build_request(endpoint_info=endpoint_info, data=data)
 
         resp = await self._send_request(request)

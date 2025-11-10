@@ -5,8 +5,8 @@ from inspect import isclass
 from string import Formatter
 from typing import TYPE_CHECKING, Annotated, get_args, get_origin
 
-from contree_sdk.client.helpers import args_kwargs_to_kwargs
-from contree_sdk.client.types import EMPTY, ApiEndpointInfo, Body, ReturnType
+from contree_sdk.lib.helpers import args_kwargs_to_kwargs
+from contree_sdk.lib.types import EMPTY, ApiEndpointInfo, Body, ReturnType
 
 
 if TYPE_CHECKING:

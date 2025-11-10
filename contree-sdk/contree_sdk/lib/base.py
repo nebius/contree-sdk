@@ -4,10 +4,10 @@ from typing import overload
 import httpx
 from httpx import Request, Response
 
-from contree_sdk.client.decorator import EMPTY
-from contree_sdk.client.helpers import convert_data_to_type
-from contree_sdk.client.mixins import AsyncClientMixin, SyncClientMixin
-from contree_sdk.client.types import ApiEndpointInfo, ReturnType
+from contree_sdk.lib.decorator import EMPTY
+from contree_sdk.lib.helpers import convert_data_to_type
+from contree_sdk.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk.lib.types import ApiEndpointInfo, ReturnType
 
 
 class ClientBase(ABC):

@@ -1,7 +1,7 @@
 from typing import overload
 
-from contree_sdk.client.decorator import get
-from contree_sdk.client.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk.lib.decorator import get
+from contree_sdk.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk.models.file import DirectoryList
 from contree_sdk.models.image import ContreeImage, InspectImageResponse
 
