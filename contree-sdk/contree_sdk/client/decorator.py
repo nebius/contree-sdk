@@ -1,10 +1,13 @@
 import inspect
+from collections.abc import Callable, Iterable
 from functools import partial, wraps
+from inspect import isclass
 from string import Formatter
-from typing import TYPE_CHECKING, Annotated, Callable, Iterable, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, get_args, get_origin
 
 from contree_sdk.client.helpers import args_kwargs_to_kwargs
 from contree_sdk.client.types import EMPTY, ApiEndpointInfo, Body, ReturnType
+
 
 if TYPE_CHECKING:
     from contree_sdk.client.client import ContreeClientBase
@@ -45,15 +48,17 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
                 continue
             all_params.append(name)
             annotation = param.annotation
-            # typ = annotation
+            # type_ = annotation
             # default = param.default
-            annotated_meta = None
+            is_body = False
 
             if get_origin(annotation) is Annotated:
-                _, *meta = get_args(annotation)
-                annotated_meta = meta or None
+                type_, *meta = get_args(annotation)
+                for class_ in meta:
+                    if isclass(class_) and issubclass(class_, Body):
+                        is_body = True
 
-            if annotated_meta is Body:
+            if is_body:
                 body_params.append(name)
             elif name in parsed_path_params:
                 path_params.append(name)

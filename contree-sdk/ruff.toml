@@ -1,0 +1,137 @@
+line-length = 120
+src = ["contree_sdk"]
+
+target-version = "py310"
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+]
+
+[lint]
+extend-safe-fixes = [
+    "UP006", # non-pep585-annotation
+    "UP007", # non-pep604-annotation-union
+    "UP038", # non-pep604-isinstance
+    "UP035", # deprecated-import
+]
+extend-unsafe-fixes = [
+    "RUF100",
+    "PGH003",
+    "RUF102",
+]
+
+select = [
+    "A",   # gradual, flake8-builtins
+    "AIR", # gradual, Airflow
+    #    "ANN",  # ideally, flake8-annotations
+    "ANN001", # gradual, missing-type-function-argument
+    "ANN201", # gradual, missing-return-type-undocumented-public-function
+    "ANN206", # gradual, missing-return-type-class-method
+    "ASYNC", # flake8-async
+    "B",   # gradual, flake8-bugbear
+    "C",   # gradual, flake8-comprehensions
+    "COM", # gradual, flake8-commas
+    "E",     # pycodestyle Error
+    "ERA", # gradual, eradicate
+    "EXE",   # flake8-executable
+    "F",     # Pyflakes
+    "FA",    # flake8-future-annotations
+    "I",     # isort
+    #    "N",     # ideally, pep8-naming
+    #    "PERF",  # ideally, Perflint
+    "PGH", # gradual, pygrep-hooks
+    "PIE", # gradual, flake8-pie
+    "PL",  # gradual, Pylint
+    #    "PT",    # ideally, flake8-pytest-style
+    "PTH", # gradual, flake8-use-pathlib
+    "PYI", # gradual, flake8-pyi
+    "RET", # gradual, flake8-return
+    "RSE",   # flake8-raise
+    "RUF", # gradual, Ruff-specific rules
+    #    "S",    # ideally, flake8-bandit
+    "SIM", # gradual, flake8-simplify
+    "SLOT",  # flake8-slots
+    "T",   # gradual, flake8-debugger
+    # "TCH", # gradual, flake8-type-checking <- Disabled for now due to issues with generic pydantic models
+    "TID",   # flake8-tidy-imports
+    "TRY", # gradual, tryceratops
+    "UP",  # gradual, pyupgrade
+    "W",     # pycodestyle Warning
+    "YTT",   # flake8-2020
+]
+
+extend-ignore = [
+    "ANN002",   # missing-type-args
+    "ANN003",   # missing-type-kwargs
+    "ANN202",   # missing-return-type-private-function
+    "ANN204",   # missing-return-type-special-method
+    "ANN401",   # any-type
+    "COM812", # missing-trailing-comma
+    "E203",   # whitespace-before-punctuation
+    "E741",   # ambiguous-variable-name
+    "PIE790", # unnecessary-placeholder
+    "RUF012", # mutable-class-default
+    "RUF013", # implicit-optional
+    "S311",   # suspicious-non-cryptographic-random-usage
+    "TRY003", # raise-vanilla-args
+]
+
+
+[lint.per-file-ignores]
+"*" = [
+    "COM812",   # missing-trailing-comma
+    "N813",     # camelcase-imported-as-lowercase
+    "PLR2004",  # ideally, magic-value-comparison
+    "PLW1510",  # unspecified-encoding
+    "PLW2901",  # redefined-loop-name
+    "PTH118",   # os-path-join
+    "RUF005",   # collection-literal-concatenation
+    "RUF012",   # mutable-class-default,  because of old pydantic, ideally to turn on
+    "TC",       # typing-only-*-import
+    "TRY003",   # ideally, raise-vanilla-args
+]
+"contree_sdk/client/decorator.py" = [
+    "ANN001", # gradual, missing-type-function-argument # todo
+    "ANN201", # gradual, missing-return-type-undocumented-public-function # todo
+    "ERA", # gradual, eradicate # todo
+]
+"contree_sdk/run_real.py" = [
+    "ERA", # gradual, eradicate
+    "T",   # gradual, flake8-debugger
+    "F",     # Pyflakes
+]
+"contree_sdk/client/types.py" = [
+    "ANN201", # gradual, missing-return-type-undocumented-public-function # todo
+]
+
+[lint.mccabe]
+max-complexity = 20
+
+[lint.isort]
+known-first-party = ["contree_sdk"]
+known-third-party = []
+
+combine-as-imports = false
+force-sort-within-sections = false
+lines-after-imports = 2
+split-on-trailing-comma = false
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[lint.flake8-annotations]
+suppress-none-returning = true
+
+[lint.flake8-implicit-str-concat]
+allow-multiline = false
+
+[format]
+skip-magic-trailing-comma = false
+
+[lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+]
+
+[lint.pylint]
+max-args = 10

@@ -22,7 +22,7 @@ class ClientBase(ABC):
             method=endpoint_info.method.upper(),
             url=endpoint_info.get_path_by_data(data),
             params=endpoint_info.get_query_data_by_data(data),
-            # todo parse real body params
+            json=endpoint_info.get_body_data_by_data(data),
         )
 
     @overload
