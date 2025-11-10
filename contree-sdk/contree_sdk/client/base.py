@@ -45,6 +45,7 @@ class ClientBase(ABC):
         response: Response,
         endpoint_info: ApiEndpointInfo,
     ) -> ReturnType | dict | Response:
+        response.raise_for_status()
         if endpoint_info.json_path is None:
             return response
 

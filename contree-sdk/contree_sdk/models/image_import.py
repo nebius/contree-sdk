@@ -6,10 +6,11 @@ from strenum import UppercaseStrEnum
 
 class OperationStatus(UppercaseStrEnum):
     PENDING = auto()
-    RUNNING = auto()
+    EXECUTING = auto()
     SUCCESS = auto()
     FAILED = auto()
     CANCELLED = auto()
+    ASSIGNED = auto()
 
 
 class RegistryCredentials(BaseModel):
