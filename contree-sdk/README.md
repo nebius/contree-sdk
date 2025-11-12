@@ -243,7 +243,36 @@ result0 = ubuntu_image.run(
 ```
 
 ### Multiple commands chaining
-[//]: # (todo)
+
+You can chain multiple commands in sequence, where each command builds upon the result of the previous one:
+
+```python
+# Simple chaining
+result = await (image
+    .run("apt update")
+    .run("apt install -y python3")
+    .run("pip install requests"))
+
+# Parameters apply only to the next run
+result1 = await (
+    image.env(PATH="/usr/local/bin").stdin("input data").run("echo $PATH")  # Uses env and stdin
+)
+
+result2 = await result1.run("echo $PATH")  # Clean run, no env/stdin
+
+# Complex pipeline
+final_image = await (image
+    .run("apt update && apt install -y build-essential")
+    .run("wget https://example.com/source.tar.gz")
+    .run("tar -xzf source.tar.gz"))
+```
+
+**Important differences:**
+- **Async**: `.run()` queues the command, execution happens on `await`
+- **Sync**: `.run()` immediately executes the command
+
+Each finished `.run()` creates a new image version with changes from that command.
+
 ### Forwarding output to IO objects
 You can forward stdout/stderr output to IO-like objects and files
 
