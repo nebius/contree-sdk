@@ -40,8 +40,8 @@ If you are planning to use it as shell, install `shell` extra: `pip install cont
 
 ## 🚀 Quick Start
 
-<details>
-<summary>🔄 Async Example</summary>
+<details open>
+<summary>🔀 Async Example</summary>
 
 ```python
 import asyncio
@@ -112,7 +112,7 @@ asyncio.run(amain())
 </details>
 
 <details>
-<summary>⚡ Sync Example</summary>
+<summary>🔁 Sync Example</summary>
 
 ```python
 import stat
@@ -244,7 +244,10 @@ client = ContreeSync(config)
 ```
 
 ### Command and other run parameters
-*async example*
+
+<details open>
+<summary>🔀 Async Example</summary>
+
 ```python
 from contree_sdk.files import CopyFile
 
@@ -268,9 +271,12 @@ result0 = await ubuntu_image.run(
     ]
 )
 ```
-Same goes for sync version
 
-*sync example*
+</details>
+
+<details>
+<summary>🔁 Sync Example</summary>
+
 ```python
 from contree_sdk.files import CopyFile
 
@@ -294,6 +300,8 @@ result0 = ubuntu_image.run(
     ]
 )
 ```
+
+</details>
 
 ### Multiple commands chaining
 
