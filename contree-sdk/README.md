@@ -68,6 +68,7 @@ async def amain():
         .env(http_proxy='http://10.20.30.40:1234')
         .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
         .add_file('/local/files/data_ver1.csv', '/data.csv')
+        .tag('ubuntu-result0:latest')
     )
     print(result0.stdout)
     print(result0.stderr)
@@ -235,7 +236,6 @@ images[0].run('some command')
 [//]: # (todo bytes for stdin/stderr)
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
-[//]: # (todo image tagging, both on import and on executing)
 [//]: # (todo shell example, like shell command)
 
 ### Client configuration
