@@ -40,7 +40,9 @@ If you are planning to use it as shell, install `shell` extra: `pip install cont
 
 ## 🚀 Quick Start
 
-*async example*
+<details>
+<summary>🔄 Async Example</summary>
+
 ```python
 import asyncio
 import stat
@@ -107,7 +109,11 @@ async def amain():
 asyncio.run(amain())
 ```
 
-*sync example*
+</details>
+
+<details>
+<summary>⚡ Sync Example</summary>
+
 ```python
 import stat
 
@@ -145,7 +151,7 @@ def main():
     print(len(items))
     
     # iterating through files and directories by path
-    async for item in result1.ls('~'):
+    for item in result1.ls('~'):
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
@@ -169,6 +175,8 @@ def main():
     
 main()
 ```
+
+</details>
 
 ---
 
@@ -430,11 +438,12 @@ Contree SDK provide support for shell
 $ contree-sdk.shell --token my-token
 contree> pull busybox:latest
 Pulling image busybox:latest... done
+
 contree[busybox:latest]> env NAME=World
 Run parameters are:
 env: NAME=World
-contree[busybox:latest]> add file /some/local/file
 
+contree[busybox:latest]> add file /some/local/file
 Run parameters are:
 env: NAME=World
 files:
@@ -443,7 +452,10 @@ files:
 contree[busybox:latest]> run echo "Hello, $NAME!"
 Running...
 Hello, World!
+
 contree[bebecde7-01cd-4abc-a0f1-f97d0bc38336]> revert
+Reverted to busybox:latest
+
 contree[busybox:latest]> exit
 Bye 👋
 ```
