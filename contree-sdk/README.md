@@ -4,6 +4,25 @@ from sys import implementation
 
 > **⚠ Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Core Concepts](#core-concepts)
+  - [Sessions and Versioning](#sessions-and-versioning)
+  - [Async/sync clients and objects](#asyncsync-clients-and-objects)
+- [Advanced Usage](#advanced-usage)
+  - [Client configuration](#client-configuration)
+  - [Command and other run parameters](#command-and-other-run-parameters)
+  - [Multiple commands chaining](#multiple-commands-chaining)
+  - [Forwarding output to IO objects](#forwarding-output-to-io-objects)
+  - [Forwarding input from IO objects](#forwarding-input-from-io-objects)
+  - [File uploading](#file-uploading)
+  - [History browsing](#history-browsing)
+  - [Tree browsing](#tree-browsing)
+  - [Revert](#revert)
+- [CLI shell usage](#cli-shell-usage)
+
 ## Installation
 
 In order to install contree run `pip install contree-sdk`
