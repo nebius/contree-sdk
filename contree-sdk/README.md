@@ -1,8 +1,6 @@
-from sys import implementation
-
 # 📦 Contree SDK
 
-> [!WARNING]
+> [!IMPORTANT]
 > **Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
 
 ## Table of Contents
@@ -360,6 +358,8 @@ Similarly you can forward input from IO-like object
 
 ```python
 import sys
+
+from pathlib import Path
 
 # from sys.stdin
 image.input(sys.stdin).run('some command')
