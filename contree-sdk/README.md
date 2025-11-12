@@ -226,6 +226,17 @@ images[0].run('some command')
 ---
 
 ## ⚙️ Advanced usage
+
+[//]: # (todo support transport class)
+[//]: # (todo add example for env object)
+[//]: # (todo about same uuid after no changes)
+[//]: # (todo bytes for input)
+[//]: # (todo bytes for stdin/stderr)
+[//]: # (todo cancelling on Ctrl+C)
+[//]: # (todo add grep example)
+[//]: # (todo image tagging, both on import and on executing)
+[//]: # (todo shell example, like shell command)
+
 ### Client configuration
 You can create configuration object and use it later in client
 ```python
@@ -233,7 +244,7 @@ from contree_sdk.config import ContreeConfig, ContreeEndpoints
 from contree_sdk import Contree, ContreeSync
 config = ContreeConfig(
     token='my-token',
-    base_url=ContreeEndpoints.STAGE,
+    base_url=ContreeEndpoints.STAGE,  # or 'https://contree.host.com'
     transport='httpx'
 )
 
@@ -301,6 +312,17 @@ result0 = ubuntu_image.run(
 
 </details>
 
+### Disposable containers
+You can add `.disposable()` to the chain or as run parameter to make the container disposable. 
+It means it deletes itself right after executing, leaving only the result.
+
+```python
+res = image.disposable().run('one time thing')
+# OR
+res = image.run('one time thing', disposable=True)
+```
+
+
 ### Multiple commands chaining
 
 You can chain multiple commands in sequence, where each command builds upon the result of the previous one:
@@ -331,6 +353,12 @@ final_image = await (image
 - **Sync**: `.run()` immediately executes the command
 
 Each finished `.run()` creates a new image version with changes from that command.
+
+> [!NOTE]
+> In async mode the intermediate containers are automatically marked as disposable by default to optimize resource usage.
+
+
+[//]: # (todo to discuss firther how to make proper non-wasteful chaining)
 
 ### Forwarding output to IO objects
 You can forward stdout/stderr output to IO-like objects and files
