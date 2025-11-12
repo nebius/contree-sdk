@@ -4,9 +4,14 @@
 
 ## Installation
 
-```bash
-pip install contree-sdk
-```
+In order to install contree run `pip install contree-sdk`
+
+If you want to use a specific transport (for example, httpx), run `pip install contree-sdk[httpx]`
+
+Optional extras allow you to install dependencies for specific transports or integrations. For example, httpx enables asynchronous HTTP support.
+
+If you are planning to use it as shell, install `shell` extra: `pip install contree-sdk[shell]`
+
 
 ## Quick Start
 
@@ -140,17 +145,112 @@ def main():
 main()
 ```
 
-[//]: # (todo think about how in sync should be called, with or without `wait&#40;&#41;`)
+[//]: # (todo think about how in sync should be called, with or without `wait\(\)`)
 [//]: # (todo stdout to io objects, like stdout or BytesIO)
 
+## Core Concepts
+
+### Sessions and Versioning
+
+A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
+
+```python
+# Each command creates a new image version
+image = await contree.images.pull("ubuntu:latest")        # ubuntu:latest
+result1 = await image.run("apt update")             # some-uuid 
+result2 = await result1.run("apt install python3") # another-uuid
+
+# Sessions work the same way
+session = image.session()                     # ubuntu:latest
+res0 = await session.run("touch /app/file1.txt")    # some-uuid 
+res1 = await session.run("echo 'hello' > /app/file1.txt") # another-uuid
+
+assert session.current == res1
+assert session.parent == res0
+```
+
+### Async/sync clients and objects
+
+Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
+For example
+
+```python
+from contree_sdk import Contree
+contree_async = Contree(token='my-token')
+
+# async client produces async-friendly images objects, so they can be used in async code
+images = await contree_async.images()
+await images[0].run('some command')
+
+from contree_sdk import ContreeSync
+contree_sync = ContreeSync(token='my-token')
+
+# while sync client produces sync-friendly images objects, so they can be used in sync code
+images = contree_sync.images()
+images[0].run('some command')
+```
+
 ## Advanced usage
-
 ### Client configuration
-
+[//]: # (todo)
 ### Command and other run parameters
+*async example*
+```python
+from contree_sdk.files import CopyFile
+
+# this construction
+result0 = await (
+    ubuntu_image.command('app.sh').args('arg1', 'arg2')
+    .stdin('input')
+    .env(http_proxy='http://10.20.30.40:1234')
+    .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
+    .add_file('/local/files/data_ver1.csv', '/data.csv')
+)
+# is basically a syntax sugar for this:
+result0 = await ubuntu_image.run(
+    command='app.sh',
+    args=('arg1', 'arg2'),
+    stdin='input',
+    env=dict(http_proxy='http://10.20.30.40:1234'),
+    files=[
+        CopyFile('/local/files/app.sh', mode=stat.S_IXUSR),
+        CopyFile('/local/files/data_ver1.csv', '/data.csv'),
+    ]
+)
+```
+Same goes for sync version
+
+*sync example*
+```python
+from contree_sdk.files import CopyFile
+
+# this construction
+result0 = (
+    ubuntu_image.command('app.sh').args('arg1', 'arg2')
+    .stdin('input')
+    .env(http_proxy='http://10.20.30.40:1234')
+    .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
+    .add_file('/local/files/data_ver1.csv', '/data.csv')
+).run()
+# is basically a syntax sugar for this:
+result0 = ubuntu_image.run(
+    command='app.sh',
+    args=('arg1', 'arg2'),
+    stdin='input',
+    env=dict(http_proxy='http://10.20.30.40:1234'),
+    files=[
+        CopyFile('/local/files/app.sh', mode=stat.S_IXUSR),
+        CopyFile('/local/files/data_ver1.csv', '/data.csv'),
+    ]
+)
+```
+
 ### Multiple commands chaining
+[//]: # (todo)
 ### Forwarding output to IO objects
+[//]: # (todo)
 ### Forwarding input from IO objects
+[//]: # (todo)
 ### File uploading
 
 [//]: # (todo)
@@ -215,27 +315,30 @@ assert session.parent == image
 assert session.children == [result2]
 ```
 
-## Core Concepts
-
-### Sessions and Versioning
-
-A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
-
-```python
-# Each command creates a new image version
-image = await contree.images.pull("ubuntu:latest")        # ubuntu:latest
-result1 = await image.run("apt update")             # some-uuid 
-result2 = await result1.run("apt install python3") # another-uuid
-
-# Sessions work the same way
-session = image.session()                     # ubuntu:latest
-res0 = await session.run("touch /app/file1.txt")    # some-uuid 
-res1 = await session.run("echo 'hello' > /app/file1.txt") # another-uuid
-
-assert session.current == res1
-assert session.parent == res0
-```
-
 ## CLI shell usage
 
-[//]: # (todo )
+Contree SDK provide support for shell
+
+```console
+$ contree-sdk.shell --token my-token
+contree> pull busybox:latest
+Pulling image busybox:latest... done
+contree[busybox:latest]> env NAME=World
+Run parameters are:
+env: NAME=World
+contree[busybox:latest]> add file /some/local/file
+
+Run parameters are:
+env: NAME=World
+files:
+    /some/local/file
+
+contree[busybox:latest]> run echo "Hello, $NAME!"
+Running...
+Hello, World!
+contree[bebecde7-01cd-4abc-a0f1-f97d0bc38336]> revert
+contree[busybox:latest]> exit
+Bye 👋
+```
+
+Run `contree-sdk.shell --help` to know more about usage
