@@ -1,8 +1,9 @@
 from sys import implementation
 
-# Contree SDK
+# 📦 Contree SDK
 
-> **⚠ Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
+> [!WARNING]
+> **Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
 
 ## Table of Contents
 
@@ -23,7 +24,9 @@ from sys import implementation
   - [Revert](#revert)
 - [CLI shell usage](#cli-shell-usage)
 
-## Installation
+---
+
+## 📥 Installation
 
 In order to install contree run `pip install contree-sdk`
 
@@ -33,8 +36,9 @@ Optional extras allow you to install dependencies for specific transports or int
 
 If you are planning to use it as shell, install `shell` extra: `pip install contree-sdk[shell]`
 
+---
 
-## Quick Start
+## 🚀 Quick Start
 
 *async example*
 ```python
@@ -166,9 +170,14 @@ def main():
 main()
 ```
 
-## Core Concepts
+---
+
+## 🧠 Core Concepts
 
 ### Sessions and Versioning
+
+> [!NOTE]
+> Sessions automatically track image versions after each command execution.
 
 A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
 
@@ -208,7 +217,9 @@ images = contree_sync.images()
 images[0].run('some command')
 ```
 
-## Advanced usage
+---
+
+## ⚙️ Advanced usage
 ### Client configuration
 You can create configuration object and use it later in client
 ```python
@@ -345,7 +356,8 @@ image.input(Path("input.txt")).run('some command')
 
 ### File uploading
 
-> **⚠️ Warning**: This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management. 
+> [!WARNING]
+> This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management. 
 > For most use cases, prefer `.add_file()` method on images and sessions.
 
 ```python
@@ -408,7 +420,9 @@ assert session.parent == image
 assert session.children == [result2]
 ```
 
-## CLI shell usage
+---
+
+## 🐚 CLI shell usage
 
 Contree SDK provide support for shell
 
