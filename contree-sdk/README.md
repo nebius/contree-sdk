@@ -1,3 +1,5 @@
+from sys import implementation
+
 # Contree SDK
 
 > **⚠ Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
@@ -189,7 +191,20 @@ images[0].run('some command')
 
 ## Advanced usage
 ### Client configuration
-[//]: # (todo)
+You can create configuration object and use it later in client
+```python
+from contree_sdk.config import ContreeConfig, ContreeEndpoints
+from contree_sdk import Contree, ContreeSync
+config = ContreeConfig(
+    token='my-token',
+    base_url=ContreeEndpoints.STAGE,
+    transport='httpx'
+)
+
+client_async = Contree(config)
+client = ContreeSync(config)
+```
+
 ### Command and other run parameters
 *async example*
 ```python
