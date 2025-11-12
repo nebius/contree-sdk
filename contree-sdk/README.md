@@ -145,9 +145,6 @@ def main():
 main()
 ```
 
-[//]: # (todo think about how in sync should be called, with or without `wait\(\)`)
-[//]: # (todo stdout to io objects, like stdout or BytesIO)
-
 ## Core Concepts
 
 ### Sessions and Versioning
@@ -248,12 +245,45 @@ result0 = ubuntu_image.run(
 ### Multiple commands chaining
 [//]: # (todo)
 ### Forwarding output to IO objects
-[//]: # (todo)
+You can forward stdout/stderr output to IO-like objects and files
+
+```python
+import sys
+import io
+
+stdout_buffer = io.StringIO()
+res = image.stdout_to(stdout_buffer).stderr_to(sys.stderr).run('some command')
+# it will output stdout of run to `stdout_buffer` and stderr to `sys.stderr`
+
+# stderr/stdout settings are persistent after run
+res1 = res.run('another command')
+# will still output stdout of run to `stdout_buffer` and stderr to `sys.stderr`
+
+# this however will not
+res_other = image.run('third command')
+
+# you can also use files
+res = image.stderr_to('/local/files/error.log').run('failing command')
+```
 ### Forwarding input from IO objects
-[//]: # (todo)
+Similarly you can forward input from IO-like object
+
+```python
+import sys
+
+# from sys.stdin
+image.input(sys.stdin).run('some command')
+
+# from file
+image.input(Path("input.txt")).run('some command')
+```
+
+> Note: it will run command only after finishing reading from input object. It cannot run and read simultaneously!
+
 ### File uploading
 
-[//]: # (todo)
+> **⚠️ Warning**: This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management. 
+> For most use cases, prefer `.add_file()` method on images and sessions.
 
 ```python
 # check file existence
