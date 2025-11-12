@@ -5,14 +5,15 @@
 
 ## Table of Contents
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Core Concepts](#core-concepts)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Core Concepts](#-core-concepts)
   - [Sessions and Versioning](#sessions-and-versioning)
   - [Async/sync clients and objects](#asyncsync-clients-and-objects)
-- [Advanced Usage](#advanced-usage)
+- [Advanced Usage](#-advanced-usage)
   - [Client configuration](#client-configuration)
   - [Command and other run parameters](#command-and-other-run-parameters)
+  - [Disposable containers](#disposable-containers)
   - [Multiple commands chaining](#multiple-commands-chaining)
   - [Forwarding output to IO objects](#forwarding-output-to-io-objects)
   - [Forwarding input from IO objects](#forwarding-input-from-io-objects)
@@ -20,7 +21,7 @@
   - [History browsing](#history-browsing)
   - [Tree browsing](#tree-browsing)
   - [Revert](#revert)
-- [CLI shell usage](#cli-shell-usage)
+- [CLI shell usage](#-cli-shell-usage)
 
 ---
 
@@ -329,10 +330,11 @@ You can chain multiple commands in sequence, where each command builds upon the 
 
 ```python
 # Simple chaining
-result = await (image
-    .run("apt update")
+result = await (
+    image.run("apt update")
     .run("apt install -y python3")
-    .run("pip install requests"))
+    .run("pip install requests")
+)
 
 # Parameters apply only to the next run
 result1 = await (
@@ -342,10 +344,12 @@ result1 = await (
 result2 = await result1.run("echo $PATH")  # Clean run, no env/stdin
 
 # Complex pipeline
-final_image = await (image
+final_image = await (
+    image
     .run("apt update && apt install -y build-essential")
     .run("wget https://example.com/source.tar.gz")
-    .run("tar -xzf source.tar.gz"))
+    .run("tar -xzf source.tar.gz")
+)
 ```
 
 **Important differences:**
