@@ -383,7 +383,7 @@ result = image.shell('mkdir -p /app && cd /app && git clone https://github.com/u
 </details>
 
 > [!TIP]
-> Use `shell()` for complex commands with pipes, redirects, and shell features. Use `run()` for simple commands and when security is important.
+> Use `shell()` for complex commands with pipes, redirects, and shell features. Use `command()` for simple commands and when security is important.
 
 
 
