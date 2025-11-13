@@ -245,14 +245,13 @@ images = contree_sync.images()
 images[0].run('some command')
 ```
 
+
 ---
 
 ## ⚙️ Advanced usage
 
-[//]: # (todo bytes for stdout/stderr)
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
-[//]: # (todo tell about objects reusing)
 
 ### Client configuration
 You can create configuration object and use it later in client
@@ -331,11 +330,11 @@ result0 = ubuntu_image.run(
 
 </details>
 
-### Shell vs run
+### Shell vs command
 
 The SDK provides two distinct ways to execute commands:
 
-- **`run()`** - Direct program execution 
+- **`command()`** - Direct program execution 
 - **`shell()`** - Shell command execution
 
 <details open>
@@ -451,6 +450,23 @@ Each finished `.run()` creates a new image version with changes from that comman
 
 [//]: # (todo to discuss firther how to make proper non-wasteful chaining)
 
+### Objects reusing
+
+You can preconfigure run and then reuse it, for example:
+```python
+# preconfigure a run that generates random string and writes to file
+preconfigured_run = (
+    image.shell('echo $RANDOM > /tmp/random.txt')
+)
+
+# reuse it multiple times
+result1 = await preconfigured_run
+result2 = await preconfigured_run
+result3 = await preconfigured_run
+
+# each execution will generate different uuid, because each result is gonna be unique
+```
+
 ### Forwarding output to IO objects
 You can forward stdout/stderr output to IO-like objects and files
 
@@ -469,12 +485,16 @@ res1 = res.run('another command')
 # this however will not
 res_other = image.run('third command')
 
+# BytesIO also can be used
+bytes_buffer = io.BytesIO()
+image.stdout_to(bytes_buffer)
+
 # you can also use files
 res = image.stderr_to('/local/files/error.log').run('failing command')
 ```
 
 ### Forwarding input from IO objects
-Similarly you can forward input from IO-like object
+Similarly, you can forward input from IO-like object
 
 ```python
 import io
