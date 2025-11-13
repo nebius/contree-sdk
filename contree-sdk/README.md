@@ -1,3 +1,5 @@
+from operator import truediv
+
 # 📦 Contree SDK
 
 > [!IMPORTANT]
@@ -74,7 +76,7 @@ async def amain():
     print(result0.stderr)
     
     # running next command
-    result1 = await result0.command('echo output.csv | grep something')
+    result1 = await result0.shell('echo output.csv | grep something')
     
     # getting files and directories by path
     items = await result1.ls('files/path')
@@ -204,6 +206,22 @@ assert session.current == res1
 assert session.parent == res0
 ```
 
+### Stable image UUID
+
+Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
+
+```python
+result0 = image.run('echo CHANGES > file.txt')
+result1 = result0.run('sleep 5')
+
+assert result1.uuid == result0.uuid
+assert result1.uuid == result1.parent.uuid
+
+assert result0.changed == True
+assert result1.changed == False
+
+```
+
 ### Async/sync clients and objects
 
 Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
@@ -229,24 +247,21 @@ images[0].run('some command')
 
 ## ⚙️ Advanced usage
 
-[//]: # (todo support transport class)
-[//]: # (todo add example for env object)
-[//]: # (todo about same uuid after no changes)
-[//]: # (todo bytes for input)
-[//]: # (todo bytes for stdin/stderr)
+[//]: # (todo bytes for stdout/stderr)
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
-[//]: # (todo shell example, like shell command)
 
 ### Client configuration
 You can create configuration object and use it later in client
 ```python
 from contree_sdk.config import ContreeConfig, ContreeEndpoints
+from contree_sdk.transport import HttpxTransport
 from contree_sdk import Contree, ContreeSync
+
 config = ContreeConfig(
     token='my-token',
     base_url=ContreeEndpoints.STAGE,  # or 'https://contree.host.com'
-    transport='httpx'
+    transport=HttpxTransport,  # transport backend that will be used to connect with the server
 )
 
 client_async = Contree(config)
@@ -313,6 +328,76 @@ result0 = ubuntu_image.run(
 
 </details>
 
+### Shell vs run
+
+The SDK provides two distinct ways to execute commands:
+
+- **`run()`** - Direct program execution 
+- **`shell()`** - Shell command execution
+
+<details open>
+<summary>🔀 Async Examples</summary>
+
+```python
+# run() - direct program execution
+result = await image.command('ls').args('-la', '/home')
+# Equivalent to: execve("/bin/ls", ["ls", "-la", "/home"], env)
+
+# shell() - shell command interpretation  
+result = await image.shell('ls -la /home')
+# Equivalent to: execve("/bin/sh", ["sh", "-c", "ls -la /home"], env)
+
+# Pipes and redirects work only with shell()
+result = await image.shell('echo "hello world" | grep hello')
+result = await image.shell('ls > /tmp/files.txt')
+
+# Shell variables and expansions work only with shell()
+result = await image.shell('echo $HOME && echo *.txt')
+
+# run() is safer for user input (no shell injection)
+filename = "user_file.txt"  # safe - no interpretation
+result = await image.command('cat').args(filename)
+```
+
+</details>
+
+<details>
+<summary>🔁 Sync Examples</summary>
+
+```python
+# run() - direct program execution
+result = image.command('ls').args('-la', '/home').run()
+
+# shell() - shell command interpretation
+result = image.shell('ls -la /home').run()
+
+# Complex shell commands
+result = image.shell('find /etc -name "*.conf" | head -5 | sort').run()
+
+# Multiple commands with &&
+result = image.shell('mkdir -p /app && cd /app && git clone https://github.com/user/repo.git').run()
+```
+
+</details>
+
+> [!TIP]
+> Use `shell()` for complex commands with pipes, redirects, and shell features. Use `run()` for simple commands and when security is important.
+
+
+
+### Env parameter
+
+Env can be passed both as kwargs parameters and as a dict object:
+
+```python
+image.env(VAR='VALUE', http_proxy='http://10.20.30.40:1234')
+# is same as
+image.env({'VAR': 'VALUE', 'http_proxy': 'http://10.20.30.40:1234'})
+# or you can even use both at the same time
+image.env({'VAR': 'VALUE'}, http_proxy='http://10.20.30.40:1234')
+```
+
+
 ### Disposable containers
 You can add `.disposable()` to the chain or as run parameter to make the container disposable. 
 It means it deletes itself right after executing, leaving only the result.
@@ -338,10 +423,10 @@ result = await (
 
 # Parameters apply only to the next run
 result1 = await (
-    image.env(PATH="/usr/local/bin").stdin("input data").run("echo $PATH")  # Uses env and stdin
+    image.env(PATH="/usr/local/bin").stdin("input data").shell("echo $PATH")  # Uses env and stdin
 )
 
-result2 = await result1.run("echo $PATH")  # Clean run, no env/stdin
+result2 = await result1.shell("echo $PATH")  # Clean run, no env/stdin
 
 # Complex pipeline
 final_image = await (
@@ -360,7 +445,6 @@ Each finished `.run()` creates a new image version with changes from that comman
 
 > [!NOTE]
 > In async mode the intermediate containers are automatically marked as disposable by default to optimize resource usage.
-
 
 [//]: # (todo to discuss firther how to make proper non-wasteful chaining)
 
@@ -385,10 +469,12 @@ res_other = image.run('third command')
 # you can also use files
 res = image.stderr_to('/local/files/error.log').run('failing command')
 ```
+
 ### Forwarding input from IO objects
 Similarly you can forward input from IO-like object
 
 ```python
+import io
 import sys
 
 from pathlib import Path
@@ -398,6 +484,15 @@ image.input(sys.stdin).run('some command')
 
 # from file
 image.input(Path("input.txt")).run('some command')
+
+# from bytes IO object
+bytes_buffer = io.BytesIO()
+bytes_buffer.write(b"binary data\x00\x01\x02")
+bytes_buffer.seek(0)
+image.input(bytes_buffer).run('hexdump -C')
+
+# by the way, you can just pass bytes as stdin
+image.input(b"binary data\x00\x01\x02").run('hexdump -C')
 ```
 
 > Note: it will run command only after finishing reading from input object. It cannot run and read simultaneously!
