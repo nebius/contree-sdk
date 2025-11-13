@@ -1,5 +1,3 @@
-from operator import truediv
-
 # 📦 Contree SDK
 
 > [!IMPORTANT]
@@ -495,7 +493,8 @@ image.input(bytes_buffer).run('hexdump -C')
 image.input(b"binary data\x00\x01\x02").run('hexdump -C')
 ```
 
-> Note: it will run command only after finishing reading from input object. It cannot run and read simultaneously!
+> [!NOTE]
+> It will run command only after finishing reading from input object. It cannot run and read simultaneously!
 
 ### File uploading
 
