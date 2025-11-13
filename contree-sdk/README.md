@@ -139,12 +139,12 @@ def main():
         .env(http_proxy='http://10.20.30.40:1234')
         .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
         .add_file('/local/files/data_ver1.csv', '/data.csv')
-    ).run()
+    ).wait()
     print(result0.stdout)
     print(result0.stderr)
     
     # running next command
-    result1 = result0.command('echo output.csv | grep something').run()
+    result1 = result0.command('echo output.csv | grep something').wait()
     
     # getting files and directories by path
     items = result1.ls('files/path')
@@ -165,8 +165,8 @@ def main():
     (
         session.command('/bin/app')
         .add_file('/local/files/app', 'bin/app', mode=stat.S_IXUSR)
-    ).run()
-    res = session.run('cat result.txt')
+    ).wait()
+    res = session.run('cat result.txt').wait()
     print(res.stdout)
     
     # downloading file from session
@@ -213,8 +213,8 @@ assert session.parent == res0
 Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
 
 ```python
-result0 = image.run('echo CHANGES > file.txt')
-result1 = result0.run('sleep 5')
+result0 = image.run('echo CHANGES > file.txt').wait()
+result1 = result0.run('sleep 5').wait()
 
 assert result1.uuid == result0.uuid
 assert result1.uuid == result1.parent.uuid
@@ -242,9 +242,10 @@ contree_sync = ContreeSync(token='my-token')
 
 # while sync client produces sync-friendly images objects, so they can be used in sync code
 images = contree_sync.images()
-images[0].run('some command')
+images[0].run('some command').wait()
 ```
 
+Note that in sync Image-like object `.wait()` method is used as opposed to await keyword in async version
 
 ---
 
@@ -314,7 +315,7 @@ result0 = (
     .env(http_proxy='http://10.20.30.40:1234')
     .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
     .add_file('/local/files/data_ver1.csv', '/data.csv')
-).run()
+).wait()
 # is basically a syntax sugar for this:
 result0 = ubuntu_image.run(
     command='app.sh',
@@ -325,7 +326,7 @@ result0 = ubuntu_image.run(
         CopyFile('/local/files/app.sh', mode=stat.S_IXUSR),
         CopyFile('/local/files/data_ver1.csv', '/data.csv'),
     ]
-)
+).wait()
 ```
 
 </details>
@@ -385,8 +386,6 @@ result = image.shell('mkdir -p /app && cd /app && git clone https://github.com/u
 > [!TIP]
 > Use `shell()` for complex commands with pipes, redirects, and shell features. Use `command()` for simple commands and when security is important.
 
-
-
 ### Env parameter
 
 Env can be passed both as kwargs parameters and as a dict object:
@@ -405,9 +404,9 @@ You can add `.disposable()` to the chain or as run parameter to make the contain
 It means it deletes itself right after executing, leaving only the result.
 
 ```python
-res = image.disposable().run('one time thing')
+res = image.disposable().run('one time thing').wait()
 # OR
-res = image.run('one time thing', disposable=True)
+res = image.run('one time thing', disposable=True).wait()
 ```
 
 
@@ -429,26 +428,15 @@ result1 = await (
 )
 
 result2 = await result1.shell("echo $PATH")  # Clean run, no env/stdin
-
-# Complex pipeline
-final_image = await (
-    image
-    .run("apt update && apt install -y build-essential")
-    .run("wget https://example.com/source.tar.gz")
-    .run("tar -xzf source.tar.gz")
-)
 ```
 
-**Important differences:**
+**Important note:**
 - **Async**: `.run()` queues the command, execution happens on `await`
-- **Sync**: `.run()` immediately executes the command
+- **Sync**: `.run()` queues the command, execution happens on `.wait()`
 
 Each finished `.run()` creates a new image version with changes from that command.
 
-> [!NOTE]
-> In async mode the intermediate containers are automatically marked as disposable by default to optimize resource usage.
-
-[//]: # (todo to discuss firther how to make proper non-wasteful chaining)
+[//]: # (todo to discuss further how to make proper non-wasteful chaining)
 
 ### Objects reusing
 
@@ -465,6 +453,9 @@ result2 = await preconfigured_run
 result3 = await preconfigured_run
 
 # each execution will generate different uuid, because each result is gonna be unique
+
+# this way all results will have the same parent:
+assert result1.parent == result2.parent == result3.parent == image
 ```
 
 ### Forwarding output to IO objects
@@ -475,22 +466,22 @@ import sys
 import io
 
 stdout_buffer = io.StringIO()
-res = image.stdout_to(stdout_buffer).stderr_to(sys.stderr).run('some command')
+res = image.stdout_to(stdout_buffer).stderr_to(sys.stderr).run('some command').wait()
 # it will output stdout of run to `stdout_buffer` and stderr to `sys.stderr`
 
 # stderr/stdout settings are persistent after run
-res1 = res.run('another command')
+res1 = res.run('another command').wait()
 # will still output stdout of run to `stdout_buffer` and stderr to `sys.stderr`
 
 # this however will not
-res_other = image.run('third command')
+res_other = image.run('third command').wait()
 
 # BytesIO also can be used
 bytes_buffer = io.BytesIO()
 image.stdout_to(bytes_buffer)
 
 # you can also use files
-res = image.stderr_to('/local/files/error.log').run('failing command')
+res = image.stderr_to('/local/files/error.log').run('failing command').wait()
 ```
 
 ### Forwarding input from IO objects
@@ -503,19 +494,19 @@ import sys
 from pathlib import Path
 
 # from sys.stdin
-image.stdin(sys.stdin).run('some command')
+await image.stdin(sys.stdin).run('some-command')
 
 # from file
-image.stdin(Path("input.txt")).run('some command')
+await image.stdin(Path("input.txt")).run('some-command')
 
 # from bytes IO object
 bytes_buffer = io.BytesIO()
 bytes_buffer.write(b"binary data\x00\x01\x02")
 bytes_buffer.seek(0)
-image.stdin(bytes_buffer).run('hexdump -C')
+await image.stdin(bytes_buffer).shell('hexdump -C')
 
 # by the way, you can just pass bytes as stdin
-image.stdin(b"binary data\x00\x01\x02").run('hexdump -C')
+await image.stdin(b"binary data\x00\x01\x02").shell('hexdump -C')
 ```
 
 > [!NOTE]
@@ -548,7 +539,6 @@ result_image2 = await result_image.run('another command')
 
 assert result_image2.parent == result_image
 assert result_image.parent == busybox_image
-
 
 for parent in result_image2.parents:
     assert parent in {result_image, result_image2}
