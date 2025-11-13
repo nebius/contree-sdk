@@ -245,7 +245,8 @@ images = contree_sync.images()
 images[0].run('some command').wait()
 ```
 
-Note that in sync Image-like object `.wait()` method is used as opposed to await keyword in async version
+> [!NOTE]
+> In sync Image-like object `.wait()` method is used as opposed to await keyword in async version
 
 ---
 
@@ -430,9 +431,9 @@ result1 = await (
 result2 = await result1.shell("echo $PATH")  # Clean run, no env/stdin
 ```
 
-**Important note:**
-- **Async**: `.run()` queues the command, execution happens on `await`
-- **Sync**: `.run()` queues the command, execution happens on `.wait()`
+> [!IMPORTANT]
+> **Async**: `.run()` queues the command, execution happens on `await`  
+> **Sync**: `.run()` queues the command, execution happens on `.wait()`
 
 Each finished `.run()` creates a new image version with changes from that command.
 
