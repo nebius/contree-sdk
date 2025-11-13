@@ -182,6 +182,10 @@ main()
 
 ## 🧠 Core Concepts
 
+[//]: # (todo discuss about .wait for sync)
+[//]: # (todo discuss about memory usage in parents/children)
+[//]: # (todo discuss about persistent env or cwd)
+
 ### Sessions and Versioning
 
 > [!NOTE]
@@ -248,6 +252,7 @@ images[0].run('some command')
 [//]: # (todo bytes for stdout/stderr)
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
+[//]: # (todo tell about objects reusing)
 
 ### Client configuration
 You can create configuration object and use it later in client
