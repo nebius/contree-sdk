@@ -2,11 +2,11 @@ from typing import TYPE_CHECKING
 
 from httpx import AsyncClient, Client, Request, Response
 
-from contree_sdk.lib.types import ApiEndpointInfo, ReturnType
+from contree_sdk.api.lib.types import ApiEndpointInfo, ReturnType
 
 
 if TYPE_CHECKING:
-    from contree_sdk.lib.base import ClientBase
+    from contree_sdk.api.lib.base import ClientBase
 
 
 class SyncClientMixin:

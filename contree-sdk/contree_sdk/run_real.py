@@ -1,9 +1,10 @@
 # delete file later
 # only for testing and demonstration purposes
-from contree_sdk.client.client import ContreeClient, ContreeSyncClient
-from contree_sdk.client.run_client import TOKEN
-from contree_sdk.models.image import ImageKind
-from contree_sdk.models.image_import import ImageImportRequest, RegistryInfo
+from run_client import TOKEN
+
+from contree_sdk.api.client.client import ContreeClient, ContreeSyncClient
+from contree_sdk.api.models import ImageKind
+from contree_sdk.api.models.image_import import ImageImportRequest, RegistryInfo
 
 
 async def amain():

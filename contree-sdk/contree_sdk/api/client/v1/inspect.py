@@ -1,9 +1,9 @@
 from typing import overload
 
-from contree_sdk.lib.decorator import get
-from contree_sdk.lib.mixins import AsyncClientMixin, SyncClientMixin
-from contree_sdk.models.file import DirectoryList
-from contree_sdk.models.image import ContreeImage, InspectImageResponse
+from contree_sdk.api.lib.decorator import get
+from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk.api.models.file import DirectoryList
+from contree_sdk.api.models.image import ContreeImage, InspectImageResponse
 
 
 class InspectMixin:

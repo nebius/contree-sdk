@@ -1,6 +1,6 @@
 from pydantic import TypeAdapter
 
-from contree_sdk.lib.types import ReturnType
+from contree_sdk.api.lib.types import ReturnType
 
 
 def convert_data_to_type(data: dict | int | str | list, return_type: ReturnType) -> ReturnType:

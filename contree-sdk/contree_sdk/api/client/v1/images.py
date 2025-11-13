@@ -1,10 +1,10 @@
 from typing import Annotated, overload
 
-from contree_sdk.lib.decorator import delete, get, post
-from contree_sdk.lib.mixins import AsyncClientMixin, SyncClientMixin
-from contree_sdk.lib.types import Body
-from contree_sdk.models.image import ContreeImage, ImageKind
-from contree_sdk.models.image_import import ImageImportOperation, ImageImportRequest
+from contree_sdk.api.lib.decorator import delete, get, post
+from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk.api.lib.types import Body
+from contree_sdk.api.models.image import ContreeImage, ImageKind
+from contree_sdk.api.models.image_import import ImageImportOperation, ImageImportRequest
 
 
 class ImagesMixin:

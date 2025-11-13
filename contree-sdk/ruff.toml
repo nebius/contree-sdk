@@ -95,11 +95,11 @@ extend-ignore = [
 "contree_sdk/*" = [
     "ERA", # gradual, eradicate # todo
 ]
-"contree_sdk/lib/*.py" = [
+"contree_sdk/api/lib/*.py" = [
     "ANN001", # gradual, missing-type-function-argument # todo
     "ANN201", # gradual, missing-return-type-undocumented-public-function # todo
 ]
-"contree_sdk/run_real.py" = [
+"contree_sdk//run_real.py" = [
     "ERA", # gradual, eradicate
     "T",   # gradual, flake8-debugger
     "F",     # Pyflakes
