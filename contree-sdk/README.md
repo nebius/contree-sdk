@@ -483,23 +483,23 @@ import sys
 from pathlib import Path
 
 # from sys.stdin
-image.input(sys.stdin).run('some command')
+image.stdin(sys.stdin).run('some command')
 
 # from file
-image.input(Path("input.txt")).run('some command')
+image.stdin(Path("input.txt")).run('some command')
 
 # from bytes IO object
 bytes_buffer = io.BytesIO()
 bytes_buffer.write(b"binary data\x00\x01\x02")
 bytes_buffer.seek(0)
-image.input(bytes_buffer).run('hexdump -C')
+image.stdin(bytes_buffer).run('hexdump -C')
 
 # by the way, you can just pass bytes as stdin
-image.input(b"binary data\x00\x01\x02").run('hexdump -C')
+image.stdin(b"binary data\x00\x01\x02").run('hexdump -C')
 ```
 
 > [!NOTE]
-> It will run command only after finishing reading from input object. It cannot run and read simultaneously!
+> It will run command only after finishing reading from IO object. It cannot run and read simultaneously!
 
 ### File uploading
 
