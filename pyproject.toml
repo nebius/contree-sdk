@@ -3,28 +3,33 @@ name = "contree-examples"
 version = "0.0.1.dev2"
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
-dependencies = []
 license = { text = "Apache-2.0" }
+dependencies = [
+    "contree-sdk[dev]",
+]
+
 
 [project.optional-dependencies]
 docs = [
     "contree-docs",
 ]
-sdk = [
-    "contree-sdk>=0.0.1.dev2",
-]
 dev = [
     "ruff",
+    "contree-sdk[dev]",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.workspace]
-members = ["docs"]
+members = [
+    "docs",
+    "contree-sdk"
+]
 
 [tool.uv.sources]
 contree-docs = { workspace = true }
+contree-sdk = { workspace = true }
 
 
 [tool.ruff]
