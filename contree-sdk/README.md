@@ -9,12 +9,16 @@
 - [Quick Start](#-quick-start)
 - [Core Concepts](#-core-concepts)
   - [Sessions and Versioning](#sessions-and-versioning)
+  - [Stable image UUID](#stable-image-uuid)
   - [Async/sync clients and objects](#asyncsync-clients-and-objects)
 - [Advanced Usage](#-advanced-usage)
   - [Client configuration](#client-configuration)
   - [Command and other run parameters](#command-and-other-run-parameters)
+  - [Shell vs command](#shell-vs-command)
+  - [Env parameter](#env-parameter)
   - [Disposable containers](#disposable-containers)
   - [Multiple commands chaining](#multiple-commands-chaining)
+  - [Objects reusing](#objects-reusing)
   - [Forwarding output to IO objects](#forwarding-output-to-io-objects)
   - [Forwarding input from IO objects](#forwarding-input-from-io-objects)
   - [File uploading](#file-uploading)
@@ -31,7 +35,7 @@ In order to install contree run `pip install contree-sdk`
 
 If you want to use a specific transport (for example, httpx), run `pip install contree-sdk[httpx]`
 
-Optional extras allow you to install dependencies for specific transports or integrations. For example, httpx enables asynchronous HTTP support.
+Optional extras allow you to install dependencies for specific transports or integrations. For example, `httpx` enables httpx-based transport.
 
 If you are planning to use it as shell, install `shell` extra: `pip install contree-sdk[shell]`
 
