@@ -23,41 +23,41 @@ extend-unsafe-fixes = [
 ]
 
 select = [
-    "A",   # gradual, flake8-builtins
-    "AIR", # gradual, Airflow
+    "A",   # flake8-builtins
+    "AIR", # Airflow
     #    "ANN",  # ideally, flake8-annotations
-    "ANN001", # gradual, missing-type-function-argument
-    "ANN201", # gradual, missing-return-type-undocumented-public-function
-    "ANN206", # gradual, missing-return-type-class-method
+    "ANN001", # missing-type-function-argument
+    "ANN201", # missing-return-type-undocumented-public-function
+    "ANN206", # missing-return-type-class-method
     "ASYNC", # flake8-async
-    "B",   # gradual, flake8-bugbear
-    "C",   # gradual, flake8-comprehensions
-    "COM", # gradual, flake8-commas
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "COM", # flake8-commas
     "E",     # pycodestyle Error
-    "ERA", # gradual, eradicate
+    "ERA", # eradicate
     "EXE",   # flake8-executable
     "F",     # Pyflakes
     "FA",    # flake8-future-annotations
     "I",     # isort
     #    "N",     # ideally, pep8-naming
     #    "PERF",  # ideally, Perflint
-    "PGH", # gradual, pygrep-hooks
-    "PIE", # gradual, flake8-pie
-    "PL",  # gradual, Pylint
+    "PGH", # pygrep-hooks
+    "PIE", # flake8-pie
+    "PL",  # Pylint
     #    "PT",    # ideally, flake8-pytest-style
-    "PTH", # gradual, flake8-use-pathlib
-    "PYI", # gradual, flake8-pyi
-    "RET", # gradual, flake8-return
+    "PTH", # flake8-use-pathlib
+    "PYI", # flake8-pyi
+    "RET", # flake8-return
     "RSE",   # flake8-raise
-    "RUF", # gradual, Ruff-specific rules
+    "RUF", # Ruff-specific rules
     #    "S",    # ideally, flake8-bandit
-    "SIM", # gradual, flake8-simplify
+    "SIM", # flake8-simplify
     "SLOT",  # flake8-slots
-    "T",   # gradual, flake8-debugger
-    # "TCH", # gradual, flake8-type-checking <- Disabled for now due to issues with generic pydantic models
+    "T",   # flake8-debugger
+    # "TCH", # flake8-type-checking <- Disabled for now due to issues with generic pydantic models
     "TID",   # flake8-tidy-imports
-    "TRY", # gradual, tryceratops
-    "UP",  # gradual, pyupgrade
+    "TRY", # tryceratops
+    "UP",  # pyupgrade
     "W",     # pycodestyle Warning
     "YTT",   # flake8-2020
 ]
@@ -93,16 +93,20 @@ extend-ignore = [
     "TRY003",   # ideally, raise-vanilla-args
 ]
 "contree_sdk/*" = [
-    "ERA", # gradual, eradicate # todo
+    "ERA", # eradicate # todo
 ]
 "contree_sdk/api/lib/*.py" = [
-    "ANN001", # gradual, missing-type-function-argument # todo
-    "ANN201", # gradual, missing-return-type-undocumented-public-function # todo
+    "ANN001", # missing-type-function-argument # todo
+    "ANN201", # missing-return-type-undocumented-public-function # todo
 ]
 "contree_sdk/run_real.py" = [
-    "ERA", # gradual, eradicate
-    "T",   # gradual, flake8-debugger
+    "ERA", # eradicate
+    "T",   # flake8-debugger
     "F",     # Pyflakes
+]
+
+"tests/**/test_*.py" = [
+    "ANN",  # flake8-annotations-ann
 ]
 
 [lint.mccabe]
