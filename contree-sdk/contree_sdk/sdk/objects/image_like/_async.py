@@ -1,6 +1,6 @@
-from typing import Self
+from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 
 
-class ImageLike:
-    def __await__(self) -> Self:
-        pass
+class _ImageLike(_ImageLikeBase):
+    def __await__(self):
+        return self._await().__await__()

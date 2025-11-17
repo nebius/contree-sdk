@@ -41,3 +41,8 @@ class _ImageLikeBase:
         env: dict = None,
     ) -> Self:
         raise NotImplementedError
+
+    # internal methods
+
+    async def _await(self):
+        raise NotImplementedError
