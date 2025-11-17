@@ -5,7 +5,8 @@ readme = "README.md"
 requires-python = ">=3.12, <3.14"
 dependencies = [
     "pydantic>=2.11.1",
-    "strenum"
+    "strenum",
+    "cattrs"
 ]
 
 [project.optional-dependencies]
