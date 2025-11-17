@@ -288,7 +288,6 @@ assert result1.uuid == result1.parent.uuid
 
 assert result0.changed == True
 assert result1.changed == False
-
 ```
 
 ### Async/sync clients and objects

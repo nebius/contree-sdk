@@ -2,12 +2,16 @@ from uuid import UUID
 
 import pytest
 
+from contree_sdk import Contree, ContreeSync
+
 
 @pytest.fixture(params=["async", "sync"])
-async def images(request, contree, contree_s):
+async def images(request, contree: Contree, contree_s: ContreeSync):
     if request.param == "async":
-        return await contree.images()
-    return contree_s.images()
+        images = await contree.images()
+    else:
+        images = contree_s.images()
+    return images
 
 
 async def test_get_all_images(images):
