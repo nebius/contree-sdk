@@ -9,6 +9,7 @@
 - [Quick Start](#-quick-start)
 - [Core Concepts](#-core-concepts)
   - [Sessions and Versioning](#sessions-and-versioning)
+  - [Subprocess-like interface](#subprocess-like-interface)
   - [Stable image UUID](#stable-image-uuid)
   - [Async/sync clients and objects](#asyncsync-clients-and-objects)
 - [Advanced Usage](#-advanced-usage)
@@ -211,6 +212,68 @@ res1 = await session.run("echo 'hello' > /app/file1.txt") # another-uuid
 assert session.current == res1
 assert session.parent == res0
 ```
+
+### Subprocess-like interface
+
+Any session can provide Subprocess-like interface
+
+<details open>
+<summary>🔀 Async examples</summary>
+
+Running command
+```python
+proc = await session.popen(
+    ["cat"],
+    text=True,
+)
+stdout, stderr = await proc.communicate("a\nb\nc\n")
+```
+
+Shell example
+```python
+import subprocess
+
+proc = await session.popen(
+    "echo hello && ls -la",
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True
+)
+returncode = await proc.wait()
+print(proc.stdout)
+```
+
+</details>
+<details>
+<summary>🔁 Sync examples</summary>
+
+Running command
+```python
+proc = session.popen(
+    ["cat"],
+    text=True,
+)
+stdout, stderr = proc.communicate("a\nb\nc\n")
+```
+
+Shell example
+```python
+import subprocess
+
+proc = session.popen(
+    "echo hello && ls -la",
+    shell=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True
+)
+returncode = proc.wait()
+print(proc.stdout)
+```
+
+</details>
+
 
 ### Stable image UUID
 
