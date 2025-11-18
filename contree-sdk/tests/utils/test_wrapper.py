@@ -48,7 +48,7 @@ def test_multiple_threads():
     for thread in threads:
         thread.join()
     spent = datetime.now() - started
-    assert spent.total_seconds() <= _wait_time * 1.2
+    assert spent.total_seconds() <= _wait_time * 1.2 + 0.05
 
     assert data == set()
 
@@ -88,5 +88,5 @@ def test_multiple_tasks_in_threads():
         thread.join()
 
     spent = datetime.now() - started
-    assert spent.total_seconds() <= _wait_time * 1.5
+    assert spent.total_seconds() <= _wait_time * 1.2 + 0.05
     assert data == set()

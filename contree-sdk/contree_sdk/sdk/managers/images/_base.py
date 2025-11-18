@@ -11,9 +11,17 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
     _ImageType: type[_ImageT]
 
     async def _get_images(self) -> list[_ImageT]:
-        # todo return real sdk objects, not api objects
-        return await self._client._api.get_images()
+        images = []
+        for image in await self._client._api.get_images():
+            images.append(
+                self._ImageType(
+                    client=self._client,
+                    uuid=image.uuid,
+                )
+            )
+        return images
 
+    # todo add support for __iter__ and __aiter__
     async def _pull_image(self) -> _ImageT: ...
 
     async def _get_image_by_uuid_or_tag(self, uuid_or_tag: str): ...

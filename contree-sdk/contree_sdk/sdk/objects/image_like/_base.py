@@ -1,10 +1,20 @@
+from __future__ import annotations
+
 from collections.abc import Iterable
-from typing import Self
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
+
+
+if TYPE_CHECKING:
+    from contree_sdk.sdk.client.base import _ContreeBase
 
 
 class _ImageLikeBase:
     uuid: UUID
+
+    def __init__(self, client: _ContreeBase, uuid: UUID):
+        self.uuid = uuid
+        self._client = client
 
     # command methods
     def command(self, command: str, /) -> Self:

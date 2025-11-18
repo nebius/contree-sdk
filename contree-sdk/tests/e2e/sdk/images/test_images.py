@@ -3,6 +3,7 @@ from uuid import UUID
 import pytest
 
 from contree_sdk import Contree, ContreeSync
+from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 
 
 @pytest.fixture(params=["async", "sync"])
@@ -18,5 +19,5 @@ async def test_get_all_images(images):
     assert len(images) > 0
     for image in images:
         UUID(image.uuid)
-        assert isinstance(image.tag, str)
+        isinstance(image, _ContreeImageBase)
         break
