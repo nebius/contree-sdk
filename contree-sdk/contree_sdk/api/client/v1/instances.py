@@ -1,0 +1,29 @@
+from typing import Annotated, overload
+
+from contree_sdk.api.lib.decorator import delete, get, post
+from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk.api.lib.types import Body
+from contree_sdk.api.models.instance import InstanceOperation, InstanceSpawnRequest
+
+
+class InstancesMixin:
+    @overload
+    async def spawn_instance(self: AsyncClientMixin, request: Annotated[InstanceSpawnRequest, Body]) -> str: ...
+    @overload
+    def spawn_instance(self: SyncClientMixin, request: Annotated[InstanceSpawnRequest, Body]) -> str: ...
+    @post("/v1/instances", json=["uuid"])
+    def spawn_instance(self, request: Annotated[InstanceSpawnRequest, Body]) -> str: ...
+
+    @overload
+    async def get_instance_operation_status(self: AsyncClientMixin, operation_id: str) -> InstanceOperation: ...
+    @overload
+    def get_instance_operation_status(self: SyncClientMixin, operation_id: str) -> InstanceOperation: ...
+    @get("/v1/instances/{operation_id}", json=True)
+    def get_instance_operation_status(self, operation_id: str) -> InstanceOperation: ...
+
+    @overload
+    async def cancel_instance_operation(self: AsyncClientMixin, operation_id: str) -> bool: ...
+    @overload
+    def cancel_instance_operation(self: SyncClientMixin, operation_id: str) -> bool: ...
+    @delete("/v1/instances/{operation_id}")
+    def cancel_instance_operation(self, operation_id: str) -> bool: ...

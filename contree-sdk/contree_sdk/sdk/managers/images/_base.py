@@ -31,7 +31,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         # todo replace with actual implementation once api is ready
         images = await self._get_images()
         for image in images:
-            if image.uuid == uuid_or_tag:
+            if str(image.uuid) == uuid_or_tag:
                 return image
         raise ContreeImageNotFound(uuid_or_tag)
 

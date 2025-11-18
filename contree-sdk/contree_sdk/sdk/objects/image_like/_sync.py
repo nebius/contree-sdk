@@ -1,8 +1,9 @@
 from typing import Self
 
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
+from contree_sdk.utils.wrapper import coro_sync
 
 
 class _ImageLikeSync(_ImageLikeBase):
     def wait(self) -> Self:
-        pass
+        return coro_sync(self._await())

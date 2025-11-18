@@ -14,7 +14,7 @@ async def test_get_all_images(client_type, contree: Contree, contree_s: ContreeS
         images = contree_s.images()
     assert len(images) > 0
     for image in images:
-        isinstance(image.uuid, UUID)
+        assert isinstance(image.uuid, UUID)
         if client_type == "async":
             assert isinstance(image, ContreeImage)
         else:
@@ -24,5 +24,5 @@ async def test_get_all_images(client_type, contree: Contree, contree_s: ContreeS
 
 def test_pull_image_by_uuid_s(contree_s: ContreeSync):
     image = contree_s.images.pull("0bd59a5d-9f0d-4fab-9376-001ec247cd78")
-    isinstance(image.uuid, UUID)
+    assert isinstance(image.uuid, UUID)
     assert isinstance(image, ContreeImageSync)
