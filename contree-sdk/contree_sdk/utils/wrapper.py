@@ -95,6 +95,11 @@ class AsyncWrapper:
         return self._coro_to_future(coro).result()
 
 
-def wrap_async(func: Callable[P, Awaitable[T]]) -> Callable[P, T]:
+def to_sync(func: Callable[P, Awaitable[T]]) -> Callable[P, T]:
     wrapper = AsyncWrapper()
     return wrapper.decorator(func)
+
+
+def coro_sync(coro: Awaitable[T]) -> T:
+    wrapper = AsyncWrapper()
+    return wrapper.wrap(coro)

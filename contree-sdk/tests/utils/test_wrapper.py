@@ -5,7 +5,7 @@ from threading import Thread
 
 import pytest
 
-from contree_sdk.utils.wrapper import wrap_async
+from contree_sdk.utils.wrapper import to_sync
 
 
 _wait_time = 0.01
@@ -18,7 +18,7 @@ async def fake_task(a: int, b: int = 1, ex: Exception = None) -> int:
     return a + 2 * b
 
 
-fake_task_sync = wrap_async(fake_task)
+fake_task_sync = to_sync(fake_task)
 
 
 def test_basic():
@@ -70,7 +70,7 @@ def test_multiple_tasks_in_threads():
         result = fake_task_sync(a, b)
         data.discard(result)
 
-    @wrap_async
+    @to_sync
     async def another_task():
         await asyncio.sleep(_wait_time / 2)
 
