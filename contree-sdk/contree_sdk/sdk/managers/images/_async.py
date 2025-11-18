@@ -7,3 +7,6 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
 
     async def __call__(self, *args, **kwargs) -> list[ContreeImage]:
         return await self._get_images(*args, **kwargs)
+
+    async def pull(self, url_or_tag_or_uuid: str) -> ContreeImage:
+        return await self._pull_image(url_or_tag_or_uuid)
