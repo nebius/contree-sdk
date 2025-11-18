@@ -3,7 +3,7 @@ from typing import overload
 from contree_sdk.api.lib.decorator import get
 from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk.api.models.file import DirectoryList
-from contree_sdk.api.models.image import ContreeImage, InspectImageResponse
+from contree_sdk.api.models.image import ContreeImageModel, InspectImageResponse
 
 
 class InspectMixin:
@@ -15,7 +15,7 @@ class InspectMixin:
     # todo try to reuse ContreeImage
 
     @get("/v1/inspect/{image_uuid}/", json=True)
-    def inspect_image(self, image_uuid: str) -> ContreeImage: ...
+    def inspect_image(self, image_uuid: str) -> ContreeImageModel: ...
 
     @overload
     async def list_image_files(self: AsyncClientMixin, image_uuid: str, path: str) -> DirectoryList: ...

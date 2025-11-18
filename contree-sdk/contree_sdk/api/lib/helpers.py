@@ -1,10 +1,13 @@
-from pydantic import TypeAdapter
+from cattrs.preconf.json import make_converter
 
 from contree_sdk.api.lib.types import ReturnType
 
 
+_converter = make_converter()
+
+
 def convert_data_to_type(data: dict | int | str | list, return_type: ReturnType) -> ReturnType:
-    return TypeAdapter(return_type).validate_python(data)
+    return _converter.structure(data, return_type)
 
 
 def args_kwargs_to_kwargs(all_params, args, kwargs):

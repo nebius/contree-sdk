@@ -1,7 +1,6 @@
+from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
-
-from pydantic import BaseModel
 
 
 class ImageKind(IntEnum):
@@ -12,12 +11,14 @@ class ImageKind(IntEnum):
 ImageTag = str
 
 
-class ImageSize(BaseModel):
+@dataclass
+class ImageSize:
     logical: int
     physical: int
 
 
-class ContreeImage(BaseModel):
+@dataclass(kw_only=True)
+class ContreeImageModel:
     uuid: str
     # source: Optional[str] = None
     tag: str | None = None
@@ -25,7 +26,8 @@ class ContreeImage(BaseModel):
     # size: Optional[ImageSize] = None
 
 
-class InspectImageResponse(BaseModel):
+@dataclass(kw_only=True)
+class InspectImageResponse:
     uuid: str
     source: str | None = None
     tag: str | None = None

@@ -1,6 +1,6 @@
+from dataclasses import dataclass
 from enum import auto
 
-from pydantic import BaseModel
 from strenum import UppercaseStrEnum
 
 
@@ -13,23 +13,27 @@ class OperationStatus(UppercaseStrEnum):
     ASSIGNED = auto()
 
 
-class RegistryCredentials(BaseModel):
+@dataclass
+class RegistryCredentials:
     username: str
     password: str
 
 
-class RegistryInfo(BaseModel):
+@dataclass
+class RegistryInfo:
     url: str
     credentials: RegistryCredentials | None = None
 
 
-class ImageImportRequest(BaseModel):
+@dataclass
+class ImageImportRequest:
     registry: RegistryInfo
     tag: str | None = None
     timeout: int | None = None
 
 
-class ImageImportOperation(BaseModel):
+@dataclass
+class ImageImportOperation:
     status: OperationStatus
     result: str | None = None
     error: str | None = None

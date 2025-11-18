@@ -1,10 +1,11 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 
 
-class _Empty(BaseModel):
+class _Empty:
     pass
 
 
@@ -16,15 +17,16 @@ class Body:
     pass
 
 
-class ApiEndpointInfo(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class ApiEndpointInfo:
     # api info
     method: str
     path: str
 
     # params info
-    path_params: list[str] = []
-    query_params: list[str] = []
-    body_params: str | list[str] = []
+    path_params: list[str]
+    query_params: list[str]
+    body_params: str | list[str]
 
     # how to parse
     json_path: list | None
