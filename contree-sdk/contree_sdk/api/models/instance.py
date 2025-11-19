@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from enum import auto
-from typing import Any, Literal
+from typing import Any
 
 from strenum import UppercaseStrEnum
+
+from contree_sdk.utils.objects.stream import StreamDescription
 
 
 class OperationStatus(UppercaseStrEnum):
@@ -15,13 +17,6 @@ class OperationStatus(UppercaseStrEnum):
 
 
 @dataclass
-class StreamModel:
-    value: str
-    encoding: Literal["base64"] = "ascii"
-    truncated: bool = False
-
-
-@dataclass
 class InstanceFileSpec:
     uuid: str
     mode: str = "0644"
@@ -29,7 +24,7 @@ class InstanceFileSpec:
     gid: int = 0
 
 
-@dataclass
+@dataclass(kw_only=True)
 class InstanceSpawnRequest:
     command: str
     image: str
@@ -39,7 +34,7 @@ class InstanceSpawnRequest:
     env: dict[str, str] = field(default_factory=dict)
     cwd: str = "/root"
     disposable: bool = False
-    stdin: StreamModel = field(default_factory=lambda: StreamModel(value=""))
+    stdin: StreamDescription
     timeout: int = 60
     truncate_output_at: int = 65535
     files: dict[str, InstanceFileSpec] = field(default_factory=dict)

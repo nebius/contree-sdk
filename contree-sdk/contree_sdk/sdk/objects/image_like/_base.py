@@ -9,7 +9,7 @@ from uuid import UUID
 from contree_sdk.api.models.instance import InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
 from contree_sdk.sdk.objects.run import RunRequest
-from contree_sdk.utils.codecs import io_decode
+from contree_sdk.utils.codecs import io_decode, io_encode
 
 
 if TYPE_CHECKING:
@@ -96,6 +96,7 @@ class _ImageLikeBase:
             env=dict(env or {}),
             cwd=cwd or "/",  # todo replace to ~, once supported
             tag=tag or None,  # todo use tag later
+            stdin=stdin,
         )
         self._process_self(new_self)
         return new_self
@@ -116,6 +117,7 @@ class _ImageLikeBase:
                 cwd=req.cwd,
                 disposable=True,  # todo support disposables
                 timeout=60,  # todo support timeout
+                stdin=io_encode(req.stdin or ""),
             )
         )
         finished = False

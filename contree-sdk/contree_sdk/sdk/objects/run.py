@@ -10,3 +10,4 @@ class RunRequest:
     cwd: str
 
     tag: str | None = None  # tag to be assigned to result
+    stdin: str | None = None  # todo add support for IO objects
