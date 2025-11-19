@@ -14,11 +14,20 @@ async def image_s(contree_s: ContreeSync) -> ContreeImageSync:
     return contree_s.images.pull("0bd59a5d-9f0d-4fab-9376-001ec247cd78")
 
 
+_shell_command = "echo this is stdout; echo this is stderr 1>&2"
+
+
 async def test_basic_run(image):
-    result = await image.run(shell="ls")
+    result = await image.run(shell=_shell_command)
     assert isinstance(result, ContreeImage)
+
+    assert result.stdout == "this is stdout\n"
+    assert result.stderr == "this is stderr\n"
 
 
 def test_basic_run_s(image_s):
-    result = image_s.run(shell="ls").wait()
+    result = image_s.run(shell=_shell_command).wait()
     assert isinstance(result, ContreeImageSync)
+
+    assert result.stdout == "this is stdout\n"
+    assert result.stderr == "this is stderr\n"

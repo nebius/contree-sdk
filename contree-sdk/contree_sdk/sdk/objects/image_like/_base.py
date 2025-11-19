@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 from contree_sdk.api.models.instance import InstanceSpawnRequest, OperationStatus
+from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
 from contree_sdk.sdk.objects.run import RunRequest
+from contree_sdk.utils.codecs import io_decode
 
 
 if TYPE_CHECKING:
@@ -18,11 +20,13 @@ class _ImageLikeBase:
     uuid: UUID
     # todo think how to represent tag
 
-    def __init__(self, client: _ContreeBase, uuid: UUID):
-        self.uuid = UUID(uuid)
+    def __init__(self, client: _ContreeBase, uuid: UUID | str):
+        self.uuid: UUID | None = UUID(uuid)
         self._client = client
         self._request: RunRequest | None = None
         self._raw_result: dict | None = None
+        self._stdout: str | None = None
+        self._stderr: str | None = None
 
     # command methods
     def command(self, command: str, /) -> Self:
@@ -70,6 +74,8 @@ class _ImageLikeBase:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
     ) -> Self:
+        if not self.uuid:
+            raise ContreeImageParametersError
         new_self = self._copy_self()
         if shell is not None:
             command = shell
@@ -115,3 +121,15 @@ class _ImageLikeBase:
         new_self._request = None
         new_self._raw_result = resp.metadata["result"]
         return new_self
+
+    @property
+    def stdout(self) -> str:
+        if self._stdout is None:
+            self._stdout = io_decode(**self._raw_result["stdout"])
+        return self._stdout
+
+    @property
+    def stderr(self) -> str:
+        if self._stderr is None:
+            self._stderr = io_decode(**self._raw_result["stderr"])
+        return self._stderr

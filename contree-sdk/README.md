@@ -187,7 +187,6 @@ main()
 
 ## 🧠 Core Concepts
 
-[//]: # (todo discuss about .wait for sync)
 [//]: # (todo discuss about memory usage in parents/children)
 [//]: # (todo discuss about persistent env or cwd)
 

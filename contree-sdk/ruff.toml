@@ -83,6 +83,7 @@ extend-ignore = [
 "*" = [
     "COM812",   # missing-trailing-comma
     "N813",     # camelcase-imported-as-lowercase
+    "PLC0415",  # import-outside-top-level
     "PLR2004",  # ideally, magic-value-comparison
     "PLW1510",  # unspecified-encoding
     "PLW2901",  # redefined-loop-name
