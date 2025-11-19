@@ -73,7 +73,7 @@ async def amain():
         .env(http_proxy='http://10.20.30.40:1234')
         .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
         .add_file('/local/files/data_ver1.csv', '/data.csv')
-        .tag('ubuntu-result0:latest')
+        .add_tag('ubuntu-result0:latest')
     )
     print(result0.stdout)
     print(result0.stderr)

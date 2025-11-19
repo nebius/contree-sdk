@@ -8,3 +8,5 @@ class RunRequest:
     shell: bool | None = None
     env: dict[str, str] = field(default_factory=dict)
     cwd: str
+
+    tag: str | None = None  # tag to be assigned to result

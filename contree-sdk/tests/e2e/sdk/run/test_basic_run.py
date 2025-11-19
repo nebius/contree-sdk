@@ -23,6 +23,7 @@ async def test_basic_run(image):
 
     assert result.stdout == "this is stdout\n"
     assert result.stderr == "this is stderr\n"
+    assert result.exit_code == 0
 
 
 def test_basic_run_s(image_s):
@@ -31,3 +32,4 @@ def test_basic_run_s(image_s):
 
     assert result.stdout == "this is stdout\n"
     assert result.stderr == "this is stderr\n"
+    assert result.exit_code == 0

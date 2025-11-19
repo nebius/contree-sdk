@@ -20,8 +20,9 @@ class _ImageLikeBase:
     uuid: UUID
     # todo think how to represent tag
 
-    def __init__(self, client: _ContreeBase, uuid: UUID | str):
+    def __init__(self, client: _ContreeBase, uuid: UUID | str, tag: str | None):
         self.uuid: UUID | None = UUID(uuid)
+        self.tag: str | None = tag
         self._client = client
         self._request: RunRequest | None = None
         self._raw_result: dict | None = None
@@ -54,11 +55,17 @@ class _ImageLikeBase:
     def stderr_to(self, stderr, /) -> Self:
         raise NotImplementedError
 
+    def use_tag(self, tag: str, /) -> Self:
+        raise NotImplementedError
+
     # utils methods
 
-    def _copy_self(self) -> Self:
+    def _copy_self(self, clear=True) -> Self:
         # todo make an actual copy when developing chaining
-        return copy(self)
+        new_self = copy(self)
+        if clear:
+            new_self._stdout = new_self._stderr = new_self._raw_result = None
+        return new_self
 
     def _process_self(self, new_self: Self) -> Self:
         # todo make an actual copy when developing chaining
@@ -73,6 +80,8 @@ class _ImageLikeBase:
         args: Iterable[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        stdin: str | None = None,
+        tag: str | None = None,
     ) -> Self:
         if not self.uuid:
             raise ContreeImageParametersError
@@ -86,6 +95,7 @@ class _ImageLikeBase:
             shell=shell is not None,
             env=dict(env or {}),
             cwd=cwd or "/",  # todo replace to ~, once supported
+            tag=tag or None,  # todo use tag later
         )
         self._process_self(new_self)
         return new_self
@@ -118,6 +128,7 @@ class _ImageLikeBase:
         new_self = self._copy_self()
         new_uuid = resp.result["image"]
         new_self.uuid = new_uuid and UUID(new_uuid)
+        new_self.tag = None
         new_self._request = None
         new_self._raw_result = resp.metadata["result"]
         return new_self
@@ -133,3 +144,7 @@ class _ImageLikeBase:
         if self._stderr is None:
             self._stderr = io_decode(**self._raw_result["stderr"])
         return self._stderr
+
+    @property
+    def exit_code(self) -> int:
+        return int(self._raw_result["state"]["exit_code"])

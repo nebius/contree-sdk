@@ -15,7 +15,7 @@ class OperationStatus(UppercaseStrEnum):
 
 
 @dataclass
-class Stream:
+class StreamModel:
     value: str
     encoding: Literal["base64"] = "ascii"
     truncated: bool = False
@@ -39,7 +39,7 @@ class InstanceSpawnRequest:
     env: dict[str, str] = field(default_factory=dict)
     cwd: str = "/root"
     disposable: bool = False
-    stdin: Stream = field(default_factory=lambda: Stream(value=""))
+    stdin: StreamModel = field(default_factory=lambda: StreamModel(value=""))
     timeout: int = 60
     truncate_output_at: int = 65535
     files: dict[str, InstanceFileSpec] = field(default_factory=dict)
@@ -50,6 +50,6 @@ class InstanceOperation:
     status: OperationStatus
     kind: str
     error: str | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None  # todo typize
     result: dict[str, Any] | None = None
     duration: float | None = None
