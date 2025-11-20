@@ -5,7 +5,7 @@ from threading import Thread
 
 import pytest
 
-from contree_sdk.utils.wrapper import to_sync
+from contree_sdk.utils.wrapper import coro_iter_sync, to_sync
 
 
 _wait_time = 0.01
@@ -90,3 +90,20 @@ def test_multiple_tasks_in_threads():
     spent = datetime.now() - started
     assert spent.total_seconds() <= _wait_time * 1.2 + 0.05
     assert data == set()
+
+
+async def fake_iter(a: int, num: int = 10):
+    for i in range(num):
+        await asyncio.sleep(_wait_time)
+        yield i**a
+
+
+def test_basic_iter():
+    res = []
+    started = datetime.now()
+    for item in coro_iter_sync(fake_iter(5)):
+        spent = datetime.now() - started
+        assert spent.total_seconds() <= _wait_time * 1.2
+        res.append(item)
+        started = datetime.now()
+    assert res == [i**5 for i in range(10)]

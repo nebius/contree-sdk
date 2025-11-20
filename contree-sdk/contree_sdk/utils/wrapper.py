@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import AbstractEventLoop, Task
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterator
 from concurrent.futures import Future
 from functools import partial, wraps
 from threading import Event, Lock, Thread
@@ -9,6 +9,7 @@ from typing import ParamSpec, TypeVar
 
 P = ParamSpec("P")
 T = TypeVar("T")
+Y = TypeVar("Y")
 
 
 def _on_task_done(future: Future, task: asyncio.Task):
@@ -94,6 +95,14 @@ class AsyncWrapper:
     def wrap(self, coro: Awaitable[T]) -> T:
         return self._coro_to_future(coro).result()
 
+    def wrap_iter(self, coro_iter: AsyncIterable[Y]) -> Iterator[Y]:
+        async_iter = coro_iter.__aiter__()
+        while True:
+            try:
+                yield self.wrap(async_iter.__anext__())
+            except StopAsyncIteration:
+                return
+
 
 def to_sync(func: Callable[P, Awaitable[T]]) -> Callable[P, T]:
     wrapper = AsyncWrapper()
@@ -103,3 +112,8 @@ def to_sync(func: Callable[P, Awaitable[T]]) -> Callable[P, T]:
 def coro_sync(coro: Awaitable[T]) -> T:
     wrapper = AsyncWrapper()
     return wrapper.wrap(coro)
+
+
+def coro_iter_sync(coro_iter: AsyncIterable[Y]) -> Iterator[Y]:
+    wrapper = AsyncWrapper()
+    return wrapper.wrap_iter(coro_iter)
