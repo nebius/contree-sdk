@@ -18,12 +18,13 @@ class ClientBase(ABC):
         self._client = self._client_class(headers=headers, base_url="https://eu-north-stage.nebius.computer")
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
+        kwargs = endpoint_info.get_files_data_by_data(data)
         return self._client.build_request(
             method=endpoint_info.method.upper(),
             url=endpoint_info.get_path_by_data(data),
             params=endpoint_info.get_query_data_by_data(data),
             json=endpoint_info.get_body_data_by_data(data),
-            files=endpoint_info.get_files_data_by_data(data),
+            **kwargs,
         )
 
     @overload

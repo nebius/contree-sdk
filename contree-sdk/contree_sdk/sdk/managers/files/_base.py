@@ -1,3 +1,5 @@
+from asyncio import to_thread
+from hashlib import sha256
 from pathlib import Path
 
 from aiofile import async_open
@@ -6,7 +8,18 @@ from contree_sdk.sdk.managers.base import BaseManager
 from contree_sdk.utils.objects.file import UploadedFile
 
 
+def _sha256(data: bytes) -> str:
+    return sha256(data).hexdigest()
+
+
 class _FilesBaseManager(BaseManager):
     async def _upload_file(self, local_path: Path | str) -> UploadedFile:
-        async with async_open(local_path, "w+") as file:
+        async with async_open(local_path, "rb") as file:
+            data = await file.read()
+            file_hash = await to_thread(_sha256, data)
+            try:
+                return await self._client._api.get_file_by_sha256(file_hash)
+            except Exception:  # todo catch real exception
+                pass
+
             return await self._client._api.upload_file(await file.read())

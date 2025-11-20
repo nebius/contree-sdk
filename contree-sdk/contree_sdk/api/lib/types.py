@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, Any, TypeVar
 
-from pydantic import TypeAdapter
+import cattrs
 
 
 class _Empty:
@@ -42,7 +42,7 @@ class ApiEndpointInfo:
         return self.path.format(**data)
 
     def get_query_data_by_data(self, data: dict):
-        return {name: to_json(data[name]) for name in self.query_params if name in data}
+        return {name: str(to_dict(data[name])) for name in self.query_params if name in data}
 
     def get_body_data_by_data(self, data: dict):
         if not self.body_params:
@@ -52,19 +52,21 @@ class ApiEndpointInfo:
             return res[self.body_params[0]]
         return res
 
-    def get_files_data_by_data(self, data: dict):
+    def get_files_data_by_data(self, data: dict) -> dict:
         if not self.file_params:
-            return None
-        return {name: (None, data[name], "application/octet-stream") for name in self.file_params}
-
-
-def to_json(data: Any) -> str:
-    adapter = TypeAdapter(Any)
-    return adapter.dump_json(data, exclude_none=True, by_alias=True).decode()
+            return {}
+        if len(self.file_params) == 1:
+            return {
+                "headers": {
+                    "Content-Type": "application/octet-stream",
+                },
+                "content": data[self.file_params[0]],
+            }
+        return {"files": {name: (None, data[name], "application/octet-stream") for name in self.file_params}}
 
 
 def to_dict(data: Any) -> Any:
-    return TypeAdapter(Any).dump_python(data, by_alias=True, exclude_none=True)
+    return cattrs.unstructure(data)
 
 
 FileContent = IO[bytes] | bytes | str

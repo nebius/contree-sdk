@@ -7,3 +7,6 @@ from contree_sdk.utils.wrapper import coro_sync
 class _ImageLikeSync(_ImageLikeBase):
     def wait(self) -> Self:
         return coro_sync(self._await())
+
+    def ls(self, path: str = "/"):
+        return coro_sync(self._ls(path))
