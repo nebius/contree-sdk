@@ -9,5 +9,8 @@ class ImagesManagerSync(_ImagesBaseManager[ContreeImageSync]):
     def __call__(self, *args, **kwargs) -> list[ContreeImageSync]:
         return coro_sync(self._get_images())
 
+    def __iter__(self):
+        yield from self()
+
     def pull(self, url_or_tag_or_uuid: str) -> ContreeImageSync:
         return coro_sync(self._pull_image(url_or_tag_or_uuid))

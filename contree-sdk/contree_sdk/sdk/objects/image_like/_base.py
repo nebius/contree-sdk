@@ -120,6 +120,7 @@ class _ImageLikeBase:
                 stdin=io_encode(req.stdin or ""),
             )
         )
+        # todo move to unified operation awaiting
         finished = False
         while not finished:  # todo define timeouts
             resp = await self._client._api.get_instance_operation_status(operation_uuid)
@@ -135,6 +136,13 @@ class _ImageLikeBase:
         new_self._raw_result = resp.metadata["result"]
         return new_self
 
+    async def _ls(self, path: str = "/"):
+        pass  # todo
+
+    async def _files(self, path: str = "/"):
+        pass
+
+    # result methods
     @property
     def stdout(self) -> str:
         if self._stdout is None:

@@ -5,7 +5,8 @@ readme = "README.md"
 requires-python = ">=3.12, <3.14"
 dependencies = [
     "strenum",
-    "cattrs"
+    "cattrs",
+    "httpx", # todo move to httpx when transport will be supported
 ]
 
 [project.optional-dependencies]
@@ -15,7 +16,7 @@ dev = [
     "pytest-httpx",
 ]
 httpx = [
-    "httpx",
+
 ]
 shell = [
 

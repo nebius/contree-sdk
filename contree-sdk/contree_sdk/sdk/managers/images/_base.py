@@ -1,5 +1,6 @@
 from typing import Generic, TypeVar
 
+from contree_sdk.api.models.image import ContreeImageModel
 from contree_sdk.sdk.exceptions.image import ContreeImageNotFound
 from contree_sdk.sdk.managers.base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
@@ -14,16 +15,19 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
     async def _get_images(self) -> list[_ImageT]:
         images = []
         for image in await self._client._api.get_images():
-            images.append(
-                self._ImageType(
-                    client=self._client,
-                    uuid=image.uuid,
-                    tag=image.tag,
-                )
-            )
+            images.append(self._image_by_data(image))
         return images
 
+    # todo support new selector parameters
+
     # todo add support for __iter__ and __aiter__
+
+    def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
+        return self._ImageType(
+            client=self._client,
+            uuid=image.uuid,
+            tag=image.tag,
+        )
 
     async def _pull_image(self, url_or_tag_or_uuid: str) -> _ImageT:
         return await self._get_image_by_uuid_or_tag(url_or_tag_or_uuid)
@@ -35,5 +39,9 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if str(image.uuid) == uuid_or_tag or (image.tag and image.tag == uuid_or_tag):
                 return image
         raise ContreeImageNotFound(uuid_or_tag)
+
+    async def _get_image_by_tag(self, tag: str) -> _ImageT: ...
+
+    async def _get_image_by_uuid(self, uuid: str) -> _ImageT: ...
 
     async def _import_image(self, image_url: str): ...
