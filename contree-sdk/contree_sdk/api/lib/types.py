@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import IO, Any, TypeVar
 
 from pydantic import TypeAdapter
 
@@ -17,6 +17,10 @@ class Body:
     pass
 
 
+class OctetFile:
+    pass
+
+
 @dataclass(kw_only=True, frozen=True)
 class ApiEndpointInfo:
     # api info
@@ -26,7 +30,8 @@ class ApiEndpointInfo:
     # params info
     path_params: list[str]
     query_params: list[str]
-    body_params: str | list[str]
+    body_params: list[str]
+    file_params: list[str]
 
     # how to parse
     json_path: list | None
@@ -47,7 +52,10 @@ class ApiEndpointInfo:
             return res[self.body_params[0]]
         return res
 
-    # todo for post
+    def get_files_data_by_data(self, data: dict):
+        if not self.file_params:
+            return None
+        return {name: (None, data[name], "application/octet-stream") for name in self.file_params}
 
 
 def to_json(data: Any) -> str:
@@ -57,3 +65,6 @@ def to_json(data: Any) -> str:
 
 def to_dict(data: Any) -> Any:
     return TypeAdapter(Any).dump_python(data, by_alias=True, exclude_none=True)
+
+
+FileContent = IO[bytes] | bytes | str

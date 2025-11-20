@@ -6,7 +6,7 @@ from string import Formatter
 from typing import TYPE_CHECKING, Annotated, get_args, get_origin
 
 from contree_sdk.api.lib.helpers import args_kwargs_to_kwargs
-from contree_sdk.api.lib.types import EMPTY, ApiEndpointInfo, Body, ReturnType
+from contree_sdk.api.lib.types import EMPTY, ApiEndpointInfo, Body, OctetFile, ReturnType
 
 
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
         path_params = []
         query_params = []
         body_params = []
+        file_params = []
 
         all_params = []
 
@@ -51,15 +52,22 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
             # type_ = annotation
             # default = param.default
             is_body = False
+            is_file = False
 
             if get_origin(annotation) is Annotated:
                 type_, *meta = get_args(annotation)
                 for class_ in meta:
-                    if isclass(class_) and issubclass(class_, Body):
+                    if not isclass(class_):
+                        continue
+                    if issubclass(class_, Body):
                         is_body = True
+                    if issubclass(class_, OctetFile):
+                        is_file = True
 
             if is_body:
                 body_params.append(name)
+            elif is_file:
+                file_params.append(name)
             elif name in parsed_path_params:
                 path_params.append(name)
             else:
@@ -73,6 +81,7 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
             path_params=path_params,
             query_params=query_params,
             body_params=body_params,
+            file_params=file_params,
             return_type=func.__annotations__.get("return", EMPTY),
         )
 

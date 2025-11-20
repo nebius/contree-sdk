@@ -7,6 +7,7 @@ dependencies = [
     "strenum",
     "cattrs",
     "httpx", # todo move to httpx when transport will be supported
+    "aiofile",
 ]
 
 [project.optional-dependencies]
