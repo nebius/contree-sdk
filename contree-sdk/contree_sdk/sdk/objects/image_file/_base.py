@@ -3,6 +3,7 @@ from pathlib import Path
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 
 
+# todo maybe rename to smth like FSItem
 class _ImageFileBase:
     _image: _ImageLikeBase
     _path: Path

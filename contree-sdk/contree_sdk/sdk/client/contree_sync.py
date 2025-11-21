@@ -6,6 +6,9 @@ from contree_sdk.sdk.managers.images._sync import ImagesManagerSync
 
 
 class ContreeSync(_ContreeBase):
+    images: ImagesManagerSync
+    files: FilesManagerSync
+
     @wraps(_ContreeBase.__init__)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

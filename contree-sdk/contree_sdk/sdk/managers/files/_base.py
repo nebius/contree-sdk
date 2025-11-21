@@ -22,4 +22,4 @@ class _FilesBaseManager(BaseManager):
             except Exception:  # todo catch real exception
                 pass
 
-            return await self._client._api.upload_file(await file.read())
+            return await self._client._api.upload_file(data)

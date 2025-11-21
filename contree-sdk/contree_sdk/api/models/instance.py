@@ -19,9 +19,9 @@ class OperationStatus(UppercaseStrEnum):
 @dataclass
 class InstanceFileSpec:
     uuid: str
-    mode: str = "0644"
-    uid: int = 0
-    gid: int = 0
+    mode: str
+    uid: int
+    gid: int
 
 
 @dataclass(kw_only=True)
@@ -37,7 +37,7 @@ class InstanceSpawnRequest:
     stdin: StreamDescription
     timeout: int = 60
     truncate_output_at: int = 65535
-    files: dict[str, InstanceFileSpec] = field(default_factory=dict)
+    files: dict[str, InstanceFileSpec]
 
 
 @dataclass

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from typing_extensions import TypeVar
@@ -6,10 +9,17 @@ from contree_sdk.api.client.client import ContreeClient
 from contree_sdk.config import ContreeConfig
 
 
+if TYPE_CHECKING:
+    from contree_sdk.sdk.managers.files._base import _FilesBaseManager
+    from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
+
 _OperationResultT = TypeVar("_OperationResultT")
 
 
 class _ContreeBase:
+    files: _FilesBaseManager
+    images: _ImagesBaseManager
+
     def __init__(self, config: ContreeConfig | None = None, *, token: str | None = None):
         if config is None:
             config = ContreeConfig(

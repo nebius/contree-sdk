@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 
 
@@ -23,3 +25,9 @@ def test_basic_run_s(image_s):
     assert result.stdout == _stdout
     assert result.stderr == _stderr
     assert result.exit_code == 0
+
+
+def test_run_with_files_s(image_s, test_txt_path: Path):
+    result = image_s.run(shell=f"cat /{test_txt_path.name} | grep line", files=[test_txt_path]).wait()
+    assert isinstance(result, ContreeImageSync)
+    assert result.stdout == "second line\nlast line\n"

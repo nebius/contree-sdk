@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from asyncio import sleep
+from asyncio import gather, sleep
 from collections.abc import Iterable
 from copy import copy
+from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
-from contree_sdk.api.models.instance import InstanceSpawnRequest, OperationStatus
+from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_decode, io_encode
+from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
 
 
 if TYPE_CHECKING:
@@ -82,6 +85,7 @@ class _ImageLikeBase:
         cwd: str | None = None,
         stdin: str | None = None,
         tag: str | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
     ) -> Self:
         if not self.uuid:
             raise ContreeImageParametersError
@@ -97,15 +101,61 @@ class _ImageLikeBase:
             cwd=cwd or "/",  # todo replace to ~, once supported
             tag=tag or None,  # todo use tag later
             stdin=stdin,
+            files=self._prepare_files(files or []),
         )
         self._process_self(new_self)
         return new_self
+
+    def _prepare_files(
+        self,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
+        default_image_path: str = "/",
+    ) -> list[UploadFileSpec]:
+        prepared = []
+        if isinstance(files, dict):
+            for image_path, file in files:
+                if isinstance(file, UploadFileSpec):
+                    item = replace(file, path=Path(image_path))
+                else:
+                    item = UploadFileSpec(
+                        path=Path(image_path),
+                        source=file,
+                    )
+                prepared.append(item)
+            return prepared
+        for file in files:
+            if isinstance(file, UploadFileSpec):
+                prepared.append(file)
+            else:
+                local_path = Path(file)
+                image_path = Path(default_image_path) / local_path.name
+                prepared.append(
+                    UploadFileSpec(
+                        path=Path(image_path),
+                        source=local_path,
+                    )
+                )
+        return prepared
+
+    async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, InstanceFileSpec]:
+        async def _upload_file(file: UploadFileSpec) -> tuple[str, InstanceFileSpec]:
+            if not isinstance(file.source, UploadedFile):
+                file = replace(file, source=await self._client.files._upload_file(file.source))
+            return str(file.path), InstanceFileSpec(
+                uuid=file.source.uuid,
+                mode=f"{file.mode:04o}",
+                uid=file.uid,
+                gid=file.gid,
+            )
+
+        return dict(await gather(*(_upload_file(i) for i in files)))
 
     # internal methods
 
     async def _await(self) -> Self:
         req = self._request
 
+        files = await self._prepare_files_for_api(req.files)
         operation_uuid = await self._client._api.spawn_instance(
             InstanceSpawnRequest(
                 command=req.command,
@@ -118,6 +168,7 @@ class _ImageLikeBase:
                 disposable=True,  # todo support disposables
                 timeout=60,  # todo support timeout
                 stdin=io_encode(req.stdin or ""),
+                files=files,
             )
         )
         # todo move to unified operation awaiting
@@ -137,7 +188,8 @@ class _ImageLikeBase:
         return new_self
 
     async def _ls(self, path: str = "/"):
-        pass  # todo
+        await self._client._api.list_image_files(self.uuid, path)
+        # todo parse once inspect api is ready
 
     async def _files(self, path: str = "/"):
         pass
