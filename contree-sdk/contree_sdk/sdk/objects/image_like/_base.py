@@ -10,6 +10,7 @@ from uuid import UUID
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
+from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_decode, io_encode
 from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
@@ -17,6 +18,19 @@ from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
 
 if TYPE_CHECKING:
     from contree_sdk.sdk.client.base import _ContreeBase
+
+_PREPARATION_STATES = frozenset({ImageState.PREPARING, ImageState.PREPARED})
+
+# Permitted stated transmissions
+# from_state: to_states
+_STATE_MACHINE = {
+    ImageState.PULLED: _PREPARATION_STATES,
+    ImageState.PREPARING: _PREPARATION_STATES,
+    ImageState.PREPARED: frozenset({ImageState.EXECUTING}),
+    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED, ImageState.FAILED}),
+    ImageState.SUCCEEDED: _PREPARATION_STATES,
+    ImageState.FAILED: _PREPARATION_STATES,
+}
 
 
 class _ImageLikeBase:
@@ -31,6 +45,7 @@ class _ImageLikeBase:
         self._raw_result: dict | None = None
         self._stdout: str | None = None
         self._stderr: str | None = None
+        self._state = ImageState.PULLED
 
     # command methods
     def command(self, command: str, /) -> Self:
@@ -90,6 +105,7 @@ class _ImageLikeBase:
         if not self.uuid:
             raise ContreeImageParametersError
         new_self = self._copy_self()
+        new_self._transition_state(ImageState.PREPARED)
         if shell is not None:
             command = shell
 
@@ -152,8 +168,18 @@ class _ImageLikeBase:
 
     # internal methods
 
+    def _can_transition(self, state: ImageState):
+        possible_states = _STATE_MACHINE.get(self._state, set())
+        if state not in possible_states:
+            raise ContreeImageParametersError  # todo proper exceptions
+
+    def _transition_state(self, state: ImageState):
+        self._can_transition(state)
+        self._state = state
+
     async def _await(self) -> Self:
         req = self._request
+        self._transition_state(ImageState.EXECUTING)
 
         files = await self._prepare_files_for_api(req.files)
         operation_uuid = await self._client._api.spawn_instance(
@@ -180,6 +206,7 @@ class _ImageLikeBase:
             finished = resp.status in (OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED)
 
         new_self = self._copy_self()
+        new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = resp.result["image"]
         new_self.uuid = new_uuid and UUID(new_uuid)
         new_self.tag = None
