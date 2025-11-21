@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+from contree_sdk.utils.io_wrap import IO_TYPES
 from contree_sdk.utils.objects.file import UploadFileSpec
 
 
@@ -14,4 +15,7 @@ class RunRequest:
     files: list[UploadFileSpec] = field(default_factory=list)
 
     tag: str | None = None  # tag to be assigned to result
-    stdin: str | None = None  # todo add support for IO objects
+    stdin: IO_TYPES | None = None
+
+    stderr: IO_TYPES | None = None
+    stdout: IO_TYPES | None = None

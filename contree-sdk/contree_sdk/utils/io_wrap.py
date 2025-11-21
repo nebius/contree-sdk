@@ -50,7 +50,10 @@ class IOMode(StrEnum):
     write = "w"
 
 
-def get_io_by_obj(obj: str | bytes | Path | IO[AnyStr] | PIPE | None, mode: IOMode) -> IOBase | IO | None:
+IO_TYPES = str | bytes | Path | IO[AnyStr] | PIPE
+
+
+def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:
     if obj is None:
         return None
     if obj is PIPE:

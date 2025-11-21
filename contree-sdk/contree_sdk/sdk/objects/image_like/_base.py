@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from asyncio import gather, sleep
+from asyncio import gather, sleep, to_thread
 from collections.abc import Iterable
 from copy import copy
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import IO, TYPE_CHECKING, Self
 from uuid import UUID
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
@@ -13,7 +13,9 @@ from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_decode, io_encode
+from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, get_io_by_obj
 from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
+from contree_sdk.utils.objects.stream import StreamDescription
 
 
 if TYPE_CHECKING:
@@ -42,6 +44,7 @@ class _ImageLikeBase:
         self._client = client
         self._request: RunRequest | None = None
         self._raw_result: dict | None = None
+        self._stdin = None
         self._stdout: str | None = None
         self._stderr: str | None = None
         self._state = ImageState.PULLED
@@ -57,7 +60,7 @@ class _ImageLikeBase:
     def args(self, *args: str) -> Self:
         raise NotImplementedError
 
-    def stdin(self, stdin, /) -> Self:
+    def stdin_from(self, stdin: IO_TYPES, /) -> Self:
         raise NotImplementedError
 
     def cwd(self, cwd, /) -> Self:
@@ -97,7 +100,7 @@ class _ImageLikeBase:
         args: Iterable[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
-        stdin: str | None = None,
+        stdin: IO_TYPES | None = None,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
     ) -> Self:
@@ -113,7 +116,7 @@ class _ImageLikeBase:
             args=list(args or []),
             shell=shell is not None,
             env=dict(env or {}),
-            cwd=cwd or "/",  # todo replace to ~, once supported
+            cwd=cwd or "/",
             tag=tag or None,  # todo use tag later
             stdin=stdin,
             files=self._prepare_files(files or []),
@@ -165,6 +168,12 @@ class _ImageLikeBase:
 
         return dict(await gather(*(_upload_file(i) for i in files)))
 
+    def _prepare_stdin(self, stdin: IO_TYPES | None) -> StreamDescription:
+        stdin = stdin or ""
+        io_obj = get_io_by_obj(stdin, IOMode.read)
+        self._stdin = io_obj
+        return io_encode(io_obj.read())
+
     # internal methods
 
     def _can_transition(self, state: ImageState):
@@ -184,7 +193,7 @@ class _ImageLikeBase:
         req = self._request
         self._transition_state(ImageState.EXECUTING)
 
-        files = await self._prepare_files_for_api(req.files)
+        files, stdin = await gather(self._prepare_files_for_api(req.files), to_thread(self._prepare_stdin, req.stdin))
         operation_uuid = await self._client._api.spawn_instance(
             InstanceSpawnRequest(
                 command=req.command,
@@ -196,7 +205,7 @@ class _ImageLikeBase:
                 cwd=req.cwd,
                 disposable=True,  # todo support disposables
                 timeout=60,  # todo support timeout
-                stdin=io_encode(req.stdin or ""),
+                stdin=stdin,
                 files=files,
             )
         )
@@ -224,7 +233,18 @@ class _ImageLikeBase:
     async def _files(self, path: str = "/"):
         pass
 
+    def __repr__(self):
+        other = ""
+        if self.tag:
+            other += f", tag={self.tag}"
+        return f"{type(self).__name__}(uuid={self.uuid!r}, state={self.state!r}{other})"
+
     # result methods
+
+    @property
+    def stdin(self) -> IO | None:
+        return self._stdin
+
     @property
     def stdout(self) -> str:
         if self._stdout is None:

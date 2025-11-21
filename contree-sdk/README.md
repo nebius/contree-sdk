@@ -69,7 +69,7 @@ async def amain():
     # running command
     result0 = await (
         ubuntu_image.command('app.sh').args('arg1', 'arg2')
-        .stdin('input')
+        .stdin_from('input')
         .env(http_proxy='http://10.20.30.40:1234')
         .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
         .add_file('/local/files/data_ver1.csv', '/data.csv')
@@ -140,7 +140,7 @@ def main():
     # running command
     result0 = (
         ubuntu_image.command('app.sh').args('arg1', 'arg2')
-        .stdin('input')
+        .stdin_from('input')
         .env(http_proxy='http://10.20.30.40:1234')
         .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
         .add_file('/local/files/data_ver1.csv', '/data.csv')
@@ -348,7 +348,7 @@ from contree_sdk.files import CopyFile
 # this construction
 result0 = await (
     ubuntu_image.command('app.sh').args('arg1', 'arg2')
-    .stdin('input')
+    .stdin_from('input')
     .env(http_proxy='http://10.20.30.40:1234')
     .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
     .add_file('/local/files/data_ver1.csv', '/data.csv')
@@ -377,7 +377,7 @@ from contree_sdk.files import CopyFile
 # this construction
 result0 = (
     ubuntu_image.command('app.sh').args('arg1', 'arg2')
-    .stdin('input')
+    .stdin_from('input')
     .env(http_proxy='http://10.20.30.40:1234')
     .add_file('/local/files/app.sh', mode=stat.S_IXUSR)
     .add_file('/local/files/data_ver1.csv', '/data.csv')
@@ -490,7 +490,7 @@ result = await (
 
 # Parameters apply only to the next run
 result1 = await (
-    image.env(PATH="/usr/local/bin").stdin("input data").shell("echo $PATH")  # Uses env and stdin
+    image.env(PATH="/usr/local/bin").stdin_from("input data").shell("echo $PATH")  # Uses env and stdin
 )
 
 result2 = await result1.shell("echo $PATH")  # Clean run, no env/stdin
@@ -560,19 +560,19 @@ import sys
 from pathlib import Path
 
 # from sys.stdin
-await image.stdin(sys.stdin).run('some-command')
+await image.stdin_from(sys.stdin).run('some-command')
 
 # from file
-await image.stdin(Path("input.txt")).run('some-command')
+await image.stdin_from(Path("input.txt")).run('some-command')
 
 # from bytes IO object
 bytes_buffer = io.BytesIO()
 bytes_buffer.write(b"binary data\x00\x01\x02")
 bytes_buffer.seek(0)
-await image.stdin(bytes_buffer).shell('hexdump -C')
+await image.stdin_from(bytes_buffer).shell('hexdump -C')
 
 # by the way, you can just pass bytes as stdin
-await image.stdin(b"binary data\x00\x01\x02").shell('hexdump -C')
+await image.stdin_from(b"binary data\x00\x01\x02").shell('hexdump -C')
 ```
 
 > [!NOTE]
