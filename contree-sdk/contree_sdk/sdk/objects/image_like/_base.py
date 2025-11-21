@@ -17,7 +17,7 @@ from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
 
 
 if TYPE_CHECKING:
-    from contree_sdk.sdk.client.base import _ContreeBase
+    from contree_sdk.sdk.client._base import _ContreeBase
 
 _PREPARATION_STATES = frozenset({ImageState.PREPARING, ImageState.PREPARED})
 
@@ -27,9 +27,8 @@ _STATE_MACHINE = {
     ImageState.PULLED: _PREPARATION_STATES,
     ImageState.PREPARING: _PREPARATION_STATES,
     ImageState.PREPARED: frozenset({ImageState.EXECUTING}),
-    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED, ImageState.FAILED}),
+    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED}),
     ImageState.SUCCEEDED: _PREPARATION_STATES,
-    ImageState.FAILED: _PREPARATION_STATES,
 }
 
 
@@ -176,6 +175,10 @@ class _ImageLikeBase:
     def _transition_state(self, state: ImageState):
         self._can_transition(state)
         self._state = state
+
+    @property
+    def state(self) -> ImageState:
+        return self._state
 
     async def _await(self) -> Self:
         req = self._request

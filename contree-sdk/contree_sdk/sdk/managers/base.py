@@ -1,4 +1,4 @@
-from contree_sdk.sdk.client.base import _ContreeBase
+from contree_sdk.sdk.client._base import _ContreeBase
 
 
 class BaseManager:

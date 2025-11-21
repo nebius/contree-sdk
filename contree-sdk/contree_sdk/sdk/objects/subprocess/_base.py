@@ -4,8 +4,6 @@ from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 class ContreeProcessBase:
     def __init__(self, image: _ImageLikeBase):
         self._image = image
-        self._res_image: _ImageLikeBase | None = None
-        self._executed = False
 
     @property
     def stdout(self) -> str:
@@ -20,12 +18,12 @@ class ContreeProcessBase:
         return self._image.exit_code
 
     async def _wait(self):
-        assert not self._executed
-        self._res_image = await self._image._await()
+        self._image = await self._image._await()
 
     # todo to implement
     # __aenter__
     # __aexit__
+
     # __repr__
     # communicate
     # kill
@@ -33,7 +31,6 @@ class ContreeProcessBase:
     # send_signal
     # stdin
     # terminate
-    # wait
 
     # __repr__
     # __enter__
@@ -46,4 +43,3 @@ class ContreeProcessBase:
     # send_signal
     # stdin
     # terminate
-    # wait

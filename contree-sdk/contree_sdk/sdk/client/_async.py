@@ -1,6 +1,6 @@
 from functools import wraps
 
-from contree_sdk.sdk.client.base import _ContreeBase
+from contree_sdk.sdk.client._base import _ContreeBase
 from contree_sdk.sdk.managers.files._async import FilesManager
 from contree_sdk.sdk.managers.images._async import ImagesManager
 
