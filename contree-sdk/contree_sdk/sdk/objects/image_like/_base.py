@@ -10,9 +10,10 @@ from uuid import UUID
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
+from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
-from contree_sdk.utils.codecs import io_decode, io_encode
+from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, get_io_by_obj
 from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
 from contree_sdk.utils.objects.stream import StreamDescription
@@ -43,10 +44,8 @@ class _ImageLikeBase:
         self.tag: str | None = tag
         self._client = client
         self._request: RunRequest | None = None
-        self._raw_result: dict | None = None
         self._stdin = None
-        self._stdout: str | None = None
-        self._stderr: str | None = None
+        self._result: ContreeResult | None = None
         self._state = ImageState.PULLED
 
     # command methods
@@ -101,6 +100,8 @@ class _ImageLikeBase:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: IO_TYPES | None = None,
+        stdout: IO_TYPES | None = None,
+        stderr: IO_TYPES | None = None,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
     ) -> Self:
@@ -120,6 +121,8 @@ class _ImageLikeBase:
             tag=tag or None,  # todo use tag later
             stdin=stdin,
             files=self._prepare_files(files or []),
+            stdout=stdout,
+            stderr=stderr,
         )
         self._process_self(new_self)
         return new_self
@@ -171,7 +174,7 @@ class _ImageLikeBase:
     def _prepare_stdin(self, stdin: IO_TYPES | None) -> StreamDescription:
         stdin = stdin or ""
         io_obj = get_io_by_obj(stdin, IOMode.read)
-        self._stdin = io_obj
+        self._stdin = io_obj  # todo do it on run or stdin_from
         return io_encode(io_obj.read())
 
     # internal methods
@@ -191,9 +194,12 @@ class _ImageLikeBase:
 
     async def _await(self) -> Self:
         req = self._request
-        self._transition_state(ImageState.EXECUTING)
+        new_self = self._copy_self()  # todo add support for start() method
+        new_self._transition_state(ImageState.EXECUTING)
 
-        files, stdin = await gather(self._prepare_files_for_api(req.files), to_thread(self._prepare_stdin, req.stdin))
+        files, stdin = await gather(
+            new_self._prepare_files_for_api(req.files), to_thread(new_self._prepare_stdin, req.stdin)
+        )
         operation_uuid = await self._client._api.spawn_instance(
             InstanceSpawnRequest(
                 command=req.command,
@@ -217,13 +223,11 @@ class _ImageLikeBase:
             # todo backoff
             finished = resp.status in (OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED)
 
-        new_self = self._copy_self()
         new_self._transition_state(ImageState.SUCCEEDED)
-        new_uuid = resp.result["image"]
+        new_uuid = resp.result.image
         new_self.uuid = new_uuid and UUID(new_uuid)
         new_self.tag = None
-        new_self._request = None
-        new_self._raw_result = resp.metadata["result"]
+        new_self._result = ContreeResult.from_result(resp.metadata, request=req)
         return new_self
 
     async def _ls(self, path: str = "/"):
@@ -246,17 +250,13 @@ class _ImageLikeBase:
         return self._stdin
 
     @property
-    def stdout(self) -> str:
-        if self._stdout is None:
-            self._stdout = io_decode(**self._raw_result["stdout"])
-        return self._stdout
+    def stdout(self) -> IO_TYPES | None:
+        return self._result.stdout
 
     @property
-    def stderr(self) -> str:
-        if self._stderr is None:
-            self._stderr = io_decode(**self._raw_result["stderr"])
-        return self._stderr
+    def stderr(self) -> IO_TYPES | None:
+        return self._result.stderr
 
     @property
     def exit_code(self) -> int:
-        return int(self._raw_result["state"]["exit_code"])
+        return self._result.exit_code

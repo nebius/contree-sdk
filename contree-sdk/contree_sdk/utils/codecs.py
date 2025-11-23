@@ -5,27 +5,31 @@ from contree_sdk.api.models.instance import StreamDescription
 from contree_sdk.utils.objects.stream import StreamEncoding
 
 
-def _decode_base64(value: str) -> str:
+def _decode_base64(value: str) -> bytes:
     import base64
 
-    return base64.b64decode(value).decode("utf-8")
+    return base64.b64decode(value)
 
 
-_DECODERS: dict[str, Callable[[str], str]] = {
+def _decode_ascii(value: str) -> bytes:
+    return value.encode()
+
+
+_DECODERS: dict[str, Callable[[str], bytes]] = {
     "base64": _decode_base64,
-    "ascii": str,
+    "ascii": _decode_ascii,
 }
 
 
-def _fallback_decoder(value: str, encoding: str) -> str:
-    return value.encode("latin-1").decode(encoding)
+def _fallback_decoder(value: str) -> bytes:
+    return value.encode("latin-1")
 
 
-def io_decode(value: str, encoding: str, truncated: bool) -> str:
+def io_decode(value: StreamDescription) -> bytes:
     # todo use truncated
-    encoding = encoding.lower()
-    decoder = _DECODERS.get(encoding, partial(_fallback_decoder, encoding=encoding))
-    return decoder(value)
+    encoding = value.encoding.lower()
+    decoder = _DECODERS.get(encoding, partial(_fallback_decoder))
+    return decoder(value.value)
 
 
 def _encode_base64(value: bytes) -> str:
