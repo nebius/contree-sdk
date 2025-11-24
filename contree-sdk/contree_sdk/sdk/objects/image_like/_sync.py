@@ -13,7 +13,7 @@ class _ImageLikeSync(_ImageLikeBase):
         return coro_sync(self._ls(path))
 
     # todo move to base, when will implement popen for async
-    def popen(  # noqa: PLR0913
+    def popen(
         self,
         args=None,
         *,
@@ -36,13 +36,12 @@ class _ImageLikeSync(_ImageLikeBase):
 
         return ContreeProcessSync(
             self.run(
-                stdin=stdin,
+                stdin=input or stdin,
                 cwd=cwd,
                 env=env,
-                # todo support
-                # timeout=timeout,
-                # stdout=stdout,
-                # stderr=stderr,
+                timeout=timeout,
+                stdout=stdout,
+                stderr=stderr,
                 **run_params,
             ),
             check=check,

@@ -4,8 +4,10 @@ from asyncio import gather, sleep, to_thread
 from collections.abc import Iterable
 from copy import copy
 from dataclasses import replace
+from datetime import timedelta
+from math import ceil
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Self
+from typing import IO, TYPE_CHECKING, Any, Self
 from uuid import UUID
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
@@ -74,7 +76,10 @@ class _ImageLikeBase:
     def stderr_to(self, stderr, /) -> Self:
         raise NotImplementedError
 
-    def use_tag(self, tag: str, /) -> Self:
+    def add_tag(self, tag: str, /) -> Self:
+        raise NotImplementedError
+
+    def add_file(self, file_desc: Any) -> Self:
         raise NotImplementedError
 
     # utils methods
@@ -104,6 +109,7 @@ class _ImageLikeBase:
         stderr: IO_TYPES | None = None,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        timeout: float | timedelta | None = None,
     ) -> Self:
         if not self.uuid:
             raise ContreeImageParametersError
@@ -112,18 +118,25 @@ class _ImageLikeBase:
         if shell is not None:
             command = shell
 
+        if timeout is not None:
+            if isinstance(timeout, timedelta):
+                timeout = timeout.total_seconds()
+            timeout = ceil(timeout)
+
         new_self._request = RunRequest(
             command=command,
             args=list(args or []),
             shell=shell is not None,
             env=dict(env or {}),
             cwd=cwd or "/",
+            timeout=timeout,
             tag=tag or None,  # todo use tag later
             stdin=stdin,
             files=self._prepare_files(files or []),
             stdout=stdout,
             stderr=stderr,
         )
+        new_self._prepare_stdin(stdin)
         self._process_self(new_self)
         return new_self
 
@@ -171,13 +184,27 @@ class _ImageLikeBase:
 
         return dict(await gather(*(_upload_file(i) for i in files)))
 
-    def _prepare_stdin(self, stdin: IO_TYPES | None) -> StreamDescription:
+    def _prepare_stdin(self, stdin: IO_TYPES | None):
         stdin = stdin or ""
         io_obj = get_io_by_obj(stdin, IOMode.read)
         self._stdin = io_obj  # todo do it on run or stdin_from
-        return io_encode(io_obj.read())
+
+    def _update_request(self, **kwargs) -> Self:
+        self._assert_states(ImageState.PREPARED)
+        new_self = self._copy_self()
+        self._request = replace(self._request, **kwargs)
+        if stdin := kwargs.get("stdin"):
+            new_self._prepare_stdin(stdin)
+        return new_self
+
+    def _read_stdin(self) -> StreamDescription:
+        return io_encode(self._stdin.read())
 
     # internal methods
+
+    def _assert_states(self, *states: ImageState) -> None:
+        if self.state not in set(states):
+            raise ContreeImageParametersError  # todo proper exceptions
 
     def _can_transition(self, state: ImageState):
         possible_states = _STATE_MACHINE.get(self._state, set())
@@ -197,9 +224,7 @@ class _ImageLikeBase:
         new_self = self._copy_self()  # todo add support for start() method
         new_self._transition_state(ImageState.EXECUTING)
 
-        files, stdin = await gather(
-            new_self._prepare_files_for_api(req.files), to_thread(new_self._prepare_stdin, req.stdin)
-        )
+        files, stdin = await gather(new_self._prepare_files_for_api(req.files), to_thread(new_self._read_stdin))
         operation_uuid = await self._client._api.spawn_instance(
             InstanceSpawnRequest(
                 command=req.command,
@@ -210,7 +235,7 @@ class _ImageLikeBase:
                 shell=req.shell,
                 cwd=req.cwd,
                 disposable=True,  # todo support disposables
-                timeout=60,  # todo support timeout
+                timeout=req.timeout or 60,
                 stdin=stdin,
                 files=files,
             )

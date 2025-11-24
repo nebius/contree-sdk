@@ -1,16 +1,26 @@
+from datetime import timedelta
+from subprocess import CalledProcessError
+from typing import IO
+
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
+from contree_sdk.utils.io_wrap import IO_TYPES
 
 
 class ContreeProcessBase:
-    def __init__(self, image: _ImageLikeBase):
+    def __init__(self, image: _ImageLikeBase, check: bool):
         self._image = image
+        self._check = check
 
     @property
-    def stdout(self) -> str:
+    def stdin(self) -> IO:
+        return self._image.stdin
+
+    @property
+    def stdout(self) -> IO_TYPES:
         return self._image.stdout
 
     @property
-    def stderr(self) -> str:
+    def stderr(self) -> IO_TYPES:
         return self._image.stderr
 
     @property
@@ -19,6 +29,25 @@ class ContreeProcessBase:
 
     async def _wait(self):
         self._image = await self._image._await()
+        if self._check and self.returncode != 0:
+            req = self._image._request
+            cmd = [req.command]
+            if req.args:
+                cmd.extend(req.args)
+            raise CalledProcessError(
+                cmd=cmd,
+                returncode=self.returncode,
+                output=self.stdout,
+                stderr=self.stderr,
+            )
+
+    async def _communicate(self, input: str | bytes | None = None, timeout: float | timedelta | None = None):  # noqa: A002
+        self._image = self._image._update_request(stdin=input, timeout=timeout)
+        self._image = await self._image._await()
+        return self.stdout, self.stderr
+
+    def __repr__(self):
+        return f"{type(self).__name__}(image={self._image!r})"
 
     # todo to implement
     # __aenter__
@@ -32,7 +61,6 @@ class ContreeProcessBase:
     # stdin
     # terminate
 
-    # __repr__
     # __enter__
     # __exit__
     # __del__

@@ -144,4 +144,4 @@ runtime-evaluated-base-classes = [
 ]
 
 [lint.pylint]
-max-args = 10
+max-args = 12
