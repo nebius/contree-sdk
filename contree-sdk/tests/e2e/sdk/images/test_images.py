@@ -38,6 +38,3 @@ def test_pull_image_by_tag_s(contree_s: ContreeSync):
     assert isinstance(image.uuid, UUID)
     assert isinstance(image, ContreeImageSync)
     assert image.tag == "python:3.13"
-
-
-# todo by tag

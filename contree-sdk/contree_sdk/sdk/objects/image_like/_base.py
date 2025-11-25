@@ -39,10 +39,10 @@ _STATE_MACHINE = {
 
 class _ImageLikeBase:
     uuid: UUID
-    # todo think how to represent tag
+    tag: str
 
     def __init__(self, client: _ContreeBase, uuid: UUID | str, tag: str | None):
-        self.uuid: UUID | None = UUID(uuid)
+        self.uuid: UUID | None = UUID(uuid) if isinstance(uuid, str) else uuid
         self.tag: str | None = tag
         self._client = client
         self._request: RunRequest | None = None
@@ -91,10 +91,6 @@ class _ImageLikeBase:
             new_self._stdout = new_self._stderr = new_self._raw_result = None
         return new_self
 
-    def _process_self(self, new_self: Self) -> Self:
-        # todo make an actual copy when developing chaining
-        return new_self
-
     # main methods
 
     def run(
@@ -110,6 +106,7 @@ class _ImageLikeBase:
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
+        disposable: bool = True,
     ) -> Self:
         if not self.uuid:
             raise ContreeImageParametersError
@@ -135,9 +132,9 @@ class _ImageLikeBase:
             files=self._prepare_files(files or []),
             stdout=stdout,
             stderr=stderr,
+            disposable=disposable,
         )
         new_self._prepare_stdin(stdin)
-        self._process_self(new_self)
         return new_self
 
     def _prepare_files(
@@ -234,7 +231,7 @@ class _ImageLikeBase:
                 env=req.env,
                 shell=req.shell,
                 cwd=req.cwd,
-                disposable=True,  # todo support disposables
+                disposable=req.disposable,
                 timeout=req.timeout or 60,
                 stdin=stdin,
                 files=files,

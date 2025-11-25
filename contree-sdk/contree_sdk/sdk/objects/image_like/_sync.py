@@ -34,14 +34,16 @@ class _ImageLikeSync(_ImageLikeBase):
         elif args:
             run_params["command"], *run_params["args"] = args
 
+        output_type = str if text else text
+
         return ContreeProcessSync(
             self.run(
                 stdin=input or stdin,
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
-                stdout=stdout,
-                stderr=stderr,
+                stdout=stdout or output_type,
+                stderr=stderr or output_type,
                 **run_params,
             ),
             check=check,

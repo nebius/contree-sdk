@@ -18,6 +18,7 @@ class RunRequest:
     files: list[UploadFileSpec] = field(default_factory=list)
 
     timeout: float | None = None
+    disposable: bool
     tag: str | None = None  # tag to be assigned to result
     stdin: IO_TYPES | None = None
 
