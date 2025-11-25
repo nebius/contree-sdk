@@ -6,7 +6,7 @@ from contree_sdk.api.lib.types import ReturnType
 _converter = make_converter()
 
 
-def convert_data_to_type(data: dict | int | str | list, return_type: ReturnType) -> ReturnType:
+def convert_data_to_type(data: dict | int | str | list, return_type: type[ReturnType]) -> ReturnType:
     return _converter.structure(data, return_type)
 
 

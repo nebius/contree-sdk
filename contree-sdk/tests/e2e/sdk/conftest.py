@@ -8,12 +8,14 @@ from contree_sdk.sdk.objects.session._sync import ContreeSessionSync
 
 @pytest.fixture
 async def image(contree: Contree) -> ContreeImage:
-    return await contree.images.pull("0bd59a5d-9f0d-4fab-9376-001ec247cd78")
+    images = await contree.images()
+    return images[0]
 
 
 @pytest.fixture
 def image_s(contree_s: ContreeSync) -> ContreeImageSync:
-    return contree_s.images.pull("0bd59a5d-9f0d-4fab-9376-001ec247cd78")
+    images = contree_s.images()
+    return images[0]
 
 
 @pytest.fixture

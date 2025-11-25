@@ -1,5 +1,7 @@
+from pathlib import Path
 from typing import Self
 
+from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
 from contree_sdk.utils.wrapper import coro_sync
@@ -9,8 +11,8 @@ class _ImageLikeSync(_ImageLikeBase):
     def wait(self) -> Self:
         return coro_sync(self._await())
 
-    def ls(self, path: str = "/"):
-        return coro_sync(self._ls(path))
+    def ls(self, path: str | Path = "/") -> list[ImageFileSync | ImageDirectorySync]:
+        return coro_sync(self._ls(path, ImageFileSync, ImageDirectorySync))
 
     # todo move to base, when will implement popen for async
     def popen(

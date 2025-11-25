@@ -31,7 +31,10 @@ class _ContreeBase:
         self._api = self._create_api_client(config)
 
     def _create_api_client(self, config: ContreeConfig):
-        return ContreeClient(token=config.token)
+        return ContreeClient(
+            token=config.token,
+            base_url=config.base_url,
+        )
 
     async def _wait_operation(
         self, operation_uuid: UUID | str, result_type: type[_OperationResultT]

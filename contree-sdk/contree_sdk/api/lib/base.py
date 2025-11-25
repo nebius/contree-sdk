@@ -13,9 +13,9 @@ from contree_sdk.api.lib.types import ApiEndpointInfo, ReturnType
 class ClientBase(ABC):
     _client_class: type[httpx._client.BaseClient]
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, base_url: str) -> None:
         headers = {"Authorization": f"Bearer {token}"}
-        self._client = self._client_class(headers=headers, base_url="https://eu-north-stage.nebius.computer")
+        self._client = self._client_class(headers=headers, base_url=base_url)
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
         kwargs = endpoint_info.get_files_data_by_data(data)

@@ -2,22 +2,19 @@ from dataclasses import dataclass
 
 
 @dataclass
-class FileItem:
+class FileItemModel:
     size: int
     path: str
-    owner: int
-    group: int
+    uid: int
+    gid: int
     mode: int
     mtime: int
+    nlink: int
+    symlink_to: str
     is_dir: bool
     is_regular: bool
-    is_symlink: bool
     is_socket: bool
     is_fifo: bool
-    symlink_to: str
-
-
-@dataclass
-class DirectoryList:
-    path: str
-    files: list[FileItem]
+    is_symlink: bool
+    owner: str
+    group: str

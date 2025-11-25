@@ -11,14 +11,16 @@ exclude = [
 
 [lint]
 extend-safe-fixes = [
+    "SIM101", # duplicate-isinstance-call
+    "SIM108", # if-else-block-instead-of-if-exp
     "UP006", # non-pep585-annotation
     "UP007", # non-pep604-annotation-union
-    "UP038", # non-pep604-isinstance
     "UP035", # deprecated-import
+    "UP038", # non-pep604-isinstance
 ]
 extend-unsafe-fixes = [
-    "RUF100",
     "PGH003",
+    "RUF100",
     "RUF102",
 ]
 

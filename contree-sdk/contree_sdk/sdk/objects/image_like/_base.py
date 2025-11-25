@@ -7,8 +7,10 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Self
+from typing import IO, TYPE_CHECKING, Any, Self, TypeVar
 from uuid import UUID
+
+import cattrs
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
@@ -35,6 +37,9 @@ _STATE_MACHINE = {
     ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED}),
     ImageState.SUCCEEDED: _PREPARATION_STATES,
 }
+
+_FileTypeT = TypeVar("_FileTypeT")
+_DirTypeT = TypeVar("_DirTypeT")
 
 
 class _ImageLikeBase:
@@ -252,9 +257,19 @@ class _ImageLikeBase:
         new_self._result = ContreeResult.from_result(resp.metadata, request=req)
         return new_self
 
-    async def _ls(self, path: str = "/"):
-        await self._client._api.list_image_files(self.uuid, path)
-        # todo parse once inspect api is ready
+    async def _ls(self, path, file_type: type[_FileTypeT], dir_type: type[_DirTypeT]) -> list[_FileTypeT | _DirTypeT]:
+        ls_res = await self._client._api.list_image_files(self.uuid, path)
+        result = []
+        for obj in ls_res:
+            type_ = dir_type if obj.is_dir else file_type
+            result.append(
+                type_(
+                    _image=self,
+                    _path=Path(path),
+                    **cattrs.unstructure(obj),
+                )
+            )
+        return result
 
     async def _files(self, path: str = "/"):
         pass
