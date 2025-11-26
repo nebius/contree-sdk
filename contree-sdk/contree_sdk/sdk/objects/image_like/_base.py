@@ -38,8 +38,8 @@ _STATE_MACHINE = {
     ImageState.SUCCEEDED: _PREPARATION_STATES,
 }
 
-_FileTypeT = TypeVar("_FileTypeT")
-_DirTypeT = TypeVar("_DirTypeT")
+FileTypeT = TypeVar("FileTypeT")
+DirTypeT = TypeVar("DirTypeT")
 
 
 class _ImageLikeBase:
@@ -257,7 +257,7 @@ class _ImageLikeBase:
         new_self._result = ContreeResult.from_result(resp.metadata, request=req)
         return new_self
 
-    async def _ls(self, path, file_type: type[_FileTypeT], dir_type: type[_DirTypeT]) -> list[_FileTypeT | _DirTypeT]:
+    async def _ls(self, path, file_type: type[FileTypeT], dir_type: type[DirTypeT]) -> list[FileTypeT | DirTypeT]:
         ls_res = await self._client._api.list_image_files(self.uuid, path)
         result = []
         for obj in ls_res:
