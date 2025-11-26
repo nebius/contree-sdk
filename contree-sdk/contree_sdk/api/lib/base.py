@@ -49,6 +49,10 @@ class ClientBase(ABC):
     ) -> ReturnType | dict | Response:
         response.raise_for_status()
         if endpoint_info.json_path is None:
+            if endpoint_info.return_type is str:
+                return response.text
+            if endpoint_info.return_type is bytes:
+                return response.content
             return response
 
         data = response.json()

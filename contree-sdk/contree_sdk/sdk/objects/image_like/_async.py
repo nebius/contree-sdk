@@ -10,3 +10,6 @@ class _ImageLike(_ImageLikeBase):
 
     async def ls(self, path: str | Path = "/") -> list[ImageFile | ImageDirectory]:
         return await self._ls(path, ImageFile, ImageDirectory)
+
+    async def download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path | None:
+        return await self._download(image_path, local_path)

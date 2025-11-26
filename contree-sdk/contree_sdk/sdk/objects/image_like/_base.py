@@ -11,6 +11,7 @@ from typing import IO, TYPE_CHECKING, Any, Self, TypeVar
 from uuid import UUID
 
 import cattrs
+from aiofile import async_open
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
 from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
@@ -257,7 +258,11 @@ class _ImageLikeBase:
         new_self._result = ContreeResult.from_result(resp.metadata, request=req)
         return new_self
 
-    async def _ls(self, path, file_type: type[FileTypeT], dir_type: type[DirTypeT]) -> list[FileTypeT | DirTypeT]:
+    # inspect methods
+
+    async def _ls(
+        self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]
+    ) -> list[FileTypeT | DirTypeT]:
         ls_res = await self._client._api.list_image_files(self.uuid, path)
         result = []
         for obj in ls_res:
@@ -271,8 +276,16 @@ class _ImageLikeBase:
             )
         return result
 
-    async def _files(self, path: str = "/"):
-        pass
+    async def _read_file(self, path: Path) -> bytes:
+        return await self._client._api.download_image_file(self.uuid, path)
+
+    async def _download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path:
+        image_path = Path(image_path)
+        if local_path is None:
+            local_path = image_path.name
+        async with async_open(local_path, "wb") as file:
+            await file.write(await self._read_file(image_path))
+        return local_path
 
     def __repr__(self):
         other = ""

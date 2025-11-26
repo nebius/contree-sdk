@@ -7,7 +7,12 @@ from contree_sdk.sdk.objects.image_fs._base import _ImageDirectoryBase, _ImageFi
 
 
 @dataclass
-class ImageFile(_ImageFileBase): ...
+class ImageFile(_ImageFileBase):
+    async def read(self) -> bytes:
+        return await self._image._read_file(self.full_path)
+
+    async def download(self, local_path: str | Path | None = None) -> Path:
+        return await self._image._download(self.full_path, local_path)
 
 
 @dataclass

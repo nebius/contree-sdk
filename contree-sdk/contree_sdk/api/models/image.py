@@ -20,10 +20,8 @@ class ImageSize:
 @dataclass(kw_only=True)
 class ContreeImageModel:
     uuid: str
-    # source: Optional[str] = None
     tag: str | None = None
     created_at: datetime
-    # size: Optional[ImageSize] = None
 
 
 @dataclass(kw_only=True)

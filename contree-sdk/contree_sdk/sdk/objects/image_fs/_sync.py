@@ -8,7 +8,12 @@ from contree_sdk.utils.wrapper import coro_sync
 
 
 @dataclass
-class ImageFileSync(_ImageFileBase): ...
+class ImageFileSync(_ImageFileBase):
+    def read(self) -> bytes:
+        return coro_sync(self._image._read_file(self.full_path))
+
+    def download(self, local_path: str | Path | None = None) -> Path:
+        return coro_sync(self._image._download(self.full_path, local_path))
 
 
 @dataclass

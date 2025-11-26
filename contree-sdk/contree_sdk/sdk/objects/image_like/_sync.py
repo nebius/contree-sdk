@@ -14,6 +14,9 @@ class _ImageLikeSync(_ImageLikeBase):
     def ls(self, path: str | Path = "/") -> list[ImageFileSync | ImageDirectorySync]:
         return coro_sync(self._ls(path, ImageFileSync, ImageDirectorySync))
 
+    def download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path | None:
+        return coro_sync(self._download(image_path, local_path))
+
     # todo move to base, when will implement popen for async
     def popen(
         self,
@@ -27,7 +30,7 @@ class _ImageLikeSync(_ImageLikeBase):
         cwd=None,
         timeout=None,
         check=False,
-        text=None,  # todo support it
+        text=None,
         env=None,
     ) -> ContreeProcessSync:
         run_params = {}
