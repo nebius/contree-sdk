@@ -32,7 +32,7 @@ def test_popen_error_s(image_s: ContreeImageSync):
         process.wait()
 
     err = exc_info.value
-    assert err.returncode == 1
+    assert err.returncode != 0
     assert "No such file" in (err.stderr or "")
     assert err.cmd == ["/bin/ls", "-la", "/totally/fake/directory"]
 

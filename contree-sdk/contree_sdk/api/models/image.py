@@ -21,7 +21,7 @@ class ImageSize:
 class ContreeImageModel:
     uuid: str
     tag: str | None = None
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 @dataclass(kw_only=True)

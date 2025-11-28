@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asyncio import gather, sleep, to_thread
+from asyncio import gather, to_thread
 from collections.abc import Iterable
 from copy import copy
 from dataclasses import replace
@@ -13,8 +13,8 @@ from uuid import UUID
 import cattrs
 from aiofile import async_open
 
-from contree_sdk.api.models.instance import InstanceFileSpec, InstanceSpawnRequest, OperationStatus
-from contree_sdk.sdk.exceptions.image import ContreeImageParametersError
+from contree_sdk.api.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
+from contree_sdk.sdk.exceptions.image import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
@@ -115,7 +115,7 @@ class _ImageLikeBase:
         disposable: bool = True,
     ) -> Self:
         if not self.uuid:
-            raise ContreeImageParametersError
+            raise DisposableImageRunError
         new_self = self._copy_self()
         new_self._transition_state(ImageState.PREPARED)
         if shell is not None:
@@ -207,12 +207,13 @@ class _ImageLikeBase:
 
     def _assert_states(self, *states: ImageState) -> None:
         if self.state not in set(states):
-            raise ContreeImageParametersError  # todo proper exceptions
+            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(states))
+        # todo add tests for wrong states
 
     def _can_transition(self, state: ImageState):
         possible_states = _STATE_MACHINE.get(self._state, set())
         if state not in possible_states:
-            raise ContreeImageParametersError  # todo proper exceptions
+            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(possible_states))
 
     def _transition_state(self, state: ImageState):
         self._can_transition(state)
@@ -243,19 +244,13 @@ class _ImageLikeBase:
                 files=files,
             )
         )
-        # todo move to unified operation awaiting
-        finished = False
-        while not finished:  # todo define timeouts
-            resp = await self._client._api.get_instance_operation_status(operation_uuid)
-            await sleep(0.1)  # todo to config
-            # todo backoff
-            finished = resp.status in (OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED)
+        image_metadata, result = await self._client._wait_operation(operation_uuid, InstanceOperationMetadata)
 
         new_self._transition_state(ImageState.SUCCEEDED)
-        new_uuid = resp.result.image
+        new_uuid = result.image
         new_self.uuid = new_uuid and UUID(new_uuid)
-        new_self.tag = None
-        new_self._result = ContreeResult.from_result(resp.metadata, request=req)
+        new_self.tag = result.tag
+        new_self._result = ContreeResult.from_result(image_metadata, request=req)
         return new_self
 
     # inspect methods

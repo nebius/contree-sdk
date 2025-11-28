@@ -16,7 +16,7 @@ class SyncClientMixin:
     _client: Client
 
     def _send_request(self, request: Request) -> Response:
-        return self._client.send(request)
+        return self._client.send(request, follow_redirects=True)
 
     def _handle_api_call(self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response:
         request = self._build_request(endpoint_info=endpoint_info, data=data)
@@ -29,7 +29,7 @@ class AsyncClientMixin:
     _client: AsyncClient
 
     async def _send_request(self, request: Request) -> Response:
-        return await self._client.send(request)
+        return await self._client.send(request, follow_redirects=True)
 
     async def _handle_api_call(
         self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict

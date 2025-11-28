@@ -1,16 +1,4 @@
 from dataclasses import dataclass
-from enum import auto
-
-from strenum import UppercaseStrEnum
-
-
-class OperationStatus(UppercaseStrEnum):
-    PENDING = auto()
-    EXECUTING = auto()
-    SUCCESS = auto()
-    FAILED = auto()
-    CANCELLED = auto()
-    ASSIGNED = auto()
 
 
 @dataclass
@@ -20,21 +8,17 @@ class RegistryCredentials:
 
 
 @dataclass
-class RegistryInfo:
+class PublicRegistryInfo:
     url: str
-    credentials: RegistryCredentials | None = None
+
+
+@dataclass
+class PrivateRegistryInfo(PublicRegistryInfo):
+    credentials: RegistryCredentials
 
 
 @dataclass
 class ImageImportRequest:
-    registry: RegistryInfo
+    registry: PublicRegistryInfo | PrivateRegistryInfo
     tag: str | None = None
     timeout: int | None = None
-
-
-@dataclass
-class ImageImportOperation:
-    status: OperationStatus
-    result: str | None = None
-    error: str | None = None
-    metadata: ImageImportRequest | None = None

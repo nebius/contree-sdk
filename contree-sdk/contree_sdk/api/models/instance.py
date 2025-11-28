@@ -1,19 +1,7 @@
 from dataclasses import dataclass, field
-from enum import auto
 from typing import Any
 
-from strenum import UppercaseStrEnum
-
 from contree_sdk.utils.objects.stream import StreamDescription
-
-
-class OperationStatus(UppercaseStrEnum):
-    PENDING = auto()
-    EXECUTING = auto()
-    SUCCESS = auto()
-    FAILED = auto()
-    CANCELLED = auto()
-    ASSIGNED = auto()
 
 
 @dataclass
@@ -75,6 +63,7 @@ class InstanceOperationMetadata:
 @dataclass
 class InstanceOperationResult:
     image: str | None
+    tag: str | None
 
 
 @dataclass
@@ -99,13 +88,3 @@ class InstanceSpawnRequest:
     timeout: int = 60
     truncate_output_at: int = 65535
     files: dict[str, InstanceFileSpec]
-
-
-@dataclass
-class InstanceOperation:
-    status: OperationStatus
-    kind: str
-    error: str | None = None
-    metadata: InstanceOperationMetadata | None = None
-    result: InstanceOperationResult | None = None
-    duration: float | None = None

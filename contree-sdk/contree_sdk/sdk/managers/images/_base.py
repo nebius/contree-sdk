@@ -1,7 +1,15 @@
+from contextlib import suppress
 from typing import Generic, TypeVar
+from urllib.parse import ParseResult, urlparse
+from uuid import UUID
 
 from contree_sdk.api.models.image import ContreeImageModel
-from contree_sdk.sdk.exceptions.image import ContreeImageNotFound
+from contree_sdk.api.models.image_import import (
+    ImageImportRequest,
+    PrivateRegistryInfo,
+    PublicRegistryInfo,
+    RegistryCredentials,
+)
 from contree_sdk.sdk.managers.base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 
@@ -18,6 +26,10 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             images.append(self._image_by_data(image))
         return images
 
+    async def _iter(self):
+        for image in await self._get_images():
+            yield self._image_by_data(image)
+
     # todo support new selector parameters
 
     # todo add support for __iter__ and __aiter__
@@ -29,19 +41,81 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             tag=image.tag,
         )
 
-    async def _pull_image(self, url_or_tag_or_uuid: str) -> _ImageT:
-        return await self._get_image_by_uuid_or_tag(url_or_tag_or_uuid)
+    async def _pull_image(
+        self,
+        url_or_tag_or_uuid: str | UUID,
+        *,
+        new_tag: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> _ImageT:
+        uuid = url_or_tag_or_uuid if isinstance(url_or_tag_or_uuid, UUID) else None
 
-    async def _get_image_by_uuid_or_tag(self, uuid_or_tag: str) -> _ImageT:
-        # todo replace with actual implementation once api is ready
-        images = await self._get_images()
-        for image in images:
-            if str(image.uuid) == uuid_or_tag or (image.tag and image.tag == uuid_or_tag):
-                return image
-        raise ContreeImageNotFound(uuid_or_tag)
+        with suppress(ValueError):
+            uuid = UUID(url_or_tag_or_uuid) if isinstance(url_or_tag_or_uuid, str) else uuid
 
-    async def _get_image_by_tag(self, tag: str) -> _ImageT: ...
+        if uuid is not None:
+            return await self._get_image_by_uuid(uuid)
 
-    async def _get_image_by_uuid(self, uuid: str) -> _ImageT: ...
+        parsed = urlparse(url_or_tag_or_uuid)
+        is_url = bool(parsed.scheme or parsed.netloc)
 
-    async def _import_image(self, image_url: str): ...
+        if is_url or username or password:
+            return await self._import_image(
+                url_or_tag_or_uuid,
+                new_tag=new_tag,
+                username=username,
+                password=password,
+            )
+
+        # return by tag
+        return await self._get_image_by_tag(url_or_tag_or_uuid)
+
+    #  todo add tests for exceptions
+
+    async def _get_image_by_tag(self, tag: str) -> _ImageT:
+        return self._image_by_data(await self._client._api.get_image_by_tag(tag))
+
+    async def _get_image_by_uuid(self, uuid: UUID | str) -> _ImageT:
+        if isinstance(uuid, str):
+            uuid = UUID(uuid)
+        return self._image_by_data(await self._client._api.get_image_by_uuid(uuid))
+
+    async def _import_image(
+        self,
+        image_url: str | ParseResult,
+        *,
+        new_tag: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> _ImageT:
+        if isinstance(image_url, str):
+            image_url = urlparse(image_url)
+
+        new_tag = new_tag or image_url.path
+        image_url = image_url.geturl()
+
+        if username or password:
+            registry = PrivateRegistryInfo(
+                url=image_url,
+                credentials=RegistryCredentials(username=username, password=password),
+            )
+        else:
+            registry = PublicRegistryInfo(url=image_url)
+
+        operation_uuid = await self._client._api.start_import_image(
+            ImageImportRequest(
+                registry=registry,
+                tag=new_tag,
+                timeout=300,
+            )
+        )
+        _, image_info = await self._client._wait_operation(
+            operation_uuid=operation_uuid, result_type=ImageImportRequest
+        )
+        return self._image_by_data(
+            ContreeImageModel(
+                uuid=image_info.image,
+                tag=image_info.tag,
+            )
+        )
