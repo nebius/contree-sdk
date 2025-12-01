@@ -2,7 +2,7 @@
 name = "contree-sdk"
 version = "0.0.0.dev0"
 readme = "README.md"
-requires-python = ">=3.12, <3.14"
+requires-python = ">=3.10, <3.14"
 dependencies = [
     "strenum",
     "cattrs",
@@ -30,3 +30,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["contree_sdk"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["contree_sdk", "pyproject.toml", "README.md"]
+
+[tool.hatch.build]
+only-packages = true
