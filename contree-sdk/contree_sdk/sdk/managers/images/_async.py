@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
-from contree_sdk.sdk.objects.image._async import ContreeImage
+from contree_sdk.sdk.objects.image import ContreeImage
 
 
 class ImagesManager(_ImagesBaseManager[ContreeImage]):
@@ -11,7 +11,7 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
         return await self._get_images(*args, **kwargs)
 
     async def __aiter__(self):
-        for image in await self():
+        async for image in self._iter():
             yield image
 
     async def pull(

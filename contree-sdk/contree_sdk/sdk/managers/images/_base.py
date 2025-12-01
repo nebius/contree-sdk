@@ -1,9 +1,11 @@
+from collections.abc import AsyncGenerator
 from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 from urllib.parse import ParseResult, urlparse
 from uuid import UUID
 
-from contree_sdk.api.models.image import ContreeImageModel
+from contree_sdk.api.models.image import ContreeImageModel, ImageKind
 from contree_sdk.api.models.image_import import (
     ImageImportRequest,
     PrivateRegistryInfo,
@@ -17,22 +19,75 @@ from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 _ImageT = TypeVar("_ImageT", bound=_ContreeImageBase)
 
 
+def _process_time_param(value: datetime | timedelta | None, offset: timedelta) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    value = value + offset
+    seconds = value.total_seconds()
+    return f"{seconds:.0f}s"
+
+
 class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
     _ImageType: type[_ImageT]
 
-    async def _get_images(self) -> list[_ImageT]:
+    async def _get_images(
+        self,
+        number: int | None = 100,
+        kind: ImageKind | None = None,
+        tagged: bool = False,
+        since: datetime | timedelta | None = None,
+        until: datetime | timedelta | None = None,
+    ) -> list[_ImageT]:
         images = []
-        for image in await self._client._api.get_images():
-            images.append(self._image_by_data(image))
+        async for image in self._iter(
+            number=number,
+            kind=kind,
+            tagged=tagged,
+            since=since,
+            until=until,
+        ):
+            images.append(image)
         return images
 
-    async def _iter(self):
-        for image in await self._get_images():
-            yield self._image_by_data(image)
+    async def _iter(
+        self,
+        number: int | None = None,
+        kind: ImageKind | None = None,
+        tagged: bool = False,
+        since: datetime | timedelta | None = None,
+        until: datetime | timedelta | None = None,
+    ) -> AsyncGenerator[_ImageT, None]:
+        started = datetime.now()
 
-    # todo support new selector parameters
+        until = until or started
+        current_offset = 0
+        batch_size = 100
 
-    # todo add support for __iter__ and __aiter__
+        while True:
+            timedelta_offset = datetime.now() - started
+            limit = batch_size
+            if number is not None:
+                limit = min(limit, number - current_offset)
+
+            batch = await self._client._api.get_images(
+                offset=current_offset,
+                limit=limit,
+                since=_process_time_param(since, offset=timedelta_offset),
+                until=_process_time_param(until, offset=timedelta_offset),
+                tagged=1 if tagged else None,
+                kind=kind or None,
+            )
+            for image in batch:
+                yield self._image_by_data(image)
+
+            current_offset += len(batch)
+
+            if len(batch) < batch_size:
+                break  # no more images
+            if number is not None and current_offset >= number:
+                break  # returned all requested images
 
     def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
         return self._ImageType(

@@ -1,18 +1,18 @@
 from uuid import UUID
 
 from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
-from contree_sdk.sdk.objects.image._sync import ContreeImageSync
-from contree_sdk.utils.wrapper import coro_sync
+from contree_sdk.sdk.objects.image import ContreeImageSync
+from contree_sdk.utils.wrapper import coro_iter_sync, coro_sync
 
 
 class ImagesManagerSync(_ImagesBaseManager[ContreeImageSync]):
     _ImageType = ContreeImageSync
 
     def __call__(self, *args, **kwargs) -> list[ContreeImageSync]:
-        return coro_sync(self._get_images())
+        return coro_sync(self._get_images(*args, **kwargs))
 
     def __iter__(self):
-        yield from self()
+        yield from coro_iter_sync(self._iter())
 
     def pull(
         self,

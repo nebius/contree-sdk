@@ -9,12 +9,36 @@ from contree_sdk.api.models.image_import import ImageImportRequest
 
 class ImagesMixin:
     @overload
-    async def get_images(self: AsyncClientMixin, kind: ImageKind | None = None) -> list[ContreeImageModel]: ...
+    async def get_images(
+        self: AsyncClientMixin,
+        kind: ImageKind | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        tagged: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[ContreeImageModel]: ...
     @overload
-    def get_images(self: SyncClientMixin, kind: ImageKind | None = None) -> list[ContreeImageModel]: ...
+    def get_images(
+        self: SyncClientMixin,
+        kind: ImageKind | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        tagged: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[ContreeImageModel]: ...
 
     @get("/v1/images", json=["images"])
-    def get_images(self, kind: ImageKind | None = None) -> list[ContreeImageModel]: ...
+    def get_images(
+        self,
+        kind: ImageKind | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        tagged: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[ContreeImageModel]: ...
 
     @overload
     async def start_import_image(self: AsyncClientMixin, request: Annotated[ImageImportRequest, Body]) -> str: ...

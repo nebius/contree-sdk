@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import pytest
 
 from contree_sdk import Contree, ContreeSync
+from contree_sdk.api.models.image import ImageKind
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 
@@ -71,9 +73,43 @@ def test_import_public_image_s(contree_s: ContreeSync):
 
 # todo make proper exception for this
 # def test_pull_nonexistent_uuid_image(contree_s: ContreeSync):
-#     with pytest.raises(ContreeImageNotFound):
+#     with pytest.raises(Exception) as e_info:
 #         contree_s.images.pull(uuid4()) # noqa: ERA001
-
+#     e = e_info.value # noqa: ERA001
+#     breakpoint()  # noqa: ERA001
 
 # todo add test for failed import
 # todo add test for private import
+
+
+async def test_iter_images(contree: Contree):
+    num = 0
+    async for image in contree.images:
+        assert isinstance(image, ContreeImage)
+        assert isinstance(image.uuid, UUID)
+        num += 1
+    assert num > 0
+
+
+def test_iter_images_s(contree_s: ContreeSync):
+    num = 0
+    for image in contree_s.images:
+        assert isinstance(image, ContreeImageSync)
+        assert isinstance(image.uuid, UUID)
+        num += 1
+    assert num > 0
+
+
+def test_get_images_with_parameters_s(contree_s: ContreeSync):
+    images = contree_s.images(
+        number=2,
+        kind=ImageKind.IMPORTED,
+        tagged=True,
+        since=datetime(2025, month=1, day=1),  # since 2025 January 1st
+        until=timedelta(minutes=10),  # until 10 minutes ago
+    )
+    assert len(images) == 2
+    for image in images:
+        assert isinstance(image, ContreeImageSync)
+        assert isinstance(image.uuid, UUID)
+        assert isinstance(image.tag, str)

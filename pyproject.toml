@@ -32,6 +32,11 @@ contree-docs = { workspace = true }
 contree-sdk = { workspace = true }
 
 
+[[tool.uv.index]]
+name = "nebius"
+url = "https://artifactory.nebius.dev/artifactory/api/pypi/pypi/simple"
+publish-url = "https://artifactory.nebius.dev/artifactory/api/pypi/netinfra"
+
 [tool.ruff]
 line-length = 120
 src = ["contree_sdk"]
