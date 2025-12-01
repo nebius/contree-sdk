@@ -3,6 +3,7 @@ from typing import overload
 
 import httpx
 from httpx import Request, Response
+from httpx._config import DEFAULT_TIMEOUT_CONFIG
 
 from contree_sdk.api.lib.decorator import EMPTY
 from contree_sdk.api.lib.helpers import convert_data_to_type
@@ -13,9 +14,9 @@ from contree_sdk.api.lib.types import ApiEndpointInfo, ReturnType
 class ClientBase(ABC):
     _client_class: type[httpx._client.BaseClient]
 
-    def __init__(self, token: str, base_url: str) -> None:
+    def __init__(self, token: str, base_url: str, transport_timeout: float = DEFAULT_TIMEOUT_CONFIG) -> None:
         headers = {"Authorization": f"Bearer {token}"}
-        self._client = self._client_class(headers=headers, base_url=base_url)
+        self._client = self._client_class(headers=headers, base_url=base_url, timeout=transport_timeout)
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
         kwargs = endpoint_info.get_files_data_by_data(data)

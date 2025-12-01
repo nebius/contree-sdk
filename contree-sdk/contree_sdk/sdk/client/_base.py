@@ -37,6 +37,7 @@ class _ContreeBase:
         return ContreeClient(
             token=config.token,
             base_url=config.base_url,
+            transport_timeout=config.transport_timeout,
         )
 
     async def _wait_operation(

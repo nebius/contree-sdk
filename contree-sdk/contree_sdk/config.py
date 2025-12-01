@@ -12,3 +12,5 @@ class ContreeEndpoint(StrEnum):
 class ContreeConfig:
     token: str
     base_url: ContreeEndpoint | str = ContreeEndpoint.STAGE
+
+    transport_timeout: float = 5.0
