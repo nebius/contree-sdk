@@ -113,9 +113,8 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             return await self._get_image_by_uuid(uuid)
 
         parsed = urlparse(url_or_tag_or_uuid)
-        is_url = bool(parsed.scheme or parsed.netloc)
 
-        if is_url or username or password:
+        if parsed.netloc or username or password:
             return await self._import_image(
                 url_or_tag_or_uuid,
                 new_tag=new_tag,
