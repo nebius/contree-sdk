@@ -61,6 +61,7 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 ```
 
 10. Replace `<EMAIL>` with your Nebius email (e.g. `yourname@nebius.com`) and `<TOKEN>` with your saved token
+11. Install the package like you normally would using `pip install contree-sdk`
 
 > [!TIP]
 > For package managers that don't use `~/.pip/pip.conf` (e.g. `uv`, `pdm`) please refer to their respective documentation.
