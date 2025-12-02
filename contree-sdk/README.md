@@ -6,6 +6,7 @@
 ## Table of Contents
 
 - [Installation](#-installation)
+  - [Installation from Nebius Artifactory](#installation-from-nebius-artifactory)
 - [Quick Start](#-quick-start)
 - [Core Concepts](#-core-concepts)
   - [Sessions and Versioning](#sessions-and-versioning)
@@ -39,6 +40,30 @@ If you want to use a specific transport (for example, httpx), run `pip install c
 Optional extras allow you to install dependencies for specific transports or integrations. For example, `httpx` enables httpx-based transport.
 
 If you are planning to use it as shell, install `shell` extra: `pip install contree-sdk[shell]`
+
+### Installation from Nebius Artifactory
+
+> [!NOTE]
+> While the project is under development, it's not available publicly. It's available only through Nebius `ai-rnd` PyPI registry.
+
+1. Open https://artifactory.nebius.dev/
+2. Log in using SSO
+3. In top right corner click on your profile
+4. Click on `Set Me Up`
+5. Select `pypi`
+6. Inside repository selector choose `ai-rnd`
+7. Inside `Configure` tab click on `Generate Token & Create Instructions`
+8. Copy and save your token somewhere
+9. Add the following to your `~/.pip/pip.conf` file inside `[global]` section:
+
+```ini
+extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api/pypi/ai-rnd/simple
+```
+
+10. Replace `<EMAIL>` with your Nebius email (e.g. `yourname@nebius.com`) and `<TOKEN>` with your saved token
+
+> [!TIP]
+> For package managers that don't use `~/.pip/pip.conf` (e.g. `uv`, `pdm`) please refer to their respective documentation.
 
 ---
 

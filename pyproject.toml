@@ -31,11 +31,11 @@ members = [
 contree-docs = { workspace = true }
 contree-sdk = { workspace = true }
 
-
 [[tool.uv.index]]
 name = "nebius"
-url = "https://artifactory.nebius.dev/artifactory/api/pypi/pypi/simple"
-publish-url = "https://artifactory.nebius.dev/artifactory/api/pypi/netinfra"
+url = "https://artifactory.nebius.dev/artifactory/api/pypi/ai-rnd/simple"
+publish-url = "https://artifactory.nebius.dev/artifactory/api/pypi/ai-rnd"
+explicit = true
 
 [tool.ruff]
 line-length = 120
