@@ -3,7 +3,6 @@
 > [!IMPORTANT]
 > **Disclaimer**: This SDK is currently in development. All code examples and usage patterns shown below are conceptual and do not reflect the final implementation. The API is subject to change.
 
-[//]: # (todo fivide it into done/not done)
 ## Table of Contents
 
 - [Installation](#-installation)
