@@ -21,4 +21,4 @@ class PrivateRegistryInfo(PublicRegistryInfo):
 class ImageImportRequest:
     registry: PublicRegistryInfo | PrivateRegistryInfo
     tag: str | None = None
-    timeout: int | None = None
+    timeout: int = 300

@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+import logging
 from asyncio import sleep
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime
+from random import uniform
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from httpx import HTTPError
 from typing_extensions import TypeVar
 
 from contree_sdk.api.client.client import ContreeClient
 from contree_sdk.api.models.instance import InstanceOperationResult
 from contree_sdk.api.models.operation import OperationStatus
 from contree_sdk.config import ContreeConfig
+from contree_sdk.sdk.exceptions import (
+    CancelledOperationError,
+    FailedOperationError,
+    OperationTimedOutError,
+    WrongOperationTypeError,
+)
+from contree_sdk.sdk.exceptions.utils import wrap_api_exception
 
 
 if TYPE_CHECKING:
@@ -32,6 +45,11 @@ class _ContreeBase:
             assert token is None, "config is not empty, token should not be specifed"
 
         self._api: ContreeClient = self._create_api_client(config)
+        self._config = replace(config, token="<hidden>")
+
+    @property
+    def config(self) -> ContreeConfig:
+        return self._config
 
     def _create_api_client(self, config: ContreeConfig) -> ContreeClient:
         return ContreeClient(
@@ -41,18 +59,53 @@ class _ContreeBase:
         )
 
     async def _wait_operation(
-        self, operation_uuid: UUID | str, result_type: type[_OperationResultT]
+        self,
+        operation_uuid: UUID | str,
+        result_type: type[_OperationResultT],
+        timeout: float | None = None,
     ) -> tuple[_OperationResultT, InstanceOperationResult]:
-        # todo support timeout
-        # started = datetime.now()
+        started = datetime.now()
+        spent = 0
+        timeout = timeout or self.config.operation_timeout
         resp = None
         final_statuses = {OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED}
         while resp is None or resp.status not in final_statuses:
-            resp = await self._api.get_operation_status(operation_uuid)
-            assert isinstance(resp.metadata, result_type)
-            await sleep(0.1)  # todo to config
-            # todo backoff
+            if spent > timeout:
+                raise OperationTimedOutError(operation_uuid=operation_uuid)
+            spent = (datetime.now() - started).total_seconds()
+            with self._wrap_api_call():
+                resp = await self._api.get_operation_status(operation_uuid)
+            if not isinstance(resp.metadata, result_type):
+                raise WrongOperationTypeError(
+                    operation_uuid=operation_uuid,
+                    expected=result_type,
+                    actual=type(resp.metadata),
+                )
+            interval = min(self._get_interval(spent / timeout), timeout - spent + self.config.operation_poll_secs_min)
+
+            logging.info(f"Sleeping for {interval:0.2f} seconds for operation {operation_uuid}")
+            await sleep(interval)
+
+        if resp.status == OperationStatus.CANCELLED:
+            raise CancelledOperationError(operation_uuid=operation_uuid)
         if resp.status == OperationStatus.FAILED:
-            raise ValueError  # todo real exception
+            raise FailedOperationError(operation_uuid=operation_uuid)
 
         return resp.metadata, resp.result
+
+    def _get_interval(self, progress_ration: float) -> float:
+        progress_ration = progress_ration ** (1 / self.config.operation_poll_secs_backoff_grow)
+        mid = 0.5
+        jitter_size = 0.1 + 0.4 * (1 - 2 * abs(progress_ration - mid))
+        progress_ration = progress_ration * (1 + uniform(-jitter_size, jitter_size))
+        res = self.config.operation_poll_secs_min + progress_ration * (
+            self.config.operation_poll_secs_max - self.config.operation_poll_secs_min
+        )
+        return max(self.config.operation_poll_secs_min, min(res, self.config.operation_poll_secs_max))
+
+    @contextmanager
+    def _wrap_api_call(self):
+        try:
+            yield
+        except HTTPError as exc:
+            raise wrap_api_exception(exc) from exc

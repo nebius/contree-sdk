@@ -11,6 +11,7 @@ exclude = [
 
 [lint]
 extend-safe-fixes = [
+    "RUF022", # unsorted-dunder-all
     "SIM101", # duplicate-isinstance-call
     "SIM108", # if-else-block-instead-of-if-exp
     "UP006", # non-pep585-annotation

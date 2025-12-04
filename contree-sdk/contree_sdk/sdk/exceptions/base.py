@@ -14,3 +14,7 @@ class ContreeException(Exception):
 
     def __post_init__(self) -> None:
         super().__init__(self.message)
+
+
+class NotFoundException(ContreeException):
+    _template = "Object is not found"
