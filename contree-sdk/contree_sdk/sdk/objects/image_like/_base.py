@@ -99,13 +99,14 @@ class _ImageLikeBase:
 
     # main methods
 
-    def run(
+    def run(  # noqa: PLR0913
         self,
         command: str = None,
         shell: str = None,
         args: Iterable[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        hostname: str | None = None,
         stdin: IO_TYPES | None = None,
         stdout: IO_TYPES | None = None,
         stderr: IO_TYPES | None = None,
@@ -134,6 +135,7 @@ class _ImageLikeBase:
             cwd=cwd or "/",
             timeout=timeout,
             tag=tag or None,  # todo use tag later
+            hostname=hostname or "hostname",
             stdin=stdin,
             files=self._prepare_files(files or []),
             stdout=stdout,
@@ -229,21 +231,23 @@ class _ImageLikeBase:
         new_self._transition_state(ImageState.EXECUTING)
 
         files, stdin = await gather(new_self._prepare_files_for_api(req.files), to_thread(new_self._read_stdin))
-        operation_uuid = await self._client._api.spawn_instance(
-            InstanceSpawnRequest(
-                command=req.command,
-                image=str(self.uuid),
-                hostname="hostname",  # todo support it
-                args=req.args,
-                env=req.env,
-                shell=req.shell,
-                cwd=req.cwd,
-                disposable=req.disposable,
-                timeout=req.timeout or 60,
-                stdin=stdin,
-                files=files,
+
+        with self._client._wrap_api_call():
+            operation_uuid = await self._client._api.spawn_instance(
+                InstanceSpawnRequest(
+                    command=req.command,
+                    image=str(self.uuid),
+                    hostname=req.hostname,
+                    args=req.args,
+                    env=req.env,
+                    shell=req.shell,
+                    cwd=req.cwd,
+                    disposable=req.disposable,
+                    timeout=req.timeout or 60,
+                    stdin=stdin,
+                    files=files,
+                )
             )
-        )
         image_metadata, result = await self._client._wait_operation(operation_uuid, InstanceOperationMetadata)
 
         new_self._transition_state(ImageState.SUCCEEDED)
@@ -258,7 +262,8 @@ class _ImageLikeBase:
     async def _ls(
         self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
-        ls_res = await self._client._api.list_image_files(self.uuid, path)
+        with self._client._wrap_api_call():
+            ls_res = await self._client._api.list_image_files(self.uuid, path)
         result = []
         for obj in ls_res:
             type_ = dir_type if obj.is_dir else file_type
@@ -272,7 +277,8 @@ class _ImageLikeBase:
         return result
 
     async def _read_file(self, path: Path) -> bytes:
-        return await self._client._api.download_image_file(self.uuid, path)
+        with self._client._wrap_api_call():
+            return await self._client._api.download_image_file(self.uuid, path)
 
     async def _download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path:
         image_path = Path(image_path)

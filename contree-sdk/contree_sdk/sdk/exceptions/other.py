@@ -5,4 +5,4 @@ from contree_sdk.sdk.exceptions import ContreeException
 
 @dataclass
 class UnknownContreeException(ContreeException):
-    pass
+    exception: Exception | None = None

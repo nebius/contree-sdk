@@ -26,6 +26,7 @@ class CancelledOperationError(OperationError):
 
 @dataclass
 class FailedOperationError(OperationError):
+    error: str
     _template = "Operation {operation_uuid} has failed"
 
 

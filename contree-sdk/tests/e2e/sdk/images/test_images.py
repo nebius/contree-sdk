@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk.api.models.image import ImageKind
+from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 
@@ -71,14 +72,22 @@ def test_import_public_image_s(contree_s: ContreeSync):
     assert "code-server:latest" in image.tag
 
 
-# todo make proper exception for this
-# def test_pull_nonexistent_uuid_image(contree_s: ContreeSync):
-#     with pytest.raises(Exception) as e_info:
-#         contree_s.images.pull(uuid4()) # noqa: ERA001
-#     e = e_info.value # noqa: ERA001
-#     breakpoint()  # noqa: ERA001
+def test_pull_nonexistent_uuid_image_s(contree_s: ContreeSync):
+    with pytest.raises(NotFoundError):
+        contree_s.images.pull(uuid4())
 
-# todo add test for failed import
+
+def test_pull_nonexistent_tag_image_s(contree_s: ContreeSync):
+    with pytest.raises(NotFoundError):
+        contree_s.images.pull("totally-random-tag-" + str(uuid4())[:4])
+
+
+def test_pull_import_not_real_image_s(contree_s: ContreeSync):
+    url = f"docker://ghcr.io/linuxserver/random-image-{uuid4()}:latest"
+    with pytest.raises(FailedOperationError):
+        contree_s.images.pull(url)
+
+
 # todo add test for private import
 
 

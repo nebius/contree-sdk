@@ -1,3 +1,5 @@
+from random import choices
+
 import pytest
 
 from contree_sdk import Contree, ContreeSync
@@ -9,13 +11,13 @@ from contree_sdk.sdk.objects.session._sync import ContreeSessionSync
 @pytest.fixture
 async def image(contree: Contree) -> ContreeImage:
     images = await contree.images()
-    return images[0]
+    return choices(images)[0]
 
 
 @pytest.fixture
 def image_s(contree_s: ContreeSync) -> ContreeImageSync:
     images = contree_s.images()
-    return images[0]
+    return choices(images)[0]
 
 
 @pytest.fixture

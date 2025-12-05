@@ -14,6 +14,7 @@ class RunRequest:
     shell: bool | None = None
     env: dict[str, str] = field(default_factory=dict)
     cwd: str
+    hostname: str | None = None
 
     files: list[UploadFileSpec] = field(default_factory=list)
 

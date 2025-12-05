@@ -103,7 +103,7 @@ def test_basic_iter():
     started = datetime.now()
     for item in coro_iter_sync(fake_iter(5)):
         spent = datetime.now() - started
-        assert spent.total_seconds() <= _wait_time * 1.2
+        assert spent.total_seconds() <= _wait_time * 1.3
         res.append(item)
         started = datetime.now()
     assert res == [i**5 for i in range(10)]

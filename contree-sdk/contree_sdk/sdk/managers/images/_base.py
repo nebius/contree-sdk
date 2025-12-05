@@ -71,14 +71,15 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None:
                 limit = min(limit, number - current_offset)
 
-            batch = await self._client._api.get_images(
-                offset=current_offset,
-                limit=limit,
-                since=_process_time_param(since, offset=timedelta_offset),
-                until=_process_time_param(until, offset=timedelta_offset),
-                tagged=1 if tagged else None,
-                kind=kind or None,
-            )
+            with self._client._wrap_api_call():
+                batch = await self._client._api.get_images(
+                    offset=current_offset,
+                    limit=limit,
+                    since=_process_time_param(since, offset=timedelta_offset),
+                    until=_process_time_param(until, offset=timedelta_offset),
+                    tagged=1 if tagged else None,
+                    kind=kind or None,
+                )
             for image in batch:
                 yield self._image_by_data(image)
 
@@ -125,15 +126,16 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         # return by tag
         return await self._get_image_by_tag(url_or_tag_or_uuid)
 
-    #  todo add tests for exceptions
-
     async def _get_image_by_tag(self, tag: str) -> _ImageT:
-        return self._image_by_data(await self._client._api.get_image_by_tag(tag))
+        with self._client._wrap_api_call():
+            return self._image_by_data(await self._client._api.get_image_by_tag(tag))
 
     async def _get_image_by_uuid(self, uuid: UUID | str) -> _ImageT:
         if isinstance(uuid, str):
             uuid = UUID(uuid)
-        return self._image_by_data(await self._client._api.get_image_by_uuid(uuid))
+
+        with self._client._wrap_api_call():
+            return self._image_by_data(await self._client._api.get_image_by_uuid(uuid))
 
     async def _import_image(
         self,
@@ -146,7 +148,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         if isinstance(image_url, str):
             image_url = urlparse(image_url)
 
-        new_tag = new_tag or image_url.path
+        new_tag = new_tag or image_url.path.removeprefix("/")
         image_url = image_url.geturl()
 
         if username or password:
@@ -157,13 +159,14 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         else:
             registry = PublicRegistryInfo(url=image_url)
 
-        operation_uuid = await self._client._api.start_import_image(
-            ImageImportRequest(
-                registry=registry,
-                tag=new_tag,
-                timeout=300,
+        with self._client._wrap_api_call():
+            operation_uuid = await self._client._api.start_import_image(
+                ImageImportRequest(
+                    registry=registry,
+                    tag=new_tag,
+                    timeout=self._client.config.operation_timeout,
+                )
             )
-        )
         _, image_info = await self._client._wait_operation(
             operation_uuid=operation_uuid, result_type=ImageImportRequest
         )

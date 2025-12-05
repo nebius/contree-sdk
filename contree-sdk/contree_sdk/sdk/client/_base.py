@@ -89,7 +89,7 @@ class _ContreeBase:
         if resp.status == OperationStatus.CANCELLED:
             raise CancelledOperationError(operation_uuid=operation_uuid)
         if resp.status == OperationStatus.FAILED:
-            raise FailedOperationError(operation_uuid=operation_uuid)
+            raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error)
 
         return resp.metadata, resp.result
 
@@ -108,4 +108,4 @@ class _ContreeBase:
         try:
             yield
         except HTTPError as exc:
-            raise wrap_api_exception(exc) from exc
+            raise wrap_api_exception(exc).with_traceback(exc.__traceback__) from exc
