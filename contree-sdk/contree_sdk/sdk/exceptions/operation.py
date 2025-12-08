@@ -27,9 +27,9 @@ class CancelledOperationError(OperationError):
 @dataclass
 class FailedOperationError(OperationError):
     error: str
-    _template = "Operation {operation_uuid} has failed"
+    _template = "Operation {operation_uuid} has failed: {error}"
 
 
 @dataclass
-class OperationTimedOutError(FailedOperationError):
+class OperationTimedOutError(OperationError):
     _template = "Operation {operation_uuid} has timed out"

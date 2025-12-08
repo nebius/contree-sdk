@@ -11,7 +11,6 @@ from typing import IO, TYPE_CHECKING, Any, Self, TypeVar
 from uuid import UUID
 
 import cattrs
-from aiofile import async_open
 
 from contree_sdk.api.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
 from contree_sdk.sdk.exceptions.image import ContreeImageStateError, DisposableImageRunError
@@ -284,8 +283,8 @@ class _ImageLikeBase:
         image_path = Path(image_path)
         if local_path is None:
             local_path = image_path.name
-        async with async_open(local_path, "wb") as file:
-            await file.write(await self._read_file(image_path))
+        with await to_thread(open, local_path, "wb") as file:
+            await to_thread(file.write, await self._read_file(image_path))
         return local_path
 
     def __repr__(self):

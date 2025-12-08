@@ -164,7 +164,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 ImageImportRequest(
                     registry=registry,
                     tag=new_tag,
-                    timeout=self._client.config.operation_timeout,
+                    timeout=round(self._client.config.operation_timeout),
                 )
             )
         _, image_info = await self._client._wait_operation(

@@ -1,13 +1,12 @@
 [project]
 name = "contree-sdk"
-version = "0.0.0.dev2"
+version = "0.0.0.dev4"
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
 dependencies = [
     "strenum",
     "cattrs",
     "httpx", # todo move to httpx when transport will be supported
-    "aiofile",
 ]
 
 [project.optional-dependencies]
