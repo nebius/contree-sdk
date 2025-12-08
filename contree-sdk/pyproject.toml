@@ -15,6 +15,7 @@ dev = [
     "pytest-asyncio",
     "pytest-httpx",
     "pytest-xdist",
+    "rich",
 ]
 httpx = [
 
