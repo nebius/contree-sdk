@@ -36,3 +36,154 @@ only-include = ["contree_sdk", "pyproject.toml", "README.md"]
 
 [tool.hatch.build]
 only-packages = true
+
+[tool.ruff]
+line-length = 120
+src = ["contree_sdk"]
+
+target-version = "py310"
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+]
+
+[tool.ruff.lint]
+extend-safe-fixes = [
+    "RUF022", # unsorted-dunder-all
+    "SIM101", # duplicate-isinstance-call
+    "SIM108", # if-else-block-instead-of-if-exp
+    "UP006", # non-pep585-annotation
+    "UP007", # non-pep604-annotation-union
+    "UP035", # deprecated-import
+    "UP038", # non-pep604-isinstance
+]
+extend-unsafe-fixes = [
+    "PGH003",
+    "RUF100",
+    "RUF102",
+]
+
+select = [
+    "A",   # flake8-builtins
+    "AIR", # Airflow
+    #    "ANN",  # ideally, flake8-annotations
+    "ANN001", # missing-type-function-argument
+    "ANN201", # missing-return-type-undocumented-public-function
+    "ANN206", # missing-return-type-class-method
+    "ASYNC", # flake8-async
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "COM", # flake8-commas
+    "E",     # pycodestyle Error
+    "ERA", # eradicate
+    "EXE",   # flake8-executable
+    "F",     # Pyflakes
+    "FA",    # flake8-future-annotations
+    "I",     # isort
+    #    "N",     # ideally, pep8-naming
+    #    "PERF",  # ideally, Perflint
+    "PGH", # pygrep-hooks
+    "PIE", # flake8-pie
+    "PL",  # Pylint
+    #    "PT",    # ideally, flake8-pytest-style
+    "PTH", # flake8-use-pathlib
+    "PYI", # flake8-pyi
+    "RET", # flake8-return
+    "RSE",   # flake8-raise
+    "RUF", # Ruff-specific rules
+    #    "S",    # ideally, flake8-bandit
+    "SIM", # flake8-simplify
+    "SLOT",  # flake8-slots
+    "T",   # flake8-debugger
+    # "TCH", # flake8-type-checking <- Disabled for now due to issues with generic pydantic models
+    "TID",   # flake8-tidy-imports
+    "TRY", # tryceratops
+    "UP",  # pyupgrade
+    "W",     # pycodestyle Warning
+    "YTT",   # flake8-2020
+]
+
+extend-ignore = [
+    "ANN002",   # missing-type-args
+    "ANN003",   # missing-type-kwargs
+    "ANN202",   # missing-return-type-private-function
+    "ANN204",   # missing-return-type-special-method
+    "ANN401",   # any-type
+    "COM812", # missing-trailing-comma
+    "E203",   # whitespace-before-punctuation
+    "E741",   # ambiguous-variable-name
+    "PIE790", # unnecessary-placeholder
+    "RUF012", # mutable-class-default
+    "RUF013", # implicit-optional
+    "S311",   # suspicious-non-cryptographic-random-usage
+    "TRY003", # raise-vanilla-args
+]
+
+[tool.ruff.lint.per-file-ignores]
+"*" = [
+    "COM812",   # missing-trailing-comma
+    "N813",     # camelcase-imported-as-lowercase
+    "PLC0415",  # import-outside-top-level
+    "PLR2004",  # ideally, magic-value-comparison
+    "PLW1510",  # unspecified-encoding
+    "PLW2901",  # redefined-loop-name
+    "PTH118",   # os-path-join
+    "RUF005",   # collection-literal-concatenation
+    "RUF012",   # mutable-class-default,  because of old pydantic, ideally to turn on
+    "TC",       # typing-only-*-import
+    "TRY003",   # ideally, raise-vanilla-args
+]
+
+"contree_sdk/*" = [
+    "ERA", # eradicate # todo
+]
+"contree_sdk/sdk/objects/image_like/*" = [
+    "ANN",  # flake8-annotations-ann # todo
+]
+
+"contree_sdk/api/lib/*.py" = [
+    "ANN001", # missing-type-function-argument # todo
+    "ANN201", # missing-return-type-undocumented-public-function # todo
+]
+
+"contree_sdk/run_real.py" = [
+    "ERA", # eradicate
+    "T",   # flake8-debugger
+    "F",     # Pyflakes
+]
+
+"tests/**/test_*.py" = [
+    "ANN",  # flake8-annotations-ann
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 20
+
+[tool.ruff.lint.isort]
+known-first-party = ["contree_sdk"]
+known-third-party = []
+
+combine-as-imports = false
+force-sort-within-sections = false
+lines-after-imports = 2
+split-on-trailing-comma = false
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.lint.flake8-annotations]
+suppress-none-returning = true
+
+[tool.ruff.lint.flake8-implicit-str-concat]
+allow-multiline = false
+
+[tool.ruff.format]
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+]
+
+[tool.ruff.lint.pylint]
+max-args = 12
