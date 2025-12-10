@@ -38,5 +38,5 @@ class InspectMixin:
     @overload
     def get_image_by_tag(self: SyncClientMixin, tag: str) -> ContreeImageModel: ...
 
-    @get("/v1/inspect/", json=True)
+    @get("/v1/inspect", json=True)
     def get_image_by_tag(self, tag: str) -> ContreeImageModel: ...
