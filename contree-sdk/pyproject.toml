@@ -14,6 +14,7 @@ dev = [
     "pytest>=8.4.1",
     "pytest-asyncio",
     "pytest-httpx",
+    "pytest-mock",
     "pytest-xdist",
     "rich",
 ]
@@ -156,6 +157,7 @@ extend-ignore = [
 
 "tests/**/test_*.py" = [
     "ANN",  # flake8-annotations-ann
+    "ASYNC110", # async-busy-wait
 ]
 
 [tool.ruff.lint.mccabe]
