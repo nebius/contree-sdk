@@ -18,6 +18,7 @@ from contree_sdk.api.models.instance import (
 from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
+from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
 
 
@@ -164,8 +165,8 @@ def create_operation_model(
     duration: float = 0.0,
 ) -> OperationModel:
     execution_result = ProcessExecutionResult(
-        stdout=StreamDescription(value=stdout_content, encoding=StreamEncoding.base64),
-        stderr=StreamDescription(value="dGhpcyBpcyBzdGRlcnIK", encoding=StreamEncoding.base64),
+        stdout=io_encode(stdout_content, StreamEncoding.base64),
+        stderr=io_encode("this is stderr\n", StreamEncoding.base64),
         state=process_state,
         resources=resource_usage,
     )
@@ -202,7 +203,7 @@ def add_operation_responses(
     result_image_uuid: UUID,
     process_state: ProcessState,
     resource_usage: ProcessResources,
-    stdout_content: str = "bXkgaW5wdXQKdGhpcyBpcyBzdGRvdXQK",
+    stdout_content: str = "my input\nthis is stdout\n",
 ):
     pending_op = create_operation_model(
         image_uuid, result_image_uuid, process_state, resource_usage, stdout_content, OperationStatus.PENDING
@@ -316,7 +317,7 @@ def api_fake_run_with_files(
         result_image_uuid,
         process_state,
         resource_usage,
-        "c2Vjb25kIGxpbmUKbGFzdCBsaW5lCg==",
+        "second line\nlast line\n",
     )
     return api_fake_run_base
 
