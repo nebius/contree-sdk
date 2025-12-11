@@ -17,6 +17,9 @@ from contree_sdk.api.models.operation import OperationKind, OperationModel, Oper
 from contree_sdk.config import ContreeConfig
 from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
+from tests.unit.fixtures.files import add_file_responses, file_sha256, file_uuid
+from tests.unit.fixtures.images import api_fake_images, fake_image, fake_image_s, image_tag, image_uuid
+from tests.unit.fixtures.utils import r
 
 
 __all__ = [
@@ -36,15 +39,13 @@ __all__ = [
     "file_sha256",
     "file_uuid",
     "image_tag",
+    "image_uuid",
     "operation_id",
     "process_state",
     "resource_usage",
     "result_image_uuid",
     "strict_httpx",
 ]
-
-from tests.unit.fixtures.images import api_fake_images, fake_image, fake_image_s, image_tag
-from tests.unit.fixtures.utils import r
 
 
 @pytest.fixture()
@@ -80,16 +81,6 @@ def operation_id() -> str:
 
 
 @pytest.fixture()
-def file_uuid() -> str:
-    return str(uuid4())
-
-
-@pytest.fixture()
-def file_sha256() -> str:
-    return "1c338c24f4a82e6dc440204d8d6a08058a58136d3e01b4f7aa0f7588b51ba197"
-
-
-@pytest.fixture()
 def process_state() -> ProcessState:
     return ProcessState(
         continued=False,
@@ -121,22 +112,6 @@ def resource_usage() -> ProcessResources:
         unshared_memory=0,
         user_cpu_time=0.1,
         voluntary_switches=0,
-    )
-
-
-def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
-    httpx_mock.add_response(
-        method="GET",
-        url=r(".*/files\\?sha256=.*"),
-        status_code=404,
-        json={"error": "File not found", "status": 404},
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="POST",
-        url=r(".*/files"),
-        json={"uuid": file_uuid, "sha256": file_sha256},
-        is_optional=True,
     )
 
 
