@@ -1,36 +1,24 @@
-import re
-from dataclasses import asdict
 from uuid import UUID, uuid4
 
 import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.api.models.instance import (
-    InstanceOperationMetadata,
-    InstanceOperationResult,
-    ProcessExecutionResult,
-    ProcessResources,
-    ProcessState,
-)
-from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
+from contree_sdk.api.models.instance import ProcessResources, ProcessState
 from contree_sdk.config import ContreeConfig
-from contree_sdk.utils.codecs import io_encode
-from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
 from tests.unit.fixtures.files import add_file_responses, file_sha256, file_uuid
 from tests.unit.fixtures.images import api_fake_images, fake_image, fake_image_s, image_tag, image_uuid
+from tests.unit.fixtures.operations import add_operation_responses, operation_id
 from tests.unit.fixtures.utils import r
 
 
 __all__ = [
     "add_base_responses",
     "add_file_responses",
-    "add_operation_responses",
     "api_fake_images",
     "api_fake_run",
     "api_fake_run_base",
     "api_fake_run_with_files",
-    "create_operation_model",
     "fake_contree",
     "fake_contree_config",
     "fake_contree_s",
@@ -73,11 +61,6 @@ def strict_httpx(httpx_mock: HTTPXMock) -> HTTPXMock:
 @pytest.fixture()
 def result_image_uuid() -> UUID:
     return uuid4()
-
-
-@pytest.fixture()
-def operation_id() -> str:
-    return str(uuid4())
 
 
 @pytest.fixture()
@@ -132,77 +115,6 @@ def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
         method="GET",
         url=r(".*/inspect/.*"),
         json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
-    )
-
-
-def create_operation_model(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-    stdout_content: str,
-    status: OperationStatus,
-    duration: float = 0.0,
-) -> OperationModel:
-    execution_result = ProcessExecutionResult(
-        stdout=io_encode(stdout_content, StreamEncoding.base64),
-        stderr=io_encode("this is stderr\n", StreamEncoding.base64),
-        state=process_state,
-        resources=resource_usage,
-    )
-
-    metadata = InstanceOperationMetadata(
-        args=[],
-        command="",
-        cwd="/",
-        disposable=True,
-        env={},
-        files={},
-        hostname="",
-        image=str(image_uuid),
-        shell=True,
-        stdin=StreamDescription(value="", encoding=StreamEncoding.ascii),
-        timeout=60,
-        truncate_output_at=65535,
-        result=execution_result,
-    )
-
-    return OperationModel(
-        kind=OperationKind.INSTANCE,
-        status=status,
-        duration=duration,
-        metadata=metadata,
-        result=InstanceOperationResult(image=str(result_image_uuid), tag=None),
-    )
-
-
-def add_operation_responses(
-    httpx_mock: HTTPXMock,
-    operation_id: str,
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-    stdout_content: str = "my input\nthis is stdout\n",
-):
-    pending_op = create_operation_model(
-        image_uuid, result_image_uuid, process_state, resource_usage, stdout_content, OperationStatus.PENDING
-    )
-    success_op = create_operation_model(
-        image_uuid, result_image_uuid, process_state, resource_usage, stdout_content, OperationStatus.SUCCESS, 0.5
-    )
-
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(pending_op),
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(success_op),
         is_optional=True,
     )
 
