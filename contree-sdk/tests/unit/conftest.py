@@ -1,10 +1,8 @@
 import re
 from dataclasses import asdict
-from re import escape
 from uuid import UUID, uuid4
 
 import pytest
-from httpx import QueryParams
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
@@ -17,9 +15,36 @@ from contree_sdk.api.models.instance import (
 )
 from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
 from contree_sdk.config import ContreeConfig
-from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
+
+
+__all__ = [
+    "add_base_responses",
+    "add_file_responses",
+    "add_operation_responses",
+    "api_fake_images",
+    "api_fake_run",
+    "api_fake_run_base",
+    "api_fake_run_with_files",
+    "create_operation_model",
+    "fake_contree",
+    "fake_contree_config",
+    "fake_contree_s",
+    "fake_image",
+    "fake_image_s",
+    "file_sha256",
+    "file_uuid",
+    "image_tag",
+    "operation_id",
+    "process_state",
+    "resource_usage",
+    "result_image_uuid",
+    "strict_httpx",
+]
+
+from tests.unit.fixtures.images import api_fake_images, fake_image, fake_image_s, image_tag
+from tests.unit.fixtures.utils import r
 
 
 @pytest.fixture()
@@ -45,11 +70,6 @@ def strict_httpx(httpx_mock: HTTPXMock) -> HTTPXMock:
 
 
 @pytest.fixture()
-def image_uuid() -> UUID:
-    return uuid4()
-
-
-@pytest.fixture()
 def result_image_uuid() -> UUID:
     return uuid4()
 
@@ -67,11 +87,6 @@ def file_uuid() -> str:
 @pytest.fixture()
 def file_sha256() -> str:
     return "1c338c24f4a82e6dc440204d8d6a08058a58136d3e01b4f7aa0f7588b51ba197"
-
-
-@pytest.fixture()
-def image_tag() -> str:
-    return "busybox:latest"
 
 
 @pytest.fixture()
@@ -107,15 +122,6 @@ def resource_usage() -> ProcessResources:
         user_cpu_time=0.1,
         voluntary_switches=0,
     )
-
-
-r = re.compile
-
-
-def url(path: str, params: dict = None) -> re.Pattern:
-    if params is not None:
-        path += escape("?" + str(QueryParams(params)))
-    return r(".*" + path)
 
 
 def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
@@ -227,48 +233,6 @@ def add_operation_responses(
 
 
 @pytest.fixture()
-def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -> HTTPXMock:
-    image_dict = {"uuid": str(image_uuid), "tag": image_tag, "created_at": "2024-01-01T12:00:00+00:00"}
-    strict_httpx.add_response(
-        method="GET",
-        url=r(".*/images"),
-        json={
-            "images": [
-                image_dict,
-            ]
-        },
-        is_optional=True,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=r(f".*/inspect/{image_uuid}"),
-        json=image_dict,
-        is_optional=True,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=url("/inspect", params={"tag": image_tag}),
-        json=image_dict,
-        is_optional=True,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=r(".*/inspect/.*"),
-        json={"error": "Image not found", "status": 404},
-        is_optional=True,
-        status_code=404,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=r(r".*/inspect\?tag=.*"),
-        json={"error": "Image not found", "status": 404},
-        is_optional=True,
-        status_code=404,
-    )
-    return strict_httpx
-
-
-@pytest.fixture()
 def api_fake_run_base(
     image_uuid: UUID,
     operation_id: str,
@@ -320,15 +284,3 @@ def api_fake_run_with_files(
         "second line\nlast line\n",
     )
     return api_fake_run_base
-
-
-@pytest.fixture()
-def fake_image(fake_contree: Contree, image_uuid: UUID, image_tag: str, api_fake_images: HTTPXMock) -> ContreeImage:
-    return ContreeImage(client=fake_contree, uuid=image_uuid, tag=image_tag)
-
-
-@pytest.fixture()
-def fake_image_s(
-    fake_contree_s: ContreeSync, image_uuid: UUID, image_tag: str, api_fake_images: HTTPXMock
-) -> ContreeImageSync:
-    return ContreeImageSync(client=fake_contree_s, uuid=image_uuid, tag=image_tag)
