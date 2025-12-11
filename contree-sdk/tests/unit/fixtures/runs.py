@@ -5,8 +5,7 @@ from pytest_httpx import HTTPXMock
 
 from contree_sdk.api.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
-from tests.unit.fixtures.operations import add_operation_responses
-from tests.unit.fixtures.utils import r
+from tests.unit.fixtures.operations import add_base_responses, add_operation_responses
 
 
 @pytest.fixture()
@@ -46,27 +45,6 @@ def resource_usage() -> ProcessResources:
         unshared_memory=0,
         user_cpu_time=0.1,
         voluntary_switches=0,
-    )
-
-
-def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
-    httpx_mock.add_response(
-        method="POST",
-        url=r(".*/instances"),
-        json={"uuid": operation_id},
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="DELETE",
-        url=r(".*/operations/.*"),
-        json={},
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="GET",
-        url=r(".*/inspect/.*"),
-        json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
     )
 
 

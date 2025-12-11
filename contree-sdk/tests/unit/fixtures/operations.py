@@ -15,6 +15,7 @@ from contree_sdk.api.models.instance import (
 from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
 from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
+from tests.unit.fixtures.utils import r
 
 
 @pytest.fixture()
@@ -89,5 +90,26 @@ def add_operation_responses(
         method="GET",
         url=re.compile(f".*/operations/{operation_id}"),
         json=asdict(success_op),
+        is_optional=True,
+    )
+
+
+def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
+    httpx_mock.add_response(
+        method="POST",
+        url=r(".*/instances"),
+        json={"uuid": operation_id},
+        is_optional=True,
+    )
+    httpx_mock.add_response(
+        method="DELETE",
+        url=r(".*/operations/.*"),
+        json={},
+        is_optional=True,
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=r(".*/inspect/.*"),
+        json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
         is_optional=True,
     )
