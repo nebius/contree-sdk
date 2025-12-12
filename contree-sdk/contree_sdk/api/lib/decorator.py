@@ -10,7 +10,7 @@ from contree_sdk.api.lib.types import EMPTY, ApiEndpointInfo, Body, OctetFile, R
 
 
 if TYPE_CHECKING:
-    from contree_sdk.api.client.client import ContreeClientBase
+    from contree_sdk._internals.client import ContreeClientBase
 
 _formatter = Formatter()
 

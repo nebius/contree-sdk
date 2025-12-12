@@ -12,7 +12,7 @@ from uuid import UUID
 from httpx import HTTPError
 from typing_extensions import TypeVar
 
-from contree_sdk.api.client.client import ContreeClient
+from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk.api.models.instance import InstanceOperationResult
 from contree_sdk.api.models.operation import OperationStatus
 from contree_sdk.config import ContreeConfig
