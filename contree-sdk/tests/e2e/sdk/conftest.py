@@ -21,10 +21,10 @@ def image_s(contree_s: ContreeSync) -> ContreeImageSync:
 
 
 @pytest.fixture
-async def session(image: ContreeImage) -> ContreeSession:
+def session(image: ContreeImage) -> ContreeSession:
     return image.session()
 
 
 @pytest.fixture
-async def session_s(image_s: ContreeImageSync) -> ContreeSessionSync:
+def session_s(image_s: ContreeImageSync) -> ContreeSessionSync:
     return image_s.session()

@@ -3,9 +3,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
-from contree_sdk.sdk.objects.image_fs._async import ImageDirectory, ImageFile
-from contree_sdk.sdk.objects.image_fs._sync import ImageFileSync
-from contree_sdk.sdk.objects.image_like._sync import ImageDirectorySync
+from contree_sdk.sdk.objects.image_fs import ImageDirectory, ImageDirectorySync, ImageFile, ImageFileSync
 
 
 _path_etc = "/etc"
@@ -63,7 +61,7 @@ async def test_download_file(image: ContreeImage):
     assert await res_file.read() == RANDOM_DATA
 
 
-async def test_download_file_s(image_s: ContreeImageSync):
+def test_download_file_s(image_s: ContreeImageSync):
     res = image_s.run(shell="cat > /output.txt", stdin=RANDOM_DATA, disposable=False).wait()
     with NamedTemporaryFile("rb") as f:
         res.download("/output.txt", f.name)

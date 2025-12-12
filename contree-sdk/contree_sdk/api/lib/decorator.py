@@ -49,13 +49,11 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
                 continue
             all_params.append(name)
             annotation = param.annotation
-            # type_ = annotation
-            # default = param.default
             is_body = False
             is_file = False
 
             if get_origin(annotation) is Annotated:
-                type_, *meta = get_args(annotation)
+                _, *meta = get_args(annotation)
                 for class_ in meta:
                     if not isclass(class_):
                         continue

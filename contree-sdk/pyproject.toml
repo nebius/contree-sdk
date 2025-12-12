@@ -155,8 +155,9 @@ extend-ignore = [
 ]
 
 "tests/**/test_*.py" = [
-    "ANN",  # flake8-annotations-ann
+    "ANN",      # flake8-annotations-ann
     "ASYNC110", # async-busy-wait
+    "RUF059",   # unused-unpacked-variable
 ]
 
 [tool.ruff.lint.mccabe]
