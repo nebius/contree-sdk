@@ -19,8 +19,10 @@ dev = [
     "rich",
 ]
 httpx = [
+
 ]
 shell = [
+
 ]
 
 [build-system]
