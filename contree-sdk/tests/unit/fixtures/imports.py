@@ -5,9 +5,10 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_httpx import HTTPXMock
 
-from contree_sdk.api.models.image_import import ImageImportRequest, PublicRegistryInfo
-from contree_sdk.api.models.instance import InstanceOperationResult, ProcessResources, ProcessState
-from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
+from contree_sdk._internals.models.image_import import ImageImportRequest, PublicRegistryInfo
+from contree_sdk._internals.models.instance import InstanceOperationResult, ProcessResources, ProcessState
+from contree_sdk._internals.models.operation import OperationKind, OperationModel
+from contree_sdk.utils.models.operation import OperationStatus
 from tests.unit.fixtures.operations import add_base_responses
 from tests.unit.fixtures.utils import r
 

@@ -1,11 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime
-from enum import IntEnum
-
-
-class ImageKind(IntEnum):
-    INSTANCES = 0
-    IMPORTED = 1
 
 
 ImageTag = str

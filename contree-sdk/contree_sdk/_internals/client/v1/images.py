@@ -3,8 +3,9 @@ from typing import Annotated, overload
 from contree_sdk._internals.lib.decorator import get, post
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import Body
-from contree_sdk.api.models.image import ContreeImageModel, ImageKind
-from contree_sdk.api.models.image_import import ImageImportRequest
+from contree_sdk._internals.models.image import ContreeImageModel
+from contree_sdk._internals.models.image_import import ImageImportRequest
+from contree_sdk.utils.objects.image import ImageKind
 
 
 class ImagesMixin:

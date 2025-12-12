@@ -4,10 +4,10 @@ from uuid import UUID, uuid4
 import pytest
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.api.models.image import ImageKind
 from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
+from contree_sdk.utils.models.image import ImageKind
 
 
 @pytest.mark.parametrize("client_type", ["async", "sync"])

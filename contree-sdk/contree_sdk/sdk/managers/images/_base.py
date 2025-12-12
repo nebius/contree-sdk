@@ -5,9 +5,10 @@ from typing import Generic, TypeVar
 from urllib.parse import ParseResult, urlparse
 from uuid import UUID
 
-from contree_sdk.api.models.image import ContreeImageModel, ImageKind
-from contree_sdk.api.models.image_import import (
+from contree_sdk._internals.models import (
+    ContreeImageModel,
     ImageImportRequest,
+    ImageKind,
     PrivateRegistryInfo,
     PublicRegistryInfo,
     RegistryCredentials,

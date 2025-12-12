@@ -5,15 +5,16 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_httpx import HTTPXMock
 
-from contree_sdk.api.models.instance import (
+from contree_sdk._internals.models.instance import (
     InstanceOperationMetadata,
     InstanceOperationResult,
     ProcessExecutionResult,
     ProcessResources,
     ProcessState,
 )
-from contree_sdk.api.models.operation import OperationKind, OperationModel, OperationStatus
+from contree_sdk._internals.models.operation import OperationKind, OperationModel
 from contree_sdk.utils.codecs import io_encode
+from contree_sdk.utils.models.operation import OperationStatus
 from contree_sdk.utils.objects.stream import StreamDescription, StreamEncoding
 from tests.unit.fixtures.utils import r
 

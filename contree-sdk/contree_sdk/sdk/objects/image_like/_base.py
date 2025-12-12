@@ -12,7 +12,7 @@ from uuid import UUID
 
 import cattrs
 
-from contree_sdk.api.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
+from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
 from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState

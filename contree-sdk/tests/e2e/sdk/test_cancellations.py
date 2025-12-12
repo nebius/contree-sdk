@@ -6,8 +6,8 @@ import pytest
 from pytest_mock import MockerFixture, MockType
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.api.models.operation import OperationStatus
 from contree_sdk.sdk.client._base import _ContreeBase
+from contree_sdk.utils.models.operation import OperationStatus
 from tests.utils.interrupter import interrupter
 
 

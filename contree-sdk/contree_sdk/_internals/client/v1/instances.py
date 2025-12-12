@@ -3,7 +3,7 @@ from typing import Annotated, overload
 from contree_sdk._internals.lib.decorator import post
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import Body
-from contree_sdk.api.models.instance import InstanceSpawnRequest
+from contree_sdk._internals.models.instance import InstanceSpawnRequest
 
 
 class InstancesMixin:

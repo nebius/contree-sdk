@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contree_sdk.api.models.instance import InstanceOperationMetadata
+from contree_sdk._internals.models.instance import InstanceOperationMetadata
 from contree_sdk.sdk.objects.run import REQUEST_IO_TYPES, RunRequest
 from contree_sdk.utils.codecs import io_decode
 from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, PipeIO, get_io_by_obj

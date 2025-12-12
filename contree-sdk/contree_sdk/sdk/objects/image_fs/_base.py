@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from contree_sdk.api.models.file import FileItemModel
+from contree_sdk._internals.models import FileItemModel
 from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, _ImageLikeBase
 
 

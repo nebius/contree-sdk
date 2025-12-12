@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from functools import partial
 
-from contree_sdk.api.models.instance import StreamDescription
+from contree_sdk._internals.models.instance import StreamDescription
 from contree_sdk.utils.objects.stream import StreamEncoding
 
 

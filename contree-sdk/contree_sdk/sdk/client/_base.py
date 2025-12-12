@@ -13,8 +13,7 @@ from httpx import HTTPError
 from typing_extensions import TypeVar
 
 from contree_sdk._internals.client.client import ContreeClient
-from contree_sdk.api.models.instance import InstanceOperationResult
-from contree_sdk.api.models.operation import OperationStatus
+from contree_sdk._internals.models.instance import InstanceOperationResult
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
@@ -23,6 +22,7 @@ from contree_sdk.sdk.exceptions import (
     WrongOperationTypeError,
     wrap_api_exception,
 )
+from contree_sdk.utils.models.operation import OperationStatus
 
 
 if TYPE_CHECKING:

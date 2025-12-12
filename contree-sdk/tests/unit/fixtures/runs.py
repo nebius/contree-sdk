@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_httpx import HTTPXMock
 
-from contree_sdk.api.models.instance import ProcessResources, ProcessState
+from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
 from tests.unit.fixtures.operations import add_base_responses, add_operation_responses
 
