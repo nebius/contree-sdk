@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import overload
 from uuid import UUID
 
-from contree_sdk.api.lib.decorator import get
-from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk._internals.lib.decorator import get
+from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk.api.models.file import FileItemModel
 from contree_sdk.api.models.image import ContreeImageModel
 

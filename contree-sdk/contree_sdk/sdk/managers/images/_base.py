@@ -12,7 +12,7 @@ from contree_sdk.api.models.image_import import (
     PublicRegistryInfo,
     RegistryCredentials,
 )
-from contree_sdk.sdk.managers.base import BaseManager
+from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 
 

@@ -143,15 +143,13 @@ extend-ignore = [
     "ANN",  # flake8-annotations-ann # todo
 ]
 
-"contree_sdk/api/lib/*.py" = [
+"contree_sdk/_internals/lib/*.py" = [
     "ANN001", # missing-type-function-argument # todo
     "ANN201", # missing-return-type-undocumented-public-function # todo
 ]
-
-"contree_sdk/run_real.py" = [
-    "ERA", # eradicate
-    "T",   # flake8-debugger
-    "F",     # Pyflakes
+"contree_sdk/api/lib/*.py" = [
+    "ANN001", # missing-type-function-argument # todo
+    "ANN201", # missing-return-type-undocumented-public-function # todo
 ]
 
 "tests/**/test_*.py" = [

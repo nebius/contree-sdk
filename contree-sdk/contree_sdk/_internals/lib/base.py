@@ -5,10 +5,10 @@ import httpx
 from httpx import Request, Response
 from httpx._config import DEFAULT_TIMEOUT_CONFIG
 
-from contree_sdk.api.lib.decorator import EMPTY
-from contree_sdk.api.lib.helpers import convert_data_to_type
-from contree_sdk.api.lib.mixins import AsyncClientMixin, SyncClientMixin
-from contree_sdk.api.lib.types import ApiEndpointInfo, ReturnType
+from contree_sdk._internals.lib.decorator import EMPTY
+from contree_sdk._internals.lib.helpers import convert_data_to_type
+from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
+from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
 
 
 class ClientBase(ABC):

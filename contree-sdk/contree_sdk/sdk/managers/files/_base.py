@@ -4,7 +4,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from contree_sdk.sdk.exceptions import NotFoundError
-from contree_sdk.sdk.managers.base import BaseManager
+from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.utils.objects.file import UploadedFile
 
 

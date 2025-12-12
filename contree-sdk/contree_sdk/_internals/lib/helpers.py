@@ -1,6 +1,6 @@
 from cattrs.preconf.json import make_converter
 
-from contree_sdk.api.lib.types import ReturnType
+from contree_sdk._internals.lib.types import ReturnType
 
 
 _converter = make_converter()
