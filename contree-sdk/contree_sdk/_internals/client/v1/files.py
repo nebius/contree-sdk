@@ -3,7 +3,7 @@ from typing import Annotated, overload
 from contree_sdk._internals.lib.decorator import get, head, post
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import FileContent, OctetFile
-from contree_sdk.utils.objects.file import UploadedFile
+from contree_sdk.utils.models.file import UploadedFile
 
 
 class FilesMixin:

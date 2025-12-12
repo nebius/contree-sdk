@@ -2,7 +2,7 @@ from collections.abc import Callable
 from functools import partial
 
 from contree_sdk._internals.models.instance import StreamDescription
-from contree_sdk.utils.objects.stream import StreamEncoding
+from contree_sdk.utils.models.stream import StreamEncoding
 
 
 def _decode_base64(value: str) -> bytes:

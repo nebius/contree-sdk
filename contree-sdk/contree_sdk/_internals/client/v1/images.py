@@ -5,7 +5,7 @@ from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import Body
 from contree_sdk._internals.models.image import ContreeImageModel
 from contree_sdk._internals.models.image_import import ImageImportRequest
-from contree_sdk.utils.objects.image import ImageKind
+from contree_sdk.utils.models.image import ImageKind
 
 
 class ImagesMixin:

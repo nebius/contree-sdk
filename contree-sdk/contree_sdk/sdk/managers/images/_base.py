@@ -5,16 +5,16 @@ from typing import Generic, TypeVar
 from urllib.parse import ParseResult, urlparse
 from uuid import UUID
 
-from contree_sdk._internals.models import (
-    ContreeImageModel,
+from contree_sdk._internals.models.image import ContreeImageModel
+from contree_sdk._internals.models.image_import import (
     ImageImportRequest,
-    ImageKind,
     PrivateRegistryInfo,
     PublicRegistryInfo,
     RegistryCredentials,
 )
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
+from contree_sdk.utils.models.image import ImageKind
 
 
 _ImageT = TypeVar("_ImageT", bound=_ContreeImageBase)

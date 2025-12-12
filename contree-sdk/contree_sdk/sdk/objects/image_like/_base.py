@@ -19,8 +19,8 @@ from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, get_io_by_obj
-from contree_sdk.utils.objects.file import UploadedFile, UploadFileSpec
-from contree_sdk.utils.objects.stream import StreamDescription
+from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
+from contree_sdk.utils.models.stream import StreamDescription
 
 
 if TYPE_CHECKING:

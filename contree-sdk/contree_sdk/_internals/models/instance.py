@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from contree_sdk.utils.objects.stream import StreamDescription
+from contree_sdk.utils.models.stream import StreamDescription
 
 
 @dataclass

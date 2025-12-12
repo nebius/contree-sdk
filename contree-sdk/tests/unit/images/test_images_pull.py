@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from contree_sdk import Contree
-from contree_sdk._internals.models import ContreeImageModel
+from contree_sdk._internals.models.image import ContreeImageModel
 
 
 @pytest.mark.parametrize(
