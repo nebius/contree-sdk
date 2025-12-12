@@ -28,9 +28,9 @@ class _WrapperContext:
         self._start_event: Event = Event()
 
     def ensure_running(self):
-        if self._loop is not None:
-            return
         with self._lock:
+            if self._loop is not None:
+                return
             self._start_event.clear()
             self.thread = Thread(target=self._thread_main, daemon=True)
             self.thread.start()

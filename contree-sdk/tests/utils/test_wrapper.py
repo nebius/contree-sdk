@@ -1,11 +1,12 @@
 import asyncio
+from asyncio import sleep
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import Thread
 
 import pytest
 
-from contree_sdk.utils.wrapper import coro_iter_sync, to_sync
+from contree_sdk.utils.wrapper import coro_iter_sync, coro_sync, to_sync
 
 
 _wait_time = 0.01
@@ -60,6 +61,33 @@ def test_thread_pool_executor():
 
     assert len(executor_results) == 5
     assert sorted(executor_results) == [4, 5, 6, 7, 8]
+
+
+def test_thread_pool_object_with_lock():
+    class A:
+        def __init__(self):
+            self.lock = asyncio.Lock()
+
+        async def _async_meth(self):
+            async with self.lock:
+                await sleep(_wait_time / 5)
+                return 42
+
+        def sync_meth(self):
+            return coro_sync(self._async_meth())
+
+    a = A()
+
+    def _run():
+        return a.sync_meth()
+
+    pool = ThreadPoolExecutor(max_workers=3)
+    futures = []
+    for _ in range(10):
+        futures.append(pool.submit(_run))
+
+    results = [fut.result() for fut in futures]
+    assert results == [42] * 10
 
 
 def test_multiple_tasks_in_threads():

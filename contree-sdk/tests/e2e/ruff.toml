@@ -1,2 +1,7 @@
 extend = "../../pyproject.toml"
-line-length=1
+preview = true
+
+[lint]
+extend-select = [
+    "PLC2701", # import-private-name
+]

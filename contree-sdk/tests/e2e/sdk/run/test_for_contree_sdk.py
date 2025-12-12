@@ -52,6 +52,21 @@ def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfi
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
+def test_thread_pool_create_run_same_client(contree_s: ContreeSync):
+    def _run():
+        image_s = contree_s.images.pull("python:3.11-slim")
+        return image_s.run(shell=RANDOM_INT_COMMAND).wait()
+
+    pool = ThreadPoolExecutor(max_workers=N_WORKERS)
+    futures = []
+    for _ in range(N_RUNS):
+        futures.append(pool.submit(_run))
+
+    raw_results = [fut.result().stdout for fut in futures]
+    results = list(map(int, raw_results))
+    assert len(set(results)) == len(results) == len(futures) == N_RUNS
+
+
 def test_threaded_pool_with_rich_live_context(contree_config: ContreeConfig):
     def _run():
         client = ContreeSync(contree_config)
