@@ -158,6 +158,7 @@ extend-ignore = [
     "ANN",      # flake8-annotations-ann
     "ASYNC110", # async-busy-wait
     "RUF059",   # unused-unpacked-variable
+    "PLC1901",  # compare-to-empty-string
 ]
 
 [tool.ruff.lint.mccabe]
