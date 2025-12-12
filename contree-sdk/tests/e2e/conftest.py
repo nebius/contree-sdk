@@ -22,7 +22,7 @@ def _contree_token() -> str:
 def contree_config(_contree_token: str) -> ContreeConfig:
     return ContreeConfig(
         token=_contree_token,
-        base_url=ContreeEndpoint.STAGE,
+        base_url=ContreeEndpoint.PRODUCTION,
     )
 
 
