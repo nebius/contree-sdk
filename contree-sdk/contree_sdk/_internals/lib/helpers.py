@@ -10,7 +10,7 @@ def convert_data_to_type(data: dict | int | str | list, return_type: type[Return
     return _converter.structure(data, return_type)
 
 
-def args_kwargs_to_kwargs(all_params, args, kwargs):
+def args_kwargs_to_kwargs(all_params: list[str], args: tuple, kwargs: dict) -> dict:
     kwargs = kwargs.copy()
 
     for param, arg in zip(all_params, args, strict=False):

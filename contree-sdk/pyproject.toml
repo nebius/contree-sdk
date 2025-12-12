@@ -136,22 +136,6 @@ extend-ignore = [
     "TRY003",   # ideally, raise-vanilla-args
 ]
 
-"contree_sdk/*" = [
-    "ERA", # eradicate # todo
-]
-"contree_sdk/sdk/objects/image_like/*" = [
-    "ANN",  # flake8-annotations-ann # todo
-]
-
-"contree_sdk/_internals/lib/*.py" = [
-    "ANN001", # missing-type-function-argument # todo
-    "ANN201", # missing-return-type-undocumented-public-function # todo
-]
-"contree_sdk/api/lib/*.py" = [
-    "ANN001", # missing-type-function-argument # todo
-    "ANN201", # missing-return-type-undocumented-public-function # todo
-]
-
 "tests/**/test_*.py" = [
     "ANN",      # flake8-annotations-ann
     "ASYNC110", # async-busy-wait

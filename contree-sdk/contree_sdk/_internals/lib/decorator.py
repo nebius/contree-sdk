@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 from collections.abc import Callable, Iterable
 from functools import partial, wraps
@@ -16,7 +18,7 @@ _formatter = Formatter()
 
 
 # todo add proper typing
-def apied(method, path, *, json: bool | Iterable[str] = False):
+def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
     match json:
         case False:
             json_path = None
@@ -84,7 +86,7 @@ def apied(method, path, *, json: bool | Iterable[str] = False):
         )
 
         @wraps(func)
-        def wrapper(self, *args, **kwargs):
+        def wrapper(self: ContreeClientBase, *args, **kwargs):
             self: ContreeClientBase
 
             return self._handle_api_call(

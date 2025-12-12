@@ -27,7 +27,7 @@ class ContreeResult:
         )
 
     @classmethod
-    def _parse_io(cls, raw_io: StreamDescription, expected: REQUEST_IO_TYPES):
+    def _parse_io(cls, raw_io: StreamDescription, expected: REQUEST_IO_TYPES) -> IO_TYPES | None:
         parsed = io_decode(raw_io)
         if expected is bytes:
             return parsed

@@ -28,9 +28,13 @@ if TYPE_CHECKING:
 
 _PREPARATION_STATES = frozenset({ImageState.PREPARING, ImageState.PREPARED})
 
-# Permitted stated transmissions
-# from_state: to_states
-_STATE_MACHINE = {
+"""
+Permitted state transitions.
+
+Mapping:
+    from_state -> allowed to_states
+"""
+_STATE_MACHINE: dict[ImageState, frozenset[ImageState]] = {
     ImageState.PULLED: _PREPARATION_STATES,
     ImageState.PREPARING: _PREPARATION_STATES,
     ImageState.PREPARED: frozenset({ImageState.EXECUTING}),
@@ -69,16 +73,16 @@ class _ImageLikeBase:
     def stdin_from(self, stdin: IO_TYPES, /) -> Self:
         raise NotImplementedError
 
-    def cwd(self, cwd, /) -> Self:
+    def cwd(self, cwd: str, /) -> Self:
         raise NotImplementedError
 
     def env(self, env: dict = None, **envs) -> Self:
         raise NotImplementedError
 
-    def stdout_to(self, stdout, /) -> Self:
+    def stdout_to(self, stdout: IO_TYPES, /) -> Self:
         raise NotImplementedError
 
-    def stderr_to(self, stderr, /) -> Self:
+    def stderr_to(self, stderr: IO_TYPES, /) -> Self:
         raise NotImplementedError
 
     def add_tag(self, tag: str, /) -> Self:
@@ -89,7 +93,7 @@ class _ImageLikeBase:
 
     # utils methods
 
-    def _copy_self(self, clear=True) -> Self:
+    def _copy_self(self, clear: bool = True) -> Self:
         # todo make an actual copy when developing chaining
         new_self = copy(self)
         if clear:
