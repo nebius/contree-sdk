@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from contree_sdk import Contree
-from contree_sdk.utils.objects.file import UploadedFile
+from contree_sdk.utils.models.file import UploadedFile
 
 
 async def test_upload_file(contree: Contree, test_txt_path: Path):
