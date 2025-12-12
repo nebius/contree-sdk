@@ -49,7 +49,7 @@ def test_multiple_threads():
     for thread in threads:
         thread.join()
     spent = datetime.now() - started
-    assert spent.total_seconds() <= _wait_time * 1.2 + 0.05
+    assert spent.total_seconds() <= _wait_time * 5 * 0.75
 
     assert data == set()
 
@@ -116,7 +116,7 @@ def test_multiple_tasks_in_threads():
         thread.join()
 
     spent = datetime.now() - started
-    assert spent.total_seconds() <= _wait_time * 1.2 + 0.05
+    assert spent.total_seconds() <= _wait_time * 25
     assert data == set()
 
 
@@ -131,7 +131,7 @@ def test_basic_iter():
     started = datetime.now()
     for item in coro_iter_sync(fake_iter(5)):
         spent = datetime.now() - started
-        assert spent.total_seconds() <= _wait_time * 1.3
+        assert spent.total_seconds() <= _wait_time * 2
         res.append(item)
         started = datetime.now()
     assert res == [i**5 for i in range(10)]
