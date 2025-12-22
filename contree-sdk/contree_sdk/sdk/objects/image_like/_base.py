@@ -300,17 +300,26 @@ class _ImageLikeBase:
     # result methods
 
     @property
+    def result(self) -> ContreeResult:
+        self._assert_states(ImageState.SUCCEEDED)
+        return self._result
+
+    @property
     def stdin(self) -> IO | None:
         return self._stdin
 
     @property
     def stdout(self) -> IO_TYPES | None:
-        return self._result.stdout
+        return self.result.stdout
 
     @property
     def stderr(self) -> IO_TYPES | None:
-        return self._result.stderr
+        return self.result.stderr
 
     @property
     def exit_code(self) -> int:
-        return self._result.exit_code
+        return self.result.exit_code
+
+    @property
+    def elapsed(self) -> timedelta:
+        return self.result.elapsed_time

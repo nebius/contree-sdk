@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from contree_sdk._internals.models.instance import InstanceOperationMetadata
 from contree_sdk.sdk.objects.run import REQUEST_IO_TYPES, RunRequest
@@ -14,6 +15,8 @@ class ContreeResult:
     stderr: IO_TYPES | None
     stdout: IO_TYPES | None
     exit_code: int
+    elapsed_time: timedelta
+    cost: float
 
     _raw: InstanceOperationMetadata | None = None
 
@@ -23,6 +26,8 @@ class ContreeResult:
             exit_code=raw_result.result.state.exit_code,
             stdout=cls._parse_io(raw_result.result.stdout, request.stdout),
             stderr=cls._parse_io(raw_result.result.stderr, request.stderr),
+            elapsed_time=timedelta(seconds=raw_result.result.resources.elapsed_time),
+            cost=raw_result.result.resources.cost,
             _raw=raw_result,
         )
 

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import IOBase, StringIO
 from pathlib import Path
 from subprocess import PIPE
@@ -20,6 +21,10 @@ async def test_basic_run(image):
     assert result.stderr == _stderr
     assert result.exit_code == 0
 
+    elapsed = result.elapsed
+    assert isinstance(elapsed, timedelta)
+    assert elapsed.total_seconds() > 0
+
 
 def test_basic_run_s(image_s):
     result = image_s.run(shell=_shell_command, stdin=_stdin).wait()
@@ -28,6 +33,10 @@ def test_basic_run_s(image_s):
     assert result.stdout == _stdout
     assert result.stderr == _stderr
     assert result.exit_code == 0
+
+    elapsed = result.elapsed
+    assert isinstance(elapsed, timedelta)
+    assert elapsed.total_seconds() > 0
 
 
 def test_run_with_files_s(image_s, test_txt_path: Path):
