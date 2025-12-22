@@ -1,4 +1,5 @@
 from random import choices
+from uuid import UUID
 
 import pytest
 
@@ -18,6 +19,21 @@ async def image(contree: Contree) -> ContreeImage:
 def image_s(contree_s: ContreeSync) -> ContreeImageSync:
     images = contree_s.images()
     return choices(images)[0]
+
+
+@pytest.fixture
+def image_uuid(image: ContreeImage) -> UUID:
+    return image.uuid
+
+
+@pytest.fixture
+async def image_tag(contree: Contree) -> str:
+    images = await contree.images()
+    for image in images:
+        if not image.tag:
+            continue
+        return image.tag
+    raise ValueError("Image tag not found")
 
 
 @pytest.fixture

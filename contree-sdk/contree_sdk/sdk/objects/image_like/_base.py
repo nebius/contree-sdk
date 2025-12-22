@@ -155,7 +155,7 @@ class _ImageLikeBase:
     ) -> list[UploadFileSpec]:
         prepared = []
         if isinstance(files, dict):
-            for image_path, file in files:
+            for image_path, file in files.items():
                 if isinstance(file, UploadFileSpec):
                     item = replace(file, path=Path(image_path))
                 else:

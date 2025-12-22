@@ -37,9 +37,9 @@ def test_threaded_pool_run_different_clients(contree_config: ContreeConfig):
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfig):
+def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfig, image_tag):
     def _run():
-        image_s = ContreeSync(contree_config).images.pull("python:3.11-slim")
+        image_s = ContreeSync(contree_config).images.pull(image_tag)
         return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
@@ -52,9 +52,9 @@ def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfi
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_thread_pool_create_run_same_client(contree_s: ContreeSync):
+def test_thread_pool_create_run_same_client(contree_s: ContreeSync, image_tag):
     def _run():
-        image_s = contree_s.images.pull("python:3.11-slim")
+        image_s = contree_s.images.pull(image_tag)
         return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
@@ -67,10 +67,10 @@ def test_thread_pool_create_run_same_client(contree_s: ContreeSync):
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_threaded_pool_with_rich_live_context(contree_config: ContreeConfig):
+def test_threaded_pool_with_rich_live_context(contree_config: ContreeConfig, image_tag):
     def _run():
         client = ContreeSync(contree_config)
-        session = client.images.pull("python:3.11-slim").session()
+        session = client.images.pull(image_tag).session()
         return session.run(shell=RANDOM_INT_COMMAND).wait()
 
     with Live(Text("Testing..."), refresh_per_second=40), ThreadPoolExecutor(max_workers=N_WORKERS) as executor:

@@ -31,24 +31,6 @@ async def test_get_all_images(client_type, contree: Contree, contree_s: ContreeS
     assert was_str_tag
 
 
-@pytest.fixture
-async def image_uuid(contree: Contree) -> UUID:
-    images = await contree.images()
-    for image in images:
-        return image.uuid
-    raise ValueError("Image uuid not found")
-
-
-@pytest.fixture
-async def image_tag(contree: Contree) -> str:
-    images = await contree.images()
-    for image in images:
-        if not image.tag:
-            continue
-        return image.tag
-    raise ValueError("Image tag not found")
-
-
 def test_pull_image_by_uuid_s(contree_s: ContreeSync, image_uuid):
     image = contree_s.images.pull(str(image_uuid))
     assert isinstance(image.uuid, UUID)
