@@ -111,6 +111,10 @@ async def amain():
     # downloading file from session
     await session.download('/tmp/log.jsonl', '/local/logs/session_1.log')
     
+    # or simply reading from file
+    content = await session.read('/tmp/log.jsonl')
+    print(content.decode())
+    
 
 asyncio.run(amain())
 ```
@@ -179,6 +183,9 @@ def main():
     # downloading file from session
     session.download('/tmp/log.jsonl', '/local/logs/session_1.log')
     
+    # or simply reading from file
+    content = session.read('/tmp/log.jsonl')
+    print(content.decode())
     
 main()
 ```

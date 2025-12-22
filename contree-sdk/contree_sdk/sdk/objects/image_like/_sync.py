@@ -18,6 +18,9 @@ class _ImageLikeSync(_ImageLikeBase):
     def download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path | None:
         return coro_sync(self._download(image_path, local_path))
 
+    def read(self, image_path: str | Path | None = None) -> bytes:
+        return coro_sync(self._read_file(image_path))
+
     # todo move to base, when will implement popen for async
     def popen(
         self,
