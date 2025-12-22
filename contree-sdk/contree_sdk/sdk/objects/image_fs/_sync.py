@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._base import _ImageDirectoryBase, _ImageFileBase
-from contree_sdk.utils.wrapper import coro_sync
 
 
 @dataclass

@@ -6,7 +6,7 @@ from threading import Thread
 
 import pytest
 
-from contree_sdk.utils.wrapper import coro_iter_sync, coro_sync, to_sync
+from contree_sdk._internals.utils.wrapper import coro_iter_sync, coro_sync, to_sync
 
 
 _wait_time = 0.01

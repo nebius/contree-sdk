@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.subprocess._base import ContreeProcessBase
-from contree_sdk.utils.wrapper import coro_sync
 
 
 if TYPE_CHECKING:

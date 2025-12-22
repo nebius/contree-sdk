@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import Self
 
+from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
 from contree_sdk.utils.io_wrap import IO_TYPES
-from contree_sdk.utils.wrapper import coro_sync
 
 
 class _ImageLikeSync(_ImageLikeBase):
