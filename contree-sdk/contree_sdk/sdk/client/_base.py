@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from asyncio import Event, shield, sleep
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, replace
@@ -38,11 +39,15 @@ class _ContreeBase:
 
     def __init__(self, config: ContreeConfig | None = None, *, token: str | None = None):
         if config is None:
-            config = ContreeConfig(
-                token=token,
-            )
+            config = ContreeConfig()
+            if token is not None:
+                config = replace(config, token=token)
         else:
-            assert token is None, "config is not empty, token should not be specifed"
+            assert token is None, "config is not empty, token should be passed through config itself"
+
+        if config.token in os.environ:
+            logging.info(f"Loading token from environment variable {config.token}")
+            config = replace(config, token=os.environ[config.token])
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = replace(config, token="<hidden>")

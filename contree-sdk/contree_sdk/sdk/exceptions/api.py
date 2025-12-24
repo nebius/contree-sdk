@@ -12,7 +12,9 @@ class ApiTimeoutError(ContreeApiException): ...
 
 
 @dataclass
-class ContreeTransportError(ContreeApiException): ...
+class ContreeTransportError(ContreeApiException):
+    error: str | None = None
+    _raw: Exception | None = None
 
 
 @dataclass

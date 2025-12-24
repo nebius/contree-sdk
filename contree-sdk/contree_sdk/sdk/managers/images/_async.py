@@ -1,3 +1,4 @@
+from functools import wraps
 from uuid import UUID
 
 from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
@@ -7,6 +8,7 @@ from contree_sdk.sdk.objects.image import ContreeImage
 class ImagesManager(_ImagesBaseManager[ContreeImage]):
     _ImageType = ContreeImage
 
+    @wraps(_ImagesBaseManager[ContreeImage]._get_images)
     async def __call__(self, *args, **kwargs) -> list[ContreeImage]:
         return await self._get_images(*args, **kwargs)
 

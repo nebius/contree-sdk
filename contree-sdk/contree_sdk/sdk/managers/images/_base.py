@@ -64,7 +64,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
 
         until = until or started
         current_offset = 0
-        batch_size = 100
+        batch_size = self._client.config.images_list_batch_size
 
         while True:
             timedelta_offset = datetime.now() - started

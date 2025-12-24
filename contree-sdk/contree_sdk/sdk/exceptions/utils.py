@@ -20,7 +20,7 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeExc
         return ApiTimeoutError()
 
     if isinstance(exc, TransportError):
-        return ContreeTransportError()
+        return ContreeTransportError(_raw=exc, error=str(exc))
 
     if isinstance(exc, HTTPStatusError):
         response = exc.response
