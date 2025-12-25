@@ -13,7 +13,7 @@ class ContreeConfig:
     token: str = "CONTREE_TOKEN"
     base_url: ContreeEndpoint | str = ContreeEndpoint.PRODUCTION
 
-    transport_timeout: float = 5.0
+    transport_timeout: float = 10.0
 
     operation_timeout: float = 300.0
     operation_poll_secs_min: float = 0.1
@@ -22,3 +22,5 @@ class ContreeConfig:
     # the more value is, the faster backoff grows, better to be between 1 and 2
 
     images_list_batch_size: int = 100
+
+    images_relations_registry_size: int = 1000

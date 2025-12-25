@@ -16,6 +16,7 @@ from typing_extensions import TypeVar
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.instance import InstanceOperationResult
 from contree_sdk.config import ContreeConfig
+from contree_sdk.sdk.client._registry import RelationsRegistry
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
     FailedOperationError,
@@ -51,6 +52,7 @@ class _ContreeBase:
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = replace(config, token="<hidden>")
+        self._images_relations = RelationsRegistry(keep_n=self._config.images_relations_registry_size)
 
     @property
     def config(self) -> ContreeConfig:
