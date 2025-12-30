@@ -1,9 +1,9 @@
-# 📦 Contree SDK
+# 📦 Contree
 
 <!-- [![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
 [![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/) -->
 
-Contree SDK is purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
+Contree is purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
 👉 **[See full feature list and use cases in the documentation →](docs/index.md)**
 
