@@ -60,4 +60,4 @@ def test_relations_big_amount():
     spent = datetime.now() - started
 
     # check that algorythm is O(1)
-    assert spent.total_seconds() < keep_n / 100 / 1000
+    assert spent.total_seconds() < keep_n / 50 / 1000

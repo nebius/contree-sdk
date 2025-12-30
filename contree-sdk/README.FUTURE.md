@@ -213,7 +213,6 @@ main()
 
 ## 🧠 Core Concepts
 
-[//]: # (todo discuss about memory usage in parents/children)
 [//]: # (todo discuss about persistent env or cwd)
 
 ### Sessions and Versioning
