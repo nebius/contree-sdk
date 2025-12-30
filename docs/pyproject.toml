@@ -1,0 +1,17 @@
+[project]
+name = "contree-docs"
+version = "0.0.0.dev4"
+dependencies = [
+  "furo",
+  "myst-parser[linkify]",
+  "pallets-sphinx-themes",
+  "sphinx",
+  "sphinx-autobuild",
+  "sphinx-copybutton",
+  "sphinxcontrib-log-cabinet",
+  "sphinx-inline-tabs",
+  "shibuya",
+]
+
+[tool.setuptools]
+py-modules = ["conf"]

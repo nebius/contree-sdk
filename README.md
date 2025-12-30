@@ -1,21 +1,17 @@
 # 📦 Contree SDK
 
-[![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
-![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)
+<!-- [![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
+[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/) -->
 
-Contree SDK lets you run code in isolated containers **with reproducible, versioned state**
-— like Git for container execution, accessible from Python.
+Contree SDK is purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
-**What you get:**
-- 🧬 Automatic container state versioning & branching
-- 🔁 Seamless async *and* sync APIs
-- 🔒 Secure remote execution without managing infrastructure
+👉 **[See full feature list and use cases in the documentation →](docs/index.md)**
 
 ## 📥 Get Started
 
 ### Installation
 
-> ⚠️ **Preview release**  
+> ⚠️ **Preview release**
 > The SDK is not yet published on PyPI
 > For now, Contree SDK is distributed as a prebuilt wheel.
 
@@ -37,13 +33,13 @@ from contree_sdk import Contree
 async def main():
     # Get client
     contree = Contree(token='your-token')
-    
+
     # Get image
     image = await contree.images.pull("ubuntu:latest")
-    
+
     # Run command
     result = await image.run(shell='echo "Hello from Contree!"')
-    
+
     # Output result
     print(result.stdout)
 
@@ -61,13 +57,13 @@ from contree_sdk import ContreeSync
 def main():
     # Get client
     contree = ContreeSync(token='your-token')
-    
+
     # Get image
     image = contree.images.pull("ubuntu:latest")
-    
+
     # Run command
     result = image.run(shell='echo "Hello from Contree!"').wait()
-    
+
     # Output result
     print(result.stdout)
 
@@ -75,21 +71,6 @@ main()
 ```
 
 </details>
-
-
-## 🤔 Why Contree?
-
-Use Contree when you need to:
-- Run untrusted or isolated code safely
-- Reproduce execution environments exactly
-- Branch execution flows without rebuilding images
-- Build tools that execute code (agents, evaluators, pipelines)
-
-Typical use cases:
-- LLM agents & sandboxes
-- CI-like workflows without CI
-- Reproducible research & experiments
-
 
 ## 📚 Examples
 

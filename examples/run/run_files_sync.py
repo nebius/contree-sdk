@@ -1,0 +1,53 @@
+from tempfile import NamedTemporaryFile
+
+from contree_sdk import ContreeSync
+
+
+def main(client: ContreeSync):
+    image = client.images.pull("busybox:latest")
+    print(f"Pulled {image=}")
+
+    print("\nExample 1: Local file upload to image")
+    with NamedTemporaryFile(mode="w", suffix=".txt") as test_file:
+        test_file.write("some txt file\nsecond line\n\nlast line\n")
+        test_file.flush()
+
+        result = image.run(shell=f"cat /{test_file.name.split('/')[-1]} | grep line", files=[test_file.name]).wait()
+        print(f"Run with local file: {result.stdout=}, {result.exit_code=}")
+
+    print("\nExample 2: Upload file via contree.files and use in image")
+    with NamedTemporaryFile(mode="w", suffix=".sh") as script_file:
+        script_file.write("#!/bin/sh\necho 'Hello from uploaded script'\necho 'Working directory:'\npwd\n")
+        script_file.flush()
+
+        uploaded_file = client.files.upload(script_file.name)
+        print(f"Uploaded file: {uploaded_file=}")
+
+        result = image.run(shell="sh /file.sh", files={"file.sh": uploaded_file}).wait()
+        print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
+
+    print("\nExample 3: Multiple files working together")
+    with (
+        NamedTemporaryFile(mode="w", suffix=".txt") as data_file,
+        NamedTemporaryFile(mode="w", suffix=".sh") as script_file,
+    ):
+        data_file.write("apple\nbanana\ncherry\ndate\n")
+        data_file.flush()
+
+        script_file.write(
+            "#!/bin/bash\necho 'Processing data:'\ncat /data.txt | grep -E '^[ab]'"
+            "\necho 'Found items starting with a or b'"
+        )
+        script_file.flush()
+
+        result = image.run(
+            shell="chmod +x /script.sh && sh /script.sh",
+            files={"data.txt": data_file.name, "script.sh": script_file.name},
+        ).wait()
+        print(f"Multiple files result: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
+
+
+if __name__ == "__main__":
+    main(
+        client=ContreeSync(),
+    )
