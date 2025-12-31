@@ -1,6 +1,6 @@
 # Contree
 
-**Contree** is a code execution runtime, purpose-built to support research on SWE agents, providing reproducible, versioned filesystem state
+**Contree** is a code execution runtime, purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state**
 
 ```{toctree}
 :maxdepth: 2
