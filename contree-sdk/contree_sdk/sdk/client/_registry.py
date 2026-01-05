@@ -31,7 +31,7 @@ class RelationsRegistry(Generic[T]):
 
     def _del_element(self, element: T):
         self._strong_counter[element] -= 1
-        if self._strong_counter[element] == 0:
+        if self._strong_counter[element] <= 0:
             del self._strong_counter[element]
 
     def add_element(self, element: T):
