@@ -1,8 +1,5 @@
-from os import urandom
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-
-import pytest
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_fs import ImageDirectory, ImageDirectorySync, ImageFile, ImageFileSync
@@ -45,11 +42,6 @@ def test_image_ls_s(image_s: ContreeImageSync):
     for item in subitems:
         assert isinstance(item, ImageFileSync | ImageDirectorySync)
         assert str(item.full_path).startswith(str(directory.full_path))
-
-
-@pytest.fixture()
-def random_data() -> bytes:
-    return b"Some random data\n" + urandom(16)
 
 
 async def test_download_file(image: ContreeImage, random_data):
