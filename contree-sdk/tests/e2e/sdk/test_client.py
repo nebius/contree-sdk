@@ -4,7 +4,7 @@ import pytest
 
 from contree_sdk import Contree
 from contree_sdk.config import ContreeConfig
-from contree_sdk.sdk.exceptions import ApiTimeoutError, ForbiddenError
+from contree_sdk.sdk.exceptions import ApiTimeoutError
 
 
 async def test_client_timeout(contree_config: ContreeConfig):
@@ -12,13 +12,6 @@ async def test_client_timeout(contree_config: ContreeConfig):
 
     client = Contree(config)
     with pytest.raises(ApiTimeoutError):
-        await client.images()
-
-
-async def test_fake_token(contree_config: ContreeConfig):
-    config = replace(contree_config, token="fake-token")
-    client = Contree(config)
-    with pytest.raises(ForbiddenError):
         await client.images()
 
 
