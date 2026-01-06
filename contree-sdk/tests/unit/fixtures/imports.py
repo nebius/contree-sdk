@@ -37,22 +37,28 @@ def add_import_operation_responses(
     httpx_mock: HTTPXMock,
     operation_id: str,
     result_image_uuid: UUID,
+    pending_count: int = 1,
+    final_status: OperationStatus = OperationStatus.SUCCESS,
+    final_count: int = 1,
 ):
     pending_op = create_import_operation_model(result_image_uuid, OperationStatus.PENDING)
-    success_op = create_import_operation_model(result_image_uuid, OperationStatus.SUCCESS, 0.5)
+    final_op = create_import_operation_model(result_image_uuid, final_status, 0.5)
 
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(pending_op),
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(success_op),
-        is_optional=True,
-    )
+    for _ in range(pending_count):
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(f".*/operations/{operation_id}"),
+            json=asdict(pending_op),
+            is_optional=True,
+        )
+
+    for _ in range(final_count):
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(f".*/operations/{operation_id}"),
+            json=asdict(final_op),
+            is_optional=True,
+        )
 
 
 def add_failed_import_operation_responses(
@@ -60,21 +66,15 @@ def add_failed_import_operation_responses(
     operation_id: str,
     result_image_uuid: UUID,
 ):
-    pending_op = create_import_operation_model(result_image_uuid, OperationStatus.PENDING)
-    failed_op = create_import_operation_model(result_image_uuid, OperationStatus.FAILED, 0.5)
+    add_import_operation_responses(httpx_mock, operation_id, result_image_uuid, 1, OperationStatus.FAILED)
 
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(pending_op),
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
-        json=asdict(failed_op),
-        is_optional=True,
-    )
+
+def add_cancelled_import_operation_responses(
+    httpx_mock: HTTPXMock,
+    operation_id: str,
+    result_image_uuid: UUID,
+):
+    add_import_operation_responses(httpx_mock, operation_id, result_image_uuid, 10, OperationStatus.CANCELLED)
 
 
 @pytest.fixture()
@@ -131,3 +131,62 @@ def api_fake_import_failed(
     )
 
     return strict_httpx
+
+
+@pytest.fixture()
+def api_fake_import_cancel(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    operation_id = str(uuid4())
+
+    strict_httpx.add_response(
+        method="POST",
+        url=r(".*/images/import"),
+        json={"uuid": operation_id},
+        is_optional=True,
+    )
+
+    add_base_responses(strict_httpx, operation_id)
+
+    add_cancelled_import_operation_responses(
+        strict_httpx,
+        operation_id,
+        result_image_uuid,
+    )
+
+    return strict_httpx
+
+
+@pytest.fixture()
+def api_fake_import_slow(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    httpx_mock: HTTPXMock,
+) -> HTTPXMock:
+    operation_id = str(uuid4())
+
+    httpx_mock.add_response(
+        method="POST",
+        url=r(".*/images/import"),
+        json={"uuid": operation_id},
+        is_optional=True,
+    )
+
+    add_base_responses(httpx_mock, operation_id)
+
+    add_import_operation_responses(
+        httpx_mock,
+        operation_id,
+        result_image_uuid,
+        7,
+        OperationStatus.CANCELLED,
+        5,
+    )
+
+    return httpx_mock
