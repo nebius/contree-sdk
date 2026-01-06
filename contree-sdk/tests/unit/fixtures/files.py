@@ -30,3 +30,9 @@ def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
         json={"uuid": file_uuid, "sha256": file_sha256},
         is_optional=True,
     )
+
+
+@pytest.fixture()
+def api_fake_upload(file_uuid: str, file_sha256: str, strict_httpx: HTTPXMock) -> HTTPXMock:
+    add_file_responses(strict_httpx, file_uuid, file_sha256)
+    return strict_httpx
