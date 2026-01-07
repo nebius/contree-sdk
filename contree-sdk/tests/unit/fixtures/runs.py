@@ -120,26 +120,25 @@ def api_fake_session_multiple_runs(
         json={},
         is_optional=True,
     )
-    strict_httpx.add_response(
-        method="GET",
-        url=r(".*/inspect/[^/]+$"),
-        json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
-    )
 
-    runs = [
-        ("", uuid4(), str(uuid4())),
-        ("some other step\n", uuid4(), str(uuid4())),
-        ("some data", uuid4(), str(uuid4())),
-    ]
+    for stdout in ["", "some other step\n", "some data"]:
+        op_id = str(uuid4())
+        result_uuid = uuid4()
 
-    for stdout, result_uuid, op_id in reversed(runs):
         strict_httpx.add_response(
             method="POST",
             url=r(".*/instances"),
             json={"uuid": op_id},
             is_optional=True,
         )
+
+        strict_httpx.add_response(
+            method="GET",
+            url=r(f".*/inspect/{result_uuid}$"),
+            json={"uuid": str(result_uuid), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
+            is_optional=True,
+        )
+
         add_operation_responses(
             strict_httpx,
             op_id,
