@@ -5,6 +5,7 @@ from contree_sdk import Contree, ContreeSync
 from contree_sdk.config import ContreeConfig
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
 from tests.unit.fixtures.images import (
+    api_fake_forbidden,
     api_fake_images,
     api_fake_images_with_404,
     api_fake_images_with_params,
@@ -41,6 +42,7 @@ from tests.unit.fixtures.runs import (
 
 __all__ = [
     "add_file_responses",
+    "api_fake_forbidden",
     "api_fake_images",
     "api_fake_images_with_404",
     "api_fake_images_with_params",

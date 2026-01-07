@@ -93,3 +93,15 @@ def api_fake_images_with_params(strict_httpx: HTTPXMock) -> HTTPXMock:
     )
 
     return strict_httpx
+
+
+@pytest.fixture()
+def api_fake_forbidden(strict_httpx: HTTPXMock) -> HTTPXMock:
+    strict_httpx.add_response(
+        method="GET",
+        url=r(".*/images"),
+        status_code=403,
+        json={"error": "Forbidden"},
+        is_optional=True,
+    )
+    return strict_httpx
