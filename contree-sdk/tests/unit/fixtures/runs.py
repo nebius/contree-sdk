@@ -6,6 +6,7 @@ from pytest_httpx import HTTPXMock
 from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
 from tests.unit.fixtures.operations import add_base_responses, add_operation_responses
+from tests.unit.fixtures.utils import r
 
 
 @pytest.fixture()
@@ -100,3 +101,53 @@ def api_fake_run_with_files(
         "second line\nlast line\n",
     )
     return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_session_multiple_runs(
+    image_uuid: UUID,
+    file_uuid: str,
+    file_sha256: str,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_file_responses(strict_httpx, file_uuid, file_sha256)
+
+    strict_httpx.add_response(
+        method="DELETE",
+        url=r(".*/operations/.*"),
+        json={},
+        is_optional=True,
+    )
+    strict_httpx.add_response(
+        method="GET",
+        url=r(".*/inspect/[^/]+$"),
+        json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
+        is_optional=True,
+    )
+
+    runs = [
+        ("", uuid4(), str(uuid4())),
+        ("some other step\n", uuid4(), str(uuid4())),
+        ("some data", uuid4(), str(uuid4())),
+    ]
+
+    for stdout, result_uuid, op_id in reversed(runs):
+        strict_httpx.add_response(
+            method="POST",
+            url=r(".*/instances"),
+            json={"uuid": op_id},
+            is_optional=True,
+        )
+        add_operation_responses(
+            strict_httpx,
+            op_id,
+            image_uuid,
+            result_uuid,
+            process_state,
+            resource_usage,
+            stdout,
+        )
+
+    return strict_httpx

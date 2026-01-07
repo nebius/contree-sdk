@@ -3,6 +3,9 @@ from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
 from tests.e2e.sdk.images.test_images import test_get_all_images as _test_get_all_images
+from tests.e2e.sdk.images.test_images import test_get_images_with_parameters_s as _test_get_images_with_parameters_s
+from tests.e2e.sdk.images.test_images import test_iter_images as _test_iter_images
+from tests.e2e.sdk.images.test_images import test_iter_images_s as _test_iter_images_s
 from tests.e2e.sdk.images.test_images import test_pull_image_by_tag_s as _test_pull_image_by_tag_s
 from tests.e2e.sdk.images.test_images import test_pull_image_by_uuid_s as _test_pull_image_by_uuid_s
 from tests.e2e.sdk.images.test_images import test_pull_nonexistent_tag_image_s as _test_pull_nonexistent_tag_image_s
@@ -30,3 +33,15 @@ def test_pull_nonexistent_uuid_image_s(fake_contree_s: ContreeSync, api_fake_ima
 
 def test_pull_nonexistent_tag_image_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
     _test_pull_nonexistent_tag_image_s(fake_contree_s)
+
+
+async def test_iter_images(fake_contree: Contree, api_fake_images: HTTPXMock):
+    await _test_iter_images(fake_contree)
+
+
+def test_iter_images_s(fake_contree_s: ContreeSync, api_fake_images: HTTPXMock):
+    _test_iter_images_s(fake_contree_s)
+
+
+def test_get_images_with_parameters_s(fake_contree_s: ContreeSync, api_fake_images_with_params: HTTPXMock):
+    _test_get_images_with_parameters_s(fake_contree_s)
