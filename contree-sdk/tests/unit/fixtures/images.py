@@ -43,21 +43,26 @@ def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -
         json=image_dict,
         is_optional=True,
     )
-    strict_httpx.add_response(
+    return strict_httpx
+
+
+@pytest.fixture()
+def api_fake_images_with_404(api_fake_images: HTTPXMock) -> HTTPXMock:
+    api_fake_images.add_response(
         method="GET",
         url=r(".*/inspect/.*"),
         json={"error": "Image not found", "status": 404},
         is_optional=True,
         status_code=404,
     )
-    strict_httpx.add_response(
+    api_fake_images.add_response(
         method="GET",
         url=r(r".*/inspect\?tag=.*"),
         json={"error": "Image not found", "status": 404},
         is_optional=True,
         status_code=404,
     )
-    return strict_httpx
+    return api_fake_images
 
 
 @pytest.fixture()

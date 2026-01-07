@@ -24,9 +24,9 @@ def test_pull_image_by_tag_s(fake_contree_s: ContreeSync, image_tag, api_fake_im
     _test_pull_image_by_tag_s(fake_contree_s, image_tag)
 
 
-def test_pull_nonexistent_uuid_image_s(fake_contree_s: ContreeSync, api_fake_images: HTTPXMock):
+def test_pull_nonexistent_uuid_image_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
     _test_pull_nonexistent_uuid_image_s(fake_contree_s)
 
 
-def test_pull_nonexistent_tag_image_s(fake_contree_s: ContreeSync, api_fake_images: HTTPXMock):
+def test_pull_nonexistent_tag_image_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
     _test_pull_nonexistent_tag_image_s(fake_contree_s)
