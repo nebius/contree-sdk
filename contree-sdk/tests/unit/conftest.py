@@ -18,6 +18,7 @@ from tests.unit.fixtures.imports import (
     api_fake_import_failed,
     api_fake_import_slow,
 )
+from tests.unit.fixtures.inspect import api_fake_inspect_download, api_fake_inspect_ls
 from tests.unit.fixtures.operations import operation_id
 from tests.unit.fixtures.runs import (
     api_fake_run,
@@ -37,6 +38,8 @@ __all__ = [
     "api_fake_import_cancel",
     "api_fake_import_failed",
     "api_fake_import_slow",
+    "api_fake_inspect_download",
+    "api_fake_inspect_ls",
     "api_fake_run",
     "api_fake_run_base",
     "api_fake_run_with_files",

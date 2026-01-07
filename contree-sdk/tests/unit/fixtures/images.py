@@ -33,7 +33,7 @@ def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -
     )
     strict_httpx.add_response(
         method="GET",
-        url=r(f".*/inspect/{image_uuid}"),
+        url=r(f".*/inspect/{image_uuid}$"),
         json=image_dict,
         is_optional=True,
     )
