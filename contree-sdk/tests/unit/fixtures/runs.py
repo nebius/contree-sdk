@@ -6,7 +6,7 @@ from pytest_httpx import HTTPXMock
 from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
 from tests.unit.fixtures.operations import add_base_responses, add_operation_responses
-from tests.unit.fixtures.utils import r
+from tests.unit.fixtures.utils import r, url
 
 
 @pytest.fixture()
@@ -222,3 +222,187 @@ def api_fake_popen_error(
         error_stderr,
     )
     return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_popen_shell(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=0,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "Hello World\n",
+        "Error message\n",
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_popen_stdin(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=0,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "Hello from stdin\nSecond line\n",
+        "",
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_popen_communicate(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=0,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "test line\ntest again\n",
+        "",
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_popen_env(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=0,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "test_value\nanother_value\n",
+        "",
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_thread_pool(
+    image_uuid: UUID,
+    image_tag: str,
+    file_uuid: str,
+    file_sha256: str,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_file_responses(strict_httpx, file_uuid, file_sha256)
+
+    for _ in range(10):
+        strict_httpx.add_response(
+            method="GET",
+            url=url("/inspect", params={"tag": image_tag}),
+            json={"uuid": str(image_uuid), "tag": image_tag, "created_at": "2024-01-01T12:00:00+00:00"},
+            is_optional=True,
+        )
+
+    strict_httpx.add_response(
+        method="DELETE",
+        url=r(".*/operations/.*"),
+        json={},
+        is_optional=True,
+    )
+
+    for i in range(10):
+        op_id = str(uuid4())
+        result_uuid = uuid4()
+        random_number = str(10000 + i * 1000)
+
+        strict_httpx.add_response(
+            method="POST",
+            url=r(".*/instances"),
+            json={"uuid": op_id},
+            is_optional=True,
+        )
+
+        strict_httpx.add_response(
+            method="GET",
+            url=r(f".*/inspect/{result_uuid}$"),
+            json={"uuid": str(result_uuid), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
+            is_optional=True,
+        )
+
+        add_operation_responses(
+            strict_httpx,
+            op_id,
+            image_uuid,
+            result_uuid,
+            process_state,
+            resource_usage,
+            f"{random_number}\n",
+            "",
+        )
+
+    return strict_httpx

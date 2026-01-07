@@ -23,11 +23,16 @@ from tests.unit.fixtures.inspect import api_fake_inspect_download, api_fake_insp
 from tests.unit.fixtures.operations import operation_id
 from tests.unit.fixtures.runs import (
     api_fake_popen,
+    api_fake_popen_communicate,
+    api_fake_popen_env,
     api_fake_popen_error,
+    api_fake_popen_shell,
+    api_fake_popen_stdin,
     api_fake_run,
     api_fake_run_base,
     api_fake_run_with_files,
     api_fake_session_multiple_runs,
+    api_fake_thread_pool,
     process_state,
     resource_usage,
     result_image_uuid,
@@ -46,11 +51,16 @@ __all__ = [
     "api_fake_inspect_download",
     "api_fake_inspect_ls",
     "api_fake_popen",
+    "api_fake_popen_communicate",
+    "api_fake_popen_env",
     "api_fake_popen_error",
+    "api_fake_popen_shell",
+    "api_fake_popen_stdin",
     "api_fake_run",
     "api_fake_run_base",
     "api_fake_run_with_files",
     "api_fake_session_multiple_runs",
+    "api_fake_thread_pool",
     "api_fake_upload",
     "fake_contree",
     "fake_contree_config",
@@ -91,7 +101,15 @@ def fake_contree_s(fake_contree_config: ContreeConfig) -> ContreeSync:
 
 
 @pytest.fixture()
-def strict_httpx(httpx_mock: HTTPXMock) -> HTTPXMock:
+def strict_httpx(httpx_mock: HTTPXMock, fake_token: str) -> HTTPXMock:
     httpx_mock.reset()
     httpx_mock.strict_responses = True
+
+    original_add_response = httpx_mock.add_response
+
+    def add_response_with_auth(*args, **kwargs):
+        kwargs.setdefault("match_headers", {}).setdefault("Authorization", f"Bearer {fake_token}")
+        return original_add_response(*args, **kwargs)
+
+    httpx_mock.add_response = add_response_with_auth
     return httpx_mock
