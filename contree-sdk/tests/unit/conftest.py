@@ -53,6 +53,7 @@ __all__ = [
     "fake_contree_s",
     "fake_image",
     "fake_image_s",
+    "fake_token",
     "file_sha256",
     "file_uuid",
     "image_tag",
@@ -66,8 +67,13 @@ __all__ = [
 
 
 @pytest.fixture()
-def fake_contree_config() -> ContreeConfig:
-    return ContreeConfig(token="fake-token", base_url="https://fake.contree.endpoint")
+def fake_token() -> str:
+    return "fake-token"
+
+
+@pytest.fixture()
+def fake_contree_config(fake_token: str) -> ContreeConfig:
+    return ContreeConfig(token=fake_token, base_url="https://fake.contree.endpoint")
 
 
 @pytest.fixture()
