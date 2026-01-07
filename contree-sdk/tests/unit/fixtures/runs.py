@@ -150,3 +150,75 @@ def api_fake_session_multiple_runs(
         )
 
     return strict_httpx
+
+
+@pytest.fixture()
+def api_fake_popen(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=0,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    ls_output = """total 0
+drwxr-xr-x  5 root  root  180 Jan  7 10:00 .
+drwxr-xr-x 18 root  root  360 Jan  7 10:00 ..
+crw-rw-rw-  1 root  tty   5, 0 Jan  7 10:00 tty
+crw-rw-rw-  1 root  root  1, 8 Jan  7 10:00 random
+crw-rw-rw-  1 root  root  1, 3 Jan  7 10:00 null
+"""
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        ls_output,
+        "",
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture()
+def api_fake_popen_error(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    process_state = ProcessState(
+        continued=False,
+        core_dump=False,
+        exit_code=2,
+        pid=1,
+        signal=0,
+        stopped=False,
+        timed_out=False,
+    )
+
+    error_stderr = "ls: cannot access '/totally/fake/directory': No such file or directory\n"
+
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "",
+        error_stderr,
+    )
+    return api_fake_run_base

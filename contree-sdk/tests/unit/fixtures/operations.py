@@ -32,10 +32,11 @@ def create_operation_model(
     stdout_content: str,
     status: OperationStatus,
     duration: float = 0.0,
+    stderr_content: str = "this is stderr\n",
 ) -> OperationModel:
     execution_result = ProcessExecutionResult(
         stdout=io_encode(stdout_content, StreamEncoding.base64),
-        stderr=io_encode("this is stderr\n", StreamEncoding.base64),
+        stderr=io_encode(stderr_content, StreamEncoding.base64),
         state=process_state,
         resources=resource_usage,
     )
@@ -73,12 +74,27 @@ def add_operation_responses(
     process_state: ProcessState,
     resource_usage: ProcessResources,
     stdout_content: str = "my input\nthis is stdout\n",
+    stderr_content: str = "this is stderr\n",
 ):
     pending_op = create_operation_model(
-        image_uuid, result_image_uuid, process_state, resource_usage, stdout_content, OperationStatus.PENDING
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        stdout_content,
+        OperationStatus.PENDING,
+        0.0,
+        stderr_content,
     )
     success_op = create_operation_model(
-        image_uuid, result_image_uuid, process_state, resource_usage, stdout_content, OperationStatus.SUCCESS, 0.5
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        stdout_content,
+        OperationStatus.SUCCESS,
+        0.5,
+        stderr_content,
     )
 
     httpx_mock.add_response(
