@@ -110,7 +110,7 @@ def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
     )
     httpx_mock.add_response(
         method="GET",
-        url=r(".*/inspect/.*"),
+        url=r(".*/inspect/[^/]+$"),
         json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
         is_optional=True,
     )
