@@ -71,12 +71,15 @@ def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMo
 def api_fake_inspect_download(
     image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock
 ) -> HTTPXMock:
-    api_fake_run.add_response(
-        method="GET",
-        url=url(f"/v1/inspect/{result_image_uuid}/download", params={"path": "/output.txt"}),
-        content=random_data,
-        is_optional=True,
-    )
+    download_url = url(f"/v1/inspect/{result_image_uuid}/download", params={"path": "/output.txt"})
+
+    for _ in range(2):
+        api_fake_run.add_response(
+            method="GET",
+            url=download_url,
+            content=random_data,
+            is_optional=True,
+        )
 
     api_fake_run.add_response(
         method="GET",
