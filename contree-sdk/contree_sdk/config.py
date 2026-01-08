@@ -15,7 +15,7 @@ class ContreeConfig:
 
     transport_timeout: float = 10.0
 
-    operation_timeout: float = 300.0
+    operation_timeout: float = 600.0
     operation_poll_secs_min: float = 0.1
     operation_poll_secs_max: float = 10.0
     operation_poll_secs_backoff_grow: float = 1.75
