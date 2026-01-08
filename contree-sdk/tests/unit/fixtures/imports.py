@@ -6,7 +6,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk._internals.models.image_import import ImageImportRequest, PublicRegistryInfo
-from contree_sdk._internals.models.instance import InstanceOperationResult, ProcessResources, ProcessState
+from contree_sdk._internals.models.instance import InstanceOperationResult
 from contree_sdk._internals.models.operation import OperationKind, OperationModel
 from contree_sdk.utils.models.operation import OperationStatus
 from tests.unit.fixtures.operations import add_base_responses
@@ -79,10 +79,7 @@ def add_cancelled_import_operation_responses(
 
 @pytest.fixture()
 def api_fake_import(
-    image_uuid: UUID,
     result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     operation_id = str(uuid4())
@@ -107,10 +104,7 @@ def api_fake_import(
 
 @pytest.fixture()
 def api_fake_import_failed(
-    image_uuid: UUID,
     result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     operation_id = str(uuid4())
@@ -135,10 +129,7 @@ def api_fake_import_failed(
 
 @pytest.fixture()
 def api_fake_import_cancel(
-    image_uuid: UUID,
     result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     operation_id = str(uuid4())
@@ -163,10 +154,7 @@ def api_fake_import_cancel(
 
 @pytest.fixture()
 def api_fake_import_slow(
-    image_uuid: UUID,
     result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
     httpx_mock: HTTPXMock,
 ) -> HTTPXMock:
     operation_id = str(uuid4())
