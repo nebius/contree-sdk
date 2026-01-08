@@ -23,7 +23,6 @@ from .operation import (
     WrongOperationTypeError,
 )
 from .other import UnknownContreeException
-from .utils import wrap_api_exception
 
 
 __all__ = [
@@ -46,5 +45,4 @@ __all__ = [
     "OperationTimedOutError",
     "UnknownContreeException",
     "WrongOperationTypeError",
-    "wrap_api_exception",
 ]

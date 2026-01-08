@@ -13,6 +13,7 @@ from uuid import UUID
 import cattrs
 
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
+from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
@@ -235,7 +236,7 @@ class _ImageLikeBase:
 
         files, stdin = await gather(new_self._prepare_files_for_api(req.files), to_thread(new_self._read_stdin))
 
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             operation_uuid = await self._client._api.spawn_instance(
                 InstanceSpawnRequest(
                     command=req.command,
@@ -265,7 +266,7 @@ class _ImageLikeBase:
     async def _ls(
         self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             ls_res = await self._client._api.list_image_files(self.uuid, path)
         result = []
         for obj in ls_res:
@@ -280,7 +281,7 @@ class _ImageLikeBase:
         return result
 
     async def _read_file(self, path: Path) -> bytes:
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             return await self._client._api.download_image_file(self.uuid, path)
 
     async def _download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path:

@@ -3,18 +3,18 @@ from __future__ import annotations
 import logging
 import os
 from asyncio import Event, shield, sleep
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from random import uniform
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from httpx import HTTPError
 from typing_extensions import TypeVar
 
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.instance import InstanceOperationResult
+from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.client._registry import RelationsRegistry
 from contree_sdk.sdk.exceptions import (
@@ -22,7 +22,6 @@ from contree_sdk.sdk.exceptions import (
     FailedOperationError,
     OperationTimedOutError,
     WrongOperationTypeError,
-    wrap_api_exception,
 )
 from contree_sdk.utils.models.operation import OperationStatus
 
@@ -75,7 +74,7 @@ class _ContreeBase:
                 await shield(self._cancel_operation(operation_uuid=operation_uuid))
 
     async def _cancel_operation(self, operation_uuid: UUID):
-        with self._wrap_api_call():
+        with wrap_api_call():
             await self._api.cancel_operation(operation_uuid)
 
     async def _wait_operation(
@@ -95,7 +94,7 @@ class _ContreeBase:
                 if spent > timeout:
                     raise OperationTimedOutError(operation_uuid=operation_uuid)
                 spent = (datetime.now() - started).total_seconds()
-                with self._wrap_api_call():
+                with wrap_api_call():
                     resp = await self._api.get_operation_status(operation_uuid)
                 if not isinstance(resp.metadata, result_type):
                     raise WrongOperationTypeError(
@@ -130,13 +129,6 @@ class _ContreeBase:
             self.config.operation_poll_secs_max - self.config.operation_poll_secs_min
         )
         return max(self.config.operation_poll_secs_min, min(res, self.config.operation_poll_secs_max))
-
-    @contextmanager
-    def _wrap_api_call(self):
-        try:
-            yield
-        except HTTPError as exc:
-            raise wrap_api_exception(exc).with_traceback(exc.__traceback__) from exc
 
 
 @dataclass

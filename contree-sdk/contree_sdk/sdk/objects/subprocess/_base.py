@@ -54,7 +54,6 @@ class ContreeProcessBase:
     # __aexit__
 
     # __repr__
-    # communicate
     # kill
     # pid
     # send_signal
@@ -69,5 +68,4 @@ class ContreeProcessBase:
     # pid
     # poll
     # send_signal
-    # stdin
     # terminate

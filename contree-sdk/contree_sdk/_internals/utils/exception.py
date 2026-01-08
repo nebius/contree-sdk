@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
 from json import JSONDecodeError
 
 from httpx import HTTPError, HTTPStatusError, TimeoutException, TransportError
@@ -36,3 +39,11 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeExc
         return class_(**data)
 
     return UnknownContreeException(exception=exc)
+
+
+@contextmanager
+def wrap_api_call():
+    try:
+        yield
+    except HTTPError as exc:
+        raise wrap_api_exception(exc).with_traceback(exc.__traceback__) from exc

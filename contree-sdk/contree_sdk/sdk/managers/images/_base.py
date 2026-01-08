@@ -12,6 +12,7 @@ from contree_sdk._internals.models.image_import import (
     PublicRegistryInfo,
     RegistryCredentials,
 )
+from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
@@ -72,7 +73,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None:
                 limit = min(limit, number - current_offset)
 
-            with self._client._wrap_api_call():
+            with wrap_api_call():
                 batch = await self._client._api.get_images(
                     offset=current_offset,
                     limit=limit,
@@ -128,14 +129,14 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         return await self._get_image_by_tag(url_or_tag_or_uuid)
 
     async def _get_image_by_tag(self, tag: str) -> _ImageT:
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             return self._image_by_data(await self._client._api.get_image_by_tag(tag))
 
     async def _get_image_by_uuid(self, uuid: UUID | str) -> _ImageT:
         if isinstance(uuid, str):
             uuid = UUID(uuid)
 
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             return self._image_by_data(await self._client._api.get_image_by_uuid(uuid))
 
     async def _import_image(
@@ -160,7 +161,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         else:
             registry = PublicRegistryInfo(url=image_url)
 
-        with self._client._wrap_api_call():
+        with wrap_api_call():
             operation_uuid = await self._client._api.start_import_image(
                 ImageImportRequest(
                     registry=registry,

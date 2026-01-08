@@ -15,7 +15,7 @@ class ContreeProcessSync(ContreeProcessBase):
     def __init__(self, image: _ImageLikeSync, check: bool):
         super().__init__(image, check=check)
 
-    def wait(self):
+    def wait(self) -> None:
         return coro_sync(self._wait())
 
     def communicate(self, input: str | bytes | None = None, timeout: float | timedelta | None = None):  # noqa: A002
