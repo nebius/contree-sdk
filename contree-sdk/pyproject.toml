@@ -1,6 +1,6 @@
 [project]
 name = "contree-sdk"
-version = "0.0.1.dev2"
+version = "0.0.1.dev4"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10, <3.14"
