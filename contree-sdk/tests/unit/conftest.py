@@ -7,8 +7,6 @@ from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_
 from tests.unit.fixtures.images import (
     api_fake_forbidden,
     api_fake_images,
-    api_fake_images_with_404,
-    api_fake_images_with_params,
     fake_image,
     fake_image_s,
     image_tag,
@@ -20,7 +18,6 @@ from tests.unit.fixtures.imports import (
     api_fake_import_failed,
     api_fake_import_slow,
 )
-from tests.unit.fixtures.inspect import api_fake_inspect_download, api_fake_inspect_ls
 from tests.unit.fixtures.operations import operation_id
 from tests.unit.fixtures.runs import (
     api_fake_popen,
@@ -44,14 +41,10 @@ __all__ = [
     "add_file_responses",
     "api_fake_forbidden",
     "api_fake_images",
-    "api_fake_images_with_404",
-    "api_fake_images_with_params",
     "api_fake_import",
     "api_fake_import_cancel",
     "api_fake_import_failed",
     "api_fake_import_slow",
-    "api_fake_inspect_download",
-    "api_fake_inspect_ls",
     "api_fake_popen",
     "api_fake_popen_communicate",
     "api_fake_popen_env",
