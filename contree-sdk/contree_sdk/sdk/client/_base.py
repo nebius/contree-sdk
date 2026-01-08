@@ -120,12 +120,12 @@ class _ContreeBase:
 
         return resp.metadata, resp.result
 
-    def _get_interval(self, progress_ration: float) -> float:
-        progress_ration = progress_ration ** (1 / self.config.operation_poll_secs_backoff_grow)
+    def _get_interval(self, progress_ratio: float) -> float:
+        progress_ratio = progress_ratio ** (1 / self.config.operation_poll_secs_backoff_grow)
         mid = 0.5
-        jitter_size = 0.1 + 0.4 * (1 - 2 * abs(progress_ration - mid))
-        progress_ration = progress_ration * (1 + uniform(-jitter_size, jitter_size))
-        res = self.config.operation_poll_secs_min + progress_ration * (
+        jitter_size = 0.1 + 0.4 * (1 - 2 * abs(progress_ratio - mid))
+        progress_ratio = progress_ratio * (1 + uniform(-jitter_size, jitter_size))
+        res = self.config.operation_poll_secs_min + progress_ratio * (
             self.config.operation_poll_secs_max - self.config.operation_poll_secs_min
         )
         return max(self.config.operation_poll_secs_min, min(res, self.config.operation_poll_secs_max))
