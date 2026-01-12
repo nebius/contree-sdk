@@ -42,7 +42,7 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 11. Install the package: `pip install contree-sdk`
 
 > [!TIP]
-> For package managers that don't use `~/.pip/pip.conf` (e.g. `uv`, `pdm`) please refer to their respective documentation.
+> For package managers that don't use `~/.pip/pip.conf` (e.g. `uv`) please refer to their respective documentation.
 
 ---
 
@@ -51,36 +51,11 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 <details open>
 <summary>🔀 Async Example</summary>
 
-<!-- name: test_quick_start_async
 ```python
 import asyncio
 import stat
-from unittest.mock import AsyncMock, MagicMock, patch
 
-# Mock the SDK internals to prevent real API calls
-mock_image = MagicMock()
-mock_image.run = AsyncMock(return_value=MagicMock(
-    stdout='output', stderr='',
-    run=AsyncMock(return_value=MagicMock(
-        ls=AsyncMock(return_value=[MagicMock(name='file1', is_dir=False, is_file=True, download=AsyncMock())])
-    ))
-))
-mock_image.session = AsyncMock(return_value=MagicMock(
-    run=AsyncMock(return_value=MagicMock(stdout='result')),
-    download=AsyncMock(),
-    read=AsyncMock(return_value=b'log content')
-))
-
-mock_contree = MagicMock()
-mock_contree.images = AsyncMock(return_value=[mock_image])
-mock_contree.images.pull = AsyncMock(return_value=mock_image)
-
-patch('contree_sdk.Contree', return_value=mock_contree).start()
-```
--->
-```python
-import asyncio
-import stat
+from pathlib import Path
 
 from contree_sdk import Contree
 from contree_sdk.utils.models.file import UploadFileSpec
@@ -106,7 +81,7 @@ async def amain():
         env=dict(http_proxy='http://10.20.30.40:1234'),
         files=[
             UploadFileSpec(source='/local/files/app.sh', mode=stat.S_IXUSR),
-            UploadFileSpec(source='/local/files/data_ver1.csv', path='/data.csv'),
+            UploadFileSpec(source='/local/files/data_ver1.csv', path=Path('/data.csv')),
         ]
     )
     print(result0.stdout)
@@ -151,37 +126,6 @@ asyncio.run(amain())
 <details>
 <summary>🔁 Sync Example</summary>
 
-<!-- name: test_quick_start_sync
-```python
-import stat
-from unittest.mock import MagicMock, patch
-
-# Mock the SDK internals to prevent real API calls
-mock_run_result = MagicMock()
-mock_run_result.stdout = 'output'
-mock_run_result.stderr = ''
-mock_run_result.run = MagicMock(return_value=MagicMock(wait=MagicMock(return_value=MagicMock(
-    ls=MagicMock(return_value=[MagicMock(name='file1', is_dir=False, is_file=True, download=MagicMock())])
-))))
-
-mock_pending = MagicMock()
-mock_pending.wait = MagicMock(return_value=mock_run_result)
-
-mock_image_sync = MagicMock()
-mock_image_sync.run = MagicMock(return_value=mock_pending)
-mock_image_sync.session = MagicMock(return_value=MagicMock(
-    run=MagicMock(return_value=MagicMock(wait=MagicMock(return_value=MagicMock(stdout='result')))),
-    download=MagicMock(),
-    read=MagicMock(return_value=b'log content')
-))
-
-mock_contree_sync = MagicMock()
-mock_contree_sync.images = MagicMock(return_value=[mock_image_sync])
-mock_contree_sync.images.pull = MagicMock(return_value=mock_image_sync)
-
-patch('contree_sdk.ContreeSync', return_value=mock_contree_sync).start()
-```
--->
 ```python
 import stat
 
@@ -261,27 +205,6 @@ main()
 
 A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
 
-<!-- name: test_sessions_versioning
-```python
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-
-mock_result = MagicMock()
-mock_result.run = AsyncMock(return_value=MagicMock())
-
-mock_image = MagicMock()
-mock_image.run = AsyncMock(return_value=mock_result)
-mock_image.session = MagicMock(return_value=MagicMock(
-    run=AsyncMock(return_value=MagicMock())
-))
-
-mock_contree = MagicMock()
-mock_contree.images = MagicMock()
-mock_contree.images.pull = AsyncMock(return_value=mock_image)
-
-patch('contree_sdk.Contree', return_value=mock_contree).start()
-```
--->
 ```python
 import asyncio
 from contree_sdk import Contree
@@ -313,17 +236,7 @@ Any session can provide Subprocess-like interface
 <summary>🔁 Sync examples</summary>
 
 Running command
-<!-- name: test_subprocess_cat
-```python
-from unittest.mock import MagicMock
 
-mock_proc = MagicMock()
-mock_proc.communicate = MagicMock(return_value=("a\nb\nc\n", ""))
-
-session = MagicMock()
-session.popen = MagicMock(return_value=mock_proc)
-```
--->
 ```python
 proc = session.popen(
     ["cat"],
@@ -333,18 +246,7 @@ stdout, stderr = proc.communicate("a\nb\nc\n")
 ```
 
 Shell example
-<!-- name: test_subprocess_shell
-```python
-from unittest.mock import MagicMock
 
-mock_proc = MagicMock()
-mock_proc.wait = MagicMock(return_value=0)
-mock_proc.stdout = "hello\ntotal 0\n"
-
-session = MagicMock()
-session.popen = MagicMock(return_value=mock_proc)
-```
--->
 ```python
 import subprocess
 
@@ -365,24 +267,6 @@ print(proc.stdout)
 
 Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
 
-<!-- name: test_stable_uuid
-```python
-from unittest.mock import MagicMock
-from uuid import uuid4
-
-same_uuid = uuid4()
-
-mock_result0 = MagicMock()
-mock_result0.uuid = same_uuid
-mock_result0.run = MagicMock(return_value=MagicMock(wait=MagicMock(return_value=MagicMock(uuid=same_uuid))))
-
-mock_pending = MagicMock()
-mock_pending.wait = MagicMock(return_value=mock_result0)
-
-image = MagicMock()
-image.run = MagicMock(return_value=mock_pending)
-```
--->
 ```python
 result0 = image.run('echo CHANGES > file.txt').wait()
 result1 = result0.run('sleep 5').wait()
@@ -395,27 +279,6 @@ assert result1.uuid == result0.uuid
 Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
 For example
 
-<!-- name: test_async_sync_clients
-```python
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-
-mock_async_image = MagicMock()
-mock_async_image.run = AsyncMock(return_value=MagicMock())
-
-mock_contree_async = MagicMock()
-mock_contree_async.images = AsyncMock(return_value=[mock_async_image])
-
-mock_sync_image = MagicMock()
-mock_sync_image.run = MagicMock(return_value=MagicMock(wait=MagicMock()))
-
-mock_contree_sync = MagicMock()
-mock_contree_sync.images = MagicMock(return_value=[mock_sync_image])
-
-patch('contree_sdk.Contree', return_value=mock_contree_async).start()
-patch('contree_sdk.ContreeSync', return_value=mock_contree_sync).start()
-```
--->
 ```python
 import asyncio
 from contree_sdk import Contree, ContreeSync
@@ -445,14 +308,7 @@ images[0].run(shell='some command').wait()
 
 ### Client configuration
 You can create configuration object and use it later in client
-<!-- name: test_client_configuration
-```python
-from unittest.mock import MagicMock, patch
 
-patch('contree_sdk.Contree', MagicMock()).start()
-patch('contree_sdk.ContreeSync', MagicMock()).start()
-```
--->
 ```python
 from contree_sdk.config import ContreeConfig, ContreeEndpoint
 from contree_sdk import Contree, ContreeSync
@@ -470,21 +326,7 @@ client = ContreeSync(config)
 ### Objects reusing
 
 You can preconfigure run and then reuse it, for example:
-<!-- name: test_objects_reusing
-```python
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
-mock_image = MagicMock()
-mock_image.run = MagicMock(return_value=AsyncMock(return_value=MagicMock())())
-
-mock_contree = MagicMock()
-mock_contree.images = MagicMock()
-mock_contree.images.pull = AsyncMock(return_value=mock_image)
-
-patch('contree_sdk.Contree', return_value=mock_contree).start()
-```
--->
 ```python
 import asyncio
 from contree_sdk import Contree
@@ -514,22 +356,7 @@ asyncio.run(amain())
 > This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management.
 > For most use cases, prefer `files` parameter in `.run()` method.
 
-<!-- name: test_file_uploading
-```python
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
-mock_file = MagicMock()
-mock_file.uuid = uuid4()
-
-mock_contree = MagicMock()
-mock_contree.files = MagicMock()
-mock_contree.files.upload = AsyncMock(return_value=mock_file)
-
-patch('contree_sdk.Contree', return_value=mock_contree).start()
-```
--->
 ```python
 import asyncio
 from contree_sdk import Contree

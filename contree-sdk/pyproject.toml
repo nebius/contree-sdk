@@ -19,7 +19,6 @@ dependencies = [
     "strenum",
     "cattrs",
     "httpx", # todo move to httpx when transport will be supported
-    "markdown-pytest>=0.3.2",
 ]
 
 [project.optional-dependencies]
