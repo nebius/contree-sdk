@@ -1,6 +1,6 @@
 [project]
 name = "contree-sdk"
-version = "0.0.1.dev4"
+version = "0.0.1.dev5"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10, <3.14"
@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "strenum",
     "cattrs",
+    "aiofiles",
     "httpx", # todo move to httpx when transport will be supported
 ]
 

@@ -14,6 +14,7 @@ class ContreeConfig:
     base_url: ContreeEndpoint | str = ContreeEndpoint.PRODUCTION
 
     transport_timeout: float = 10.0
+    file_upload_chunk_size: int = 1024 * 1024
 
     operation_timeout: float = 600.0
     operation_poll_secs_min: float = 0.1
