@@ -74,3 +74,18 @@ def test_run_file_io_s(image_s, test_txt_path):
 
         assert f.read() == b"second line\nlast line\n"
         assert result.exit_code == 0
+
+
+RANDOM_INT_COMMAND = "od -An -N2 -tu2 /dev/urandom"
+
+
+async def test_preconfigured_run(image):
+    preconfigured_run = image.run(shell=RANDOM_INT_COMMAND)
+
+    result1 = await preconfigured_run
+    result2 = await preconfigured_run
+    result3 = await preconfigured_run
+    results = [result1, result2, result3]
+
+    numbers = {int(result.stdout) for result in results}
+    assert len(numbers) == 3

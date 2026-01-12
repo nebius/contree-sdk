@@ -83,7 +83,7 @@ import asyncio
 import stat
 
 from contree_sdk import Contree
-from contree_sdk.utils.objects.file import UploadFileSpec
+from contree_sdk.utils.models.file import UploadFileSpec
 
 async def amain():
     # create client
@@ -186,7 +186,7 @@ patch('contree_sdk.ContreeSync', return_value=mock_contree_sync).start()
 import stat
 
 from contree_sdk import ContreeSync
-from contree_sdk.utils.objects.file import UploadFileSpec
+from contree_sdk.utils.models.file import UploadFileSpec
 
 def main():
     # Create client
