@@ -357,12 +357,12 @@ asyncio.run(amain())
 > For most use cases, prefer `files` parameter in `.run()` method.
 
 
-```python
+```python fixture:docs_file_upload fixture:name:test_file_upload
 import asyncio
 from contree_sdk import Contree
 
 async def amain():
-    contree = Contree(token='my-token')
+    contree = Contree(token='fake-token')
 
     # upload file
     file = await contree.files.upload('/some/local/file.txt')

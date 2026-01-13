@@ -17,6 +17,6 @@ class UploadFileSpec:
     uid: int = 0
     gid: int = 0
     mode: int = DEFAULT_MODE
-    path: Path | None = None
+    path: Path | str | None = None
 
     source: str | Path | UploadedFile
