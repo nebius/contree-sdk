@@ -30,6 +30,8 @@ dev = [
     "pytest-mock",
     "pytest-xdist",
     "rich",
+
+    "pytest-markdown-docs",
 ]
 httpx = [
 ]
