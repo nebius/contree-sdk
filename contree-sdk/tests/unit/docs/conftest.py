@@ -9,6 +9,8 @@ from tests.unit.fixtures.files import api_fake_upload, file_sha256, file_uuid
 from tests.unit.fixtures.images import api_fake_images, fake_image_s, image_tag, image_uuid
 from tests.unit.fixtures.operations import operation_id
 from tests.unit.fixtures.runs import (
+    api_fake_popen_communicate,
+    api_fake_popen_shell,
     api_fake_run,
     api_fake_run_base,
     api_fake_session_multiple_runs,
@@ -21,10 +23,13 @@ from contree_sdk._internals.models.instance import ProcessResources, ProcessStat
 from contree_sdk.sdk.managers.files._async import FilesManager
 from contree_sdk.sdk.managers.files._base import _FilesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImageSync
+from contree_sdk.sdk.objects.session import ContreeSessionSync
 
 
 __all__ = [
     "api_fake_images",
+    "api_fake_popen_communicate",
+    "api_fake_popen_shell",
     "api_fake_run",
     "api_fake_run_base",
     "api_fake_session_multiple_runs",
@@ -44,6 +49,7 @@ __all__ = [
     "process_state",
     "resource_usage",
     "result_image_uuid",
+    "session",
     "strict_httpx",
 ]
 
@@ -119,6 +125,11 @@ def api_fake_stable_uuid(
     )
 
     return strict_httpx
+
+
+@pytest.fixture
+def session(fake_image_s: ContreeImageSync) -> ContreeSessionSync:
+    return fake_image_s.session()
 
 
 @pytest.fixture

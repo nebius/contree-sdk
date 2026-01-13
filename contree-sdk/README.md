@@ -237,7 +237,7 @@ Any session can provide Subprocess-like interface
 
 Running command
 
-```python
+```python fixture:session fixture:api_fake_popen_communicate fixture:name:test_popen_communicate
 proc = session.popen(
     ["cat"],
     text=True,
@@ -247,7 +247,7 @@ stdout, stderr = proc.communicate("a\nb\nc\n")
 
 Shell example
 
-```python
+```python fixture:session fixture:api_fake_popen_shell fixture:name:test_popen_shell
 import subprocess
 
 proc = session.popen(
@@ -327,13 +327,13 @@ client = ContreeSync(config)
 
 You can preconfigure run and then reuse it, for example:
 
-```python
+```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_objects_reusing
 import asyncio
 from contree_sdk import Contree
 
 async def amain():
-    contree = Contree(token='my-token')
-    image = await contree.images.pull("ubuntu:latest")
+    contree = Contree(token='fake-token')
+    image = await contree.images.pull("busybox:latest")
 
     # preconfigure a run that generates random string and writes to file
     preconfigured_run = (
