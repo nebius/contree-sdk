@@ -121,7 +121,7 @@ def api_fake_session_multiple_runs(
         is_optional=True,
     )
 
-    for stdout in ["", "some other step\n", "some data"]:
+    for stdout in ["", "some other step\n", "some data", "final step\n"]:
         op_id = str(uuid4())
         result_uuid = uuid4()
 

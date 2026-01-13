@@ -205,20 +205,20 @@ main()
 
 A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
 
-```python
+```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_sessions_versioning
 import asyncio
 from contree_sdk import Contree
 
 async def amain():
-    contree = Contree(token='my-token')
+    contree = Contree(token='fake-token')
 
     # Each command creates a new image version
-    image = await contree.images.pull("ubuntu:latest")        # ubuntu:latest
+    image = await contree.images.pull("busybox:latest")        # busybox:latest
     result1 = await image.run(shell="apt update")             # some-uuid
     result2 = await result1.run(shell="apt install python3") # another-uuid
 
     # Sessions work the same way
-    session = image.session()                     # ubuntu:latest
+    session = image.session()                     # busybox:latest
     await session.run(shell="touch /app/file1.txt")    # some-uuid
     await session.run(shell="echo 'hello' > /app/file1.txt") # another-uuid
 
@@ -309,7 +309,7 @@ images[0].run(shell='some command').wait()
 ### Client configuration
 You can create configuration object and use it later in client
 
-```python
+```python fixture:name:test_client_config
 from contree_sdk.config import ContreeConfig, ContreeEndpoint
 from contree_sdk import Contree, ContreeSync
 
