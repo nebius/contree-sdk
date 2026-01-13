@@ -130,3 +130,45 @@ def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
         json={"uuid": str(uuid4()), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
         is_optional=True,
     )
+
+
+def add_inspect_list_responses(
+    httpx_mock: HTTPXMock,
+    count: int = 5,
+    files_list: list | None = None,
+):
+    from tests.unit.images.test_inspect import create_file_item
+
+    if files_list is None:
+        files_list = [create_file_item("f.txt", is_dir=False, size=10)]
+
+    for _ in range(count):
+        httpx_mock.add_response(
+            method="GET",
+            url=r(".*/inspect/.*/list.*"),
+            json={"files": files_list},
+            is_optional=True,
+        )
+
+
+def add_inspect_download_responses(
+    httpx_mock: HTTPXMock,
+    count: int = 10,
+    content: bytes = b"data",
+):
+    for _ in range(count):
+        httpx_mock.add_response(
+            method="GET",
+            url=r(".*/inspect/.*/download.*"),
+            content=content,
+            is_optional=True,
+        )
+
+
+def add_inspect_list_download_responses(
+    httpx_mock: HTTPXMock,
+    list_count: int = 5,
+    download_count: int = 10,
+):
+    add_inspect_list_responses(httpx_mock, list_count)
+    add_inspect_download_responses(httpx_mock, download_count)

@@ -5,10 +5,15 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_httpx import HTTPXMock
 from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_token, strict_httpx
-from tests.unit.fixtures.files import api_fake_upload, file_sha256, file_uuid
-from tests.unit.fixtures.images import api_fake_images, fake_image_s, image_tag, image_uuid
+from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
+from tests.unit.fixtures.images import add_inspect_by_tag_response, api_fake_images, fake_image_s, image_tag, image_uuid
 from tests.unit.fixtures.imports import add_import_operation_responses
-from tests.unit.fixtures.operations import add_base_responses, add_operation_responses, operation_id
+from tests.unit.fixtures.operations import (
+    add_base_responses,
+    add_inspect_list_download_responses,
+    add_operation_responses,
+    operation_id,
+)
 from tests.unit.fixtures.runs import (
     api_fake_popen_communicate,
     api_fake_popen_shell,
@@ -19,8 +24,7 @@ from tests.unit.fixtures.runs import (
     resource_usage,
     result_image_uuid,
 )
-from tests.unit.fixtures.utils import r, url
-from tests.unit.images.test_inspect import create_file_item
+from tests.unit.fixtures.utils import r
 
 from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from contree_sdk.sdk.managers.files._async import FilesManager
@@ -68,10 +72,7 @@ def api_fake_stable_uuid(
     resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
-    from uuid import uuid4
-
-    from tests.unit.fixtures.files import add_file_responses
-    from tests.unit.fixtures.utils import r
+    from tests.unit.fixtures.runs import add_inspect_by_uuid_response
 
     add_file_responses(strict_httpx, file_uuid, file_sha256)
 
@@ -90,12 +91,7 @@ def api_fake_stable_uuid(
         is_optional=True,
     )
 
-    strict_httpx.add_response(
-        method="GET",
-        url=r(f".*/inspect/{result_image_uuid}$"),
-        json={"uuid": str(result_image_uuid), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
-    )
+    add_inspect_by_uuid_response(strict_httpx, result_image_uuid)
 
     add_operation_responses(
         strict_httpx,
@@ -197,20 +193,14 @@ def api_fake_quick_start(
     ubuntu_uuid = uuid4()
     busybox_uuid = uuid4()
 
-    from tests.unit.fixtures.files import add_file_responses
-
     add_file_responses(api_fake_session_multiple_runs, file_uuid, file_sha256)
     add_file_responses(api_fake_session_multiple_runs, file_uuid, file_sha256)
 
     api_fake_session_multiple_runs.add_response(
         method="GET", url=r(".*/images\\?.*"), json={"images": []}, is_optional=True
     )
-    api_fake_session_multiple_runs.add_response(
-        method="GET",
-        url=url("/inspect", params={"tag": "ubuntu:latest"}),
-        json={"uuid": str(ubuntu_uuid), "tag": "ubuntu:latest", "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
-    )
+
+    add_inspect_by_tag_response(api_fake_session_multiple_runs, "ubuntu:latest", ubuntu_uuid)
 
     import_op_id = str(uuid4())
     api_fake_session_multiple_runs.add_response(
@@ -219,17 +209,6 @@ def api_fake_quick_start(
     add_base_responses(api_fake_session_multiple_runs, import_op_id)
     add_import_operation_responses(api_fake_session_multiple_runs, import_op_id, busybox_uuid)
 
-    for _ in range(5):
-        api_fake_session_multiple_runs.add_response(
-            method="GET",
-            url=r(".*/inspect/.*/list.*"),
-            json={"files": [create_file_item("f.txt", is_dir=False, size=10)]},
-            is_optional=True,
-        )
-
-    for _ in range(10):
-        api_fake_session_multiple_runs.add_response(
-            method="GET", url=r(".*/inspect/.*/download.*"), content=b"data", is_optional=True
-        )
+    add_inspect_list_download_responses(api_fake_session_multiple_runs)
 
     return api_fake_session_multiple_runs

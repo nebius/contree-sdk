@@ -8,6 +8,20 @@ from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from tests.unit.fixtures.utils import r, url
 
 
+def add_inspect_by_tag_response(
+    httpx_mock: HTTPXMock,
+    tag: str,
+    image_uuid: UUID,
+    created_at: str = "2024-01-01T12:00:00+00:00",
+):
+    httpx_mock.add_response(
+        method="GET",
+        url=url("/inspect", params={"tag": tag}),
+        json={"uuid": str(image_uuid), "tag": tag, "created_at": created_at},
+        is_optional=True,
+    )
+
+
 @pytest.fixture()
 def image_uuid() -> UUID:
     return uuid4()
