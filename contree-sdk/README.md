@@ -267,7 +267,7 @@ print(proc.stdout)
 
 Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
 
-```python
+```python fixture:image fixture:api_fake_stable_uuid fixture:name:test_stable_image_uuid
 result0 = image.run('echo CHANGES > file.txt').wait()
 result1 = result0.run('sleep 5').wait()
 
