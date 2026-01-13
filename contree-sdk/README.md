@@ -51,7 +51,7 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 <details open>
 <summary>🔀 Async Example</summary>
 
-```python fixture:name:test_quick_start_async
+```python fixture:api_fake_quick_start fixture:name:test_quick_start_async
 import asyncio
 import stat
 
@@ -126,7 +126,7 @@ asyncio.run(amain())
 <details>
 <summary>🔁 Sync Example</summary>
 
-```python fixture:name:test_quick_start_sync
+```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync
 import stat
 
 from contree_sdk import ContreeSync
