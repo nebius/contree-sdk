@@ -16,6 +16,10 @@ class _ImageFsEntryBase(FileItemModel):
         return self._path.joinpath(self.path)
 
     @property
+    def name(self) -> str:
+        return self.full_path.name
+
+    @property
     def is_file(self):
         return not self.is_dir
 

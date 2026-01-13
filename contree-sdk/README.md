@@ -51,7 +51,7 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 <details open>
 <summary>🔀 Async Example</summary>
 
-```python
+```python fixture:name:test_quick_start_async
 import asyncio
 import stat
 
@@ -62,7 +62,7 @@ from contree_sdk.utils.models.file import UploadFileSpec
 
 async def amain():
     # create client
-    contree = Contree(token='real-contree-token')
+    contree = Contree(token='fake-token')
 
     # list images
     images = await contree.images()
@@ -102,7 +102,7 @@ async def amain():
             await item.download('/local/files/downloaded/')
 
     # using session
-    session = await busybox_image.session()
+    session = busybox_image.session()
     await session.run(
         command='/bin/app',
         files=[UploadFileSpec(source='/local/files/app', path='bin/app', mode=stat.S_IXUSR)]
@@ -126,7 +126,7 @@ asyncio.run(amain())
 <details>
 <summary>🔁 Sync Example</summary>
 
-```python
+```python fixture:name:test_quick_start_sync
 import stat
 
 from contree_sdk import ContreeSync
@@ -134,7 +134,7 @@ from contree_sdk.utils.models.file import UploadFileSpec
 
 def main():
     # Create client
-    contree = ContreeSync(token='real-contree-token')
+    contree = ContreeSync(token='fake-token')
 
     # list images
     images = contree.images()
