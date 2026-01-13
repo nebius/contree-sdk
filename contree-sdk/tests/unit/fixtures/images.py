@@ -21,16 +21,13 @@ def image_tag() -> str:
 @pytest.fixture()
 def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -> HTTPXMock:
     image_dict = {"uuid": str(image_uuid), "tag": image_tag, "created_at": "2024-01-01T12:00:00+00:00"}
-    strict_httpx.add_response(
-        method="GET",
-        url=r(".*/images"),
-        json={
-            "images": [
-                image_dict,
-            ]
-        },
-        is_optional=True,
-    )
+    for _ in range(3):
+        strict_httpx.add_response(
+            method="GET",
+            url=r(".*/images"),
+            json={"images": [image_dict]},
+            is_optional=True,
+        )
     strict_httpx.add_response(
         method="GET",
         url=r(f".*/inspect/{image_uuid}$"),

@@ -279,12 +279,12 @@ assert result1.uuid == result0.uuid
 Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
 For example
 
-```python
+```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_async_sync_clients
 import asyncio
 from contree_sdk import Contree, ContreeSync
 
 async def amain():
-    contree_async = Contree(token='my-token')
+    contree_async = Contree(token='fake-token')
 
     # async client produces async-friendly images objects, so they can be used in async code
     images = await contree_async.images()
@@ -292,7 +292,7 @@ async def amain():
 
 asyncio.run(amain())
 
-contree_sync = ContreeSync(token='my-token')
+contree_sync = ContreeSync(token='fake-token')
 
 # while sync client produces sync-friendly images objects, so they can be used in sync code
 images = contree_sync.images()
