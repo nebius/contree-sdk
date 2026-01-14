@@ -197,7 +197,7 @@ max-args = 12
 include = ["contree_sdk", "tests"]
 
 exclude = []
-pythonVersion = "3.11"
+pythonVersion = "3.13"
 pythonPlatform = "Linux"
 
 typeCheckingMode = "standard"
