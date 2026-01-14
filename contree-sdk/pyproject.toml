@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    # for tests
     "pytest>=8.4.1",
     "pytest-asyncio",
     "pytest-httpx",
@@ -31,8 +32,11 @@ dev = [
     "pytest-xdist",
     "rich",
 
+    # for format+checks
     "pytest-markdown-docs",
     "dprint-py",
+    "pytest-examples",
+    "basedpyright"
 ]
 httpx = [
 ]
@@ -188,3 +192,19 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.pylint]
 max-args = 12
+
+[tool.pyright]
+include = ["contree_sdk", "tests"]
+
+exclude = []
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+
+typeCheckingMode = "standard"
+
+baselineFile = "./.basedpyright/baseline.json"
+
+
+# ignores
+reportGeneralTypeIssues = "warning"
+reportMissingTypeArgument = "warning"

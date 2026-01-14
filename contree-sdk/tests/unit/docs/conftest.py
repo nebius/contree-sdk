@@ -3,6 +3,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
+from pytest import Config
 from pytest_httpx import HTTPXMock
 from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_token, strict_httpx
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
@@ -60,6 +61,10 @@ __all__ = [
     "session",
     "strict_httpx",
 ]
+
+
+def pytest_ignore_collect(path: Path, config: Config) -> bool:
+    return "_tmp" in path.parts or path.name == "README.FUTURE.md"
 
 
 @pytest.fixture
