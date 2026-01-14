@@ -18,11 +18,6 @@ repos:
         args: [--fix]
       - id: ruff-format
         name: ruff format
-      - id: ruff-format
-        types_or: [ markdown ]
-        require_serial: true
-        entry: doccmd --language python --no-pad-file --command "ruff format"
-        additional_dependencies: [ "doccmd" ]
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.20.0
     hooks:
