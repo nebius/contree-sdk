@@ -43,7 +43,6 @@ def run_check(path: Path):
             "--project",
             str(PROJECT_ROOT / "pyproject.toml"),
             "--baselinemode=discard",
-            "--verbose",
             str(path),
         ],
         return_completed_process=True,

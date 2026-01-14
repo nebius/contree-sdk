@@ -55,7 +55,7 @@ extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api
 import asyncio
 import stat
 
-from pathlib import Pathh
+from pathlib import Path
 
 from contree_sdk import Contree
 from contree_sdk.utils.models.file import UploadFileSpec
