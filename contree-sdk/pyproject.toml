@@ -32,6 +32,7 @@ dev = [
     "rich",
 
     "pytest-markdown-docs",
+    "dprint-py",
 ]
 httpx = [
 ]

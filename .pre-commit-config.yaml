@@ -27,4 +27,12 @@ repos:
     rev: 0.7.11
     hooks:
       - id: uv-lock
+  - repo: local
+    hooks:
+      - id: dprint-contree-sdk
+        name: dprint (contree-sdk)
+        entry: bash -lc 'cd contree-sdk && dprint fmt --config dprint.json .'
+        language: system
+        files: ^contree-sdk/.*\.md$
+        pass_filenames: false
 # todo add ruff config

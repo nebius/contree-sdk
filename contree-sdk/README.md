@@ -60,9 +60,10 @@ from pathlib import Path
 from contree_sdk import Contree
 from contree_sdk.utils.models.file import UploadFileSpec
 
+
 async def amain():
     # create client
-    contree = Contree(token='fake-token')
+    contree = Contree(token="fake-token")
 
     # list images
     images = await contree.images()
@@ -75,46 +76,48 @@ async def amain():
 
     # running command
     result0 = await ubuntu_image.run(
-        command='/app.sh',
-        args=('arg1', 'arg2'),
-        stdin='input',
-        env=dict(http_proxy='http://10.20.30.40:1234'),
+        command="/app.sh",
+        args=("arg1", "arg2"),
+        stdin="input",
+        env=dict(http_proxy="http://10.20.30.40:1234"),
         files=[
-            UploadFileSpec(source='/local/files/app.sh', mode=stat.S_IXUSR),
-            UploadFileSpec(source='/local/files/data_ver1.csv', path=Path('/data.csv')),
-        ]
+            UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
+            UploadFileSpec(source="/local/files/data_ver1.csv", path=Path("/data.csv")),
+        ],
     )
     print(result0.stdout)
     print(result0.stderr)
 
     # running next command
-    result1 = await result0.run(shell='echo output.csv | grep something')
+    result1 = await result0.run(shell="echo output.csv | grep something")
 
     # getting files and directories by path
-    items = await result1.ls('files/path')
+    items = await result1.ls("files/path")
     print(len(items))
 
     # iterating through files and directories by path
-    for item in await result1.ls('~'):
+    for item in await result1.ls("~"):
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
-            await item.download('/local/files/downloaded/')
+            await item.download("/local/files/downloaded/")
 
     # using session
     session = busybox_image.session()
     await session.run(
-        command='/bin/app',
-        files=[UploadFileSpec(source='/local/files/app', path='bin/app', mode=stat.S_IXUSR)]
+        command="/bin/app",
+        files=[
+            UploadFileSpec(source="/local/files/app", path="bin/app", mode=stat.S_IXUSR)
+        ],
     )
-    res = await session.run(command='/bin/cat', args=('result.txt',))
+    res = await session.run(command="/bin/cat", args=("result.txt",))
     print(res.stdout)
 
     # downloading file from session
-    await session.download('/tmp/log.jsonl', '/local/logs/session_1.log')
+    await session.download("/tmp/log.jsonl", "/local/logs/session_1.log")
 
     # or simply reading from file
-    content = await session.read('/tmp/log.jsonl')
+    content = await session.read("/tmp/log.jsonl")
     print(content.decode())
 
 
@@ -132,9 +135,10 @@ import stat
 from contree_sdk import ContreeSync
 from contree_sdk.utils.models.file import UploadFileSpec
 
+
 def main():
     # Create client
-    contree = ContreeSync(token='fake-token')
+    contree = ContreeSync(token="fake-token")
 
     # list images
     images = contree.images()
@@ -147,47 +151,52 @@ def main():
 
     # running command
     result0 = ubuntu_image.run(
-        command='/app.sh',
-        args=('arg1', 'arg2'),
-        stdin='input',
-        env=dict(http_proxy='http://10.20.30.40:1234'),
+        command="/app.sh",
+        args=("arg1", "arg2"),
+        stdin="input",
+        env=dict(http_proxy="http://10.20.30.40:1234"),
         files=[
-            UploadFileSpec(source='/local/files/app.sh', mode=stat.S_IXUSR),
-            UploadFileSpec(source='/local/files/data_ver1.csv', path='/data.csv'),
-        ]
+            UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
+            UploadFileSpec(source="/local/files/data_ver1.csv", path="/data.csv"),
+        ],
     ).wait()
     print(result0.stdout)
     print(result0.stderr)
 
     # running next command
-    result1 = result0.run(shell='echo output.csv | grep something').wait()
+    result1 = result0.run(shell="echo output.csv | grep something").wait()
 
     # getting files and directories by path
-    items = result1.ls('files/path')
+    items = result1.ls("files/path")
     print(len(items))
 
     # iterating through files and directories by path
-    for item in result1.ls('~'):
+    for item in result1.ls("~"):
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
-            item.download('/local/files/downloaded/')
+            item.download("/local/files/downloaded/")
 
     # using session
     session = busybox_image.session()
     session.run(
-        command='/bin/app',
-        files=[UploadFileSpec(source='/local/files/app', path='/bin/app', mode=stat.S_IXUSR)]
+        command="/bin/app",
+        files=[
+            UploadFileSpec(
+                source="/local/files/app", path="/bin/app", mode=stat.S_IXUSR
+            )
+        ],
     ).wait()
-    res = session.run(command='cat', args=('result.txt',)).wait()
+    res = session.run(command="cat", args=("result.txt",)).wait()
     print(res.stdout)
 
     # downloading file from session
-    session.download('/tmp/log.jsonl', '/local/logs/session_1.log')
+    session.download("/tmp/log.jsonl", "/local/logs/session_1.log")
 
     # or simply reading from file
-    content = session.read('/tmp/log.jsonl')
+    content = session.read("/tmp/log.jsonl")
     print(content.decode())
+
 
 main()
 ```
@@ -209,18 +218,20 @@ A **session** is essentially an image whose version automatically updates after 
 import asyncio
 from contree_sdk import Contree
 
+
 async def amain():
-    contree = Contree(token='fake-token')
+    contree = Contree(token="fake-token")
 
     # Each command creates a new image version
-    image = await contree.images.pull("busybox:latest")        # busybox:latest
-    result1 = await image.run(shell="apt update")             # some-uuid
-    result2 = await result1.run(shell="apt install python3") # another-uuid
+    image = await contree.images.pull("busybox:latest")  # busybox:latest
+    result1 = await image.run(shell="apt update")  # some-uuid
+    result2 = await result1.run(shell="apt install python3")  # another-uuid
 
     # Sessions work the same way
-    session = image.session()                     # busybox:latest
-    await session.run(shell="touch /app/file1.txt")    # some-uuid
-    await session.run(shell="echo 'hello' > /app/file1.txt") # another-uuid
+    session = image.session()  # busybox:latest
+    await session.run(shell="touch /app/file1.txt")  # some-uuid
+    await session.run(shell="echo 'hello' > /app/file1.txt")  # another-uuid
+
 
 asyncio.run(amain())
 ```
@@ -255,7 +266,7 @@ proc = session.popen(
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    text=True
+    text=True,
 )
 returncode = proc.wait()
 print(proc.stdout)
@@ -268,8 +279,8 @@ print(proc.stdout)
 Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
 
 ```python fixture:image fixture:api_fake_stable_uuid fixture:name:test_stable_image_uuid
-result0 = image.run('echo CHANGES > file.txt').wait()
-result1 = result0.run('sleep 5').wait()
+result0 = image.run("echo CHANGES > file.txt").wait()
+result1 = result0.run("sleep 5").wait()
 
 assert result1.uuid == result0.uuid
 ```
@@ -283,20 +294,22 @@ For example
 import asyncio
 from contree_sdk import Contree, ContreeSync
 
+
 async def amain():
-    contree_async = Contree(token='fake-token')
+    contree_async = Contree(token="fake-token")
 
     # async client produces async-friendly images objects, so they can be used in async code
     images = await contree_async.images()
-    await images[0].run(shell='some command')
+    await images[0].run(shell="some command")
+
 
 asyncio.run(amain())
 
-contree_sync = ContreeSync(token='fake-token')
+contree_sync = ContreeSync(token="fake-token")
 
 # while sync client produces sync-friendly images objects, so they can be used in sync code
 images = contree_sync.images()
-images[0].run(shell='some command').wait()
+images[0].run(shell="some command").wait()
 ```
 
 > [!NOTE]
@@ -307,6 +320,7 @@ images[0].run(shell='some command').wait()
 ## ⚙️ Advanced Usage
 
 ### Client configuration
+
 You can create configuration object and use it later in client
 
 ```python fixture:name:test_client_config
@@ -314,7 +328,7 @@ from contree_sdk.config import ContreeConfig, ContreeEndpoint
 from contree_sdk import Contree, ContreeSync
 
 config = ContreeConfig(
-    token='my-token',
+    token="my-token",
     base_url=ContreeEndpoint.STAGE,  # or 'https://contree.host.com'
     transport_timeout=10.0,  # timeout for transport operations
 )
@@ -331,14 +345,13 @@ You can preconfigure run and then reuse it, for example:
 import asyncio
 from contree_sdk import Contree
 
+
 async def amain():
-    contree = Contree(token='fake-token')
+    contree = Contree(token="fake-token")
     image = await contree.images.pull("busybox:latest")
 
     # preconfigure a run that generates random string and writes to file
-    preconfigured_run = (
-        image.run(shell='echo $RANDOM > /tmp/random.txt')
-    )
+    preconfigured_run = image.run(shell="echo $RANDOM > /tmp/random.txt")
 
     # reuse it multiple times
     result1 = await preconfigured_run
@@ -346,6 +359,7 @@ async def amain():
     result3 = await preconfigured_run
 
     # each execution will generate different uuid, because each result is gonna be unique
+
 
 asyncio.run(amain())
 ```
@@ -356,17 +370,18 @@ asyncio.run(amain())
 > This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management.
 > For most use cases, prefer `files` parameter in `.run()` method.
 
-
 ```python fixture:docs_file_upload fixture:name:test_file_upload
 import asyncio
 from contree_sdk import Contree
 
+
 async def amain():
-    contree = Contree(token='fake-token')
+    contree = Contree(token="fake-token")
 
     # upload file
-    file = await contree.files.upload('/some/local/file.txt')
+    file = await contree.files.upload("/some/local/file.txt")
     print(file.uuid)
+
 
 asyncio.run(amain())
 ```
