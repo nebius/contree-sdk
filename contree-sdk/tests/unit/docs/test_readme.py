@@ -6,7 +6,9 @@ import pytest
 from pytest_examples import CodeExample, find_examples
 
 
-README_MD_PATH = Path(__file__).parent.parent.parent.parent / "README.md"
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
+README_MD_PATH = PROJECT_ROOT / "README.md"
 
 TMP_FILES_PATH = Path(__file__).parent / "_tmp"
 
@@ -35,7 +37,10 @@ def test_docstrings(example: CodeExample):
 def run_check(path: Path):
     from nodejs_wheel.executable import node
 
-    result = node([str(Path(basedpyright.__file__).parent / "index.js"), str(path)], return_completed_process=True)
+    result = node(
+        [str(Path(basedpyright.__file__).parent / "index.js"), "--project", str(PROJECT_ROOT), str(path)],
+        return_completed_process=True,
+    )
     assert result.returncode == 0
 
 
