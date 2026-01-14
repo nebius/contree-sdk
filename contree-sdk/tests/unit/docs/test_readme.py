@@ -38,7 +38,14 @@ def run_check(path: Path):
     from nodejs_wheel.executable import node
 
     result = node(
-        [str(Path(basedpyright.__file__).parent / "index.js"), "--verbose", str(path)],
+        [
+            str(Path(basedpyright.__file__).parent / "index.js"),
+            "--project",
+            str(PROJECT_ROOT / "pyproject.toml"),
+            "--baselinemode=discard",
+            "--verbose",
+            str(path),
+        ],
         return_completed_process=True,
     )
     assert result.returncode == 0
