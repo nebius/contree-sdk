@@ -1,17 +1,14 @@
 from dataclasses import dataclass
 
-from strenum import StrEnum
-
-
-class ContreeEndpoint(StrEnum):
-    PRODUCTION = "https://eu-north.nebius.computer"
-    STAGE = "https://eu-north-stage.nebius.computer"
+from contree_sdk._internals.utils.config import ContreeEndpoint
 
 
 @dataclass
 class ContreeConfig:
+    """Authentication token or env var name."""
+
     token: str = "CONTREE_TOKEN"
-    base_url: ContreeEndpoint | str = ContreeEndpoint.PRODUCTION
+    base_url: str = ContreeEndpoint.PRODUCTION
 
     transport_timeout: float = 10.0
     file_upload_chunk_size: int = 1024 * 1024

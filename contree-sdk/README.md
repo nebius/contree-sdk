@@ -324,12 +324,12 @@ images[0].run(shell="some command").wait()
 You can create configuration object and use it later in client
 
 ```python fixture:name:test_client_config
-from contree_sdk.config import ContreeConfig, ContreeEndpoint
+from contree_sdk.config import ContreeConfig
 from contree_sdk import Contree, ContreeSync
 
 config = ContreeConfig(
     token="my-token",
-    base_url=ContreeEndpoint.STAGE,  # or 'https://contree.host.com'
+    base_url="https://contree.host.com",
     transport_timeout=10.0,  # timeout for transport operations
 )
 
