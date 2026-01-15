@@ -29,7 +29,15 @@ class AsyncClientMixin:
     _client: AsyncClient
 
     async def _send_request(self, request: Request) -> Response:
-        return await self._client.send(request, follow_redirects=True)
+        resp = await self._client.send(request, follow_redirects=True, stream=True)
+        try:
+            await resp.aread()
+        except BaseException as e:
+            e.response = resp
+            await resp.aclose()
+            raise
+        else:
+            return resp
 
     async def _handle_api_call(
         self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict

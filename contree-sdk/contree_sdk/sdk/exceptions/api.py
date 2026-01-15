@@ -1,14 +1,31 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Literal
 
 from contree_sdk.sdk.exceptions.base import ContreeException
 
 
 @dataclass
-class ContreeApiException(ContreeException): ...
+class RequestInfo:
+    url: str | None = None
+    method: str | None = None
 
 
 @dataclass
-class ApiTimeoutError(ContreeApiException): ...
+class ResponseInfo:
+    headers: dict | None = None
+
+
+@dataclass
+class ContreeApiException(ContreeException):
+    request: RequestInfo | None = None
+    response: ResponseInfo | None = None
+
+
+@dataclass
+class ApiTimeoutError(ContreeApiException):
+    timeout_type: Literal["connect", "read", "write", "pool"] | str | None = None
 
 
 @dataclass

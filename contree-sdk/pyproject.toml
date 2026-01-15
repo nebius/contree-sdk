@@ -150,6 +150,7 @@ extend-ignore = [
     "PLW1510",  # unspecified-encoding
     "PLW2901",  # redefined-loop-name
     "PTH118",   # os-path-join
+    "PYI051",   # redundant-literal-union
     "RUF005",   # collection-literal-concatenation
     "RUF012",   # mutable-class-default,  because of old pydantic, ideally to turn on
     "TC",       # typing-only-*-import
