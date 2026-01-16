@@ -55,6 +55,3 @@ def io_encode(value: str | bytes, encoding: StreamEncoding | str | None = None) 
         encoding=encoding,
         truncated=False,
     )
-
-
-# todo move codecs inside stream object

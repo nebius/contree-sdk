@@ -10,10 +10,6 @@ from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.utils.models.file import UploadedFile
 
 
-def _sha256(data: bytes) -> str:
-    return sha256(data).hexdigest()
-
-
 class _FilesBaseManager(BaseManager):
     async def _upload_file(self, local_path: Path | str) -> UploadedFile:
         async with aiofiles.open(local_path, "rb") as file:

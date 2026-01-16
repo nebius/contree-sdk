@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 _formatter = Formatter()
 
 
-# todo add proper typing
 def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
     match json:
         case False:

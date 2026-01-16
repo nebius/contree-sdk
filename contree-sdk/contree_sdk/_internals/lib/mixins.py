@@ -8,7 +8,7 @@ from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
 
 
 if TYPE_CHECKING:
-    from contree_sdk._internals.lib.base import ClientBase
+    from contree_sdk._internals.lib.client_base import ClientBase
 
 
 class SyncClientMixin:

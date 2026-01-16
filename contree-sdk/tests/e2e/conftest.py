@@ -3,7 +3,8 @@ from os import getenv
 import pytest
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.config import ContreeConfig, ContreeEndpoint
+from contree_sdk._internals.utils.config import ContreeEndpoint
+from contree_sdk.config import ContreeConfig
 from tests.utils.marker import create_directory_marker
 
 

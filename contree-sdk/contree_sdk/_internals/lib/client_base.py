@@ -5,7 +5,7 @@ import httpx
 from httpx import Request, Response
 from httpx._config import DEFAULT_TIMEOUT_CONFIG, Timeout
 
-from contree_sdk._internals.lib.decorator import EMPTY
+from contree_sdk._internals.lib.api_decorator import EMPTY
 from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
@@ -75,6 +75,3 @@ class ClientBase(ABC):
     ) -> ReturnType | dict | Response: ...
     @abstractmethod
     def _handle_api_call(self, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response: ...
-
-
-# todo add config here

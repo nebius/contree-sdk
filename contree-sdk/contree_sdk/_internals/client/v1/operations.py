@@ -1,7 +1,7 @@
 from typing import overload
 from uuid import UUID
 
-from contree_sdk._internals.lib.decorator import delete, get
+from contree_sdk._internals.lib.api_decorator import delete, get
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.models.operation import OperationModel
 

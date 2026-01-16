@@ -18,7 +18,7 @@ from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo
 
 
 # for now, it works with httpx errors
-# when be implementing
+# when be implementing multi transport support, we should change it to some other class
 def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeException:
     additionals = {
         "request": RequestInfo(
