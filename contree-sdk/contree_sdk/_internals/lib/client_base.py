@@ -21,7 +21,7 @@ class ClientBase(ABC):
         )
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
-        kwargs = endpoint_info.get_files_data_by_data(data)
+        kwargs = endpoint_info.get_file_upload_kwargs(data)
         return self._client.build_request(
             method=endpoint_info.method.upper(),
             url=endpoint_info.get_path_by_data(data),

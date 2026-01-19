@@ -52,7 +52,7 @@ class ApiEndpointInfo:
             return res[self.body_params[0]]
         return res
 
-    def get_files_data_by_data(self, data: dict) -> dict:
+    def get_file_upload_kwargs(self, data: dict) -> dict:
         if not self.file_params:
             return {}
         if len(self.file_params) == 1:
