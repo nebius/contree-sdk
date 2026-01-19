@@ -1,8 +1,6 @@
-from dataclasses import replace
-
 import pytest
 
-from contree_sdk import ContreeSync
+from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.config import ContreeConfig
 from tests.e2e.sdk.test_client import test_client_timeout as _test_client_timeout
 from tests.e2e.sdk.test_client import test_fake_token as _test_fake_token
@@ -42,9 +40,7 @@ async def test_token_from_env_var(fake_token: str, monkeypatch, fake_contree_con
     ],
 )
 def test_get_interval(config: ContreeConfig, progress_ratio: float, expected_range: tuple[float, float]):
-    client = ContreeSync(config=replace(config, token="test-token"))
-
-    results = [client._get_interval(progress_ratio) for _ in range(200)]
+    results = [get_wait_interval(config, progress_ratio) for _ in range(200)]
 
     min_result = min(results)
     max_result = max(results)

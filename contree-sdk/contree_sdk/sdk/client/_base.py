@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 from asyncio import Event, shield, sleep
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
-from random import uniform
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -15,6 +13,7 @@ from typing_extensions import TypeVar
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.instance import InstanceOperationResult
 from contree_sdk._internals.utils.exception import wrap_api_call
+from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
@@ -31,25 +30,31 @@ if TYPE_CHECKING:
 
 _OperationResultT = TypeVar("_OperationResultT")
 
+logger = logging.getLogger(__name__)
+
 
 class _ContreeBase:
     files: _FilesBaseManager
     images: _ImagesBaseManager
 
-    def __init__(self, config: ContreeConfig | None = None, *, token: str | None = None):
+    def __init__(self, config: ContreeConfig | None = None, *, base_url: str | None = None, token: str | None = None):
         if config is None:
             config = ContreeConfig()
             if token is not None:
                 config = replace(config, token=token)
+            if base_url is not None:
+                config = replace(config, base_url=base_url)
         else:
-            assert token is None, "config is not empty, token should be passed through config itself"
+            if token is not None:
+                raise ValueError("token must be passed via config when config is provided")
+            if base_url is not None:
+                raise ValueError("base_url must be passed via config when config is provided")
 
-        if config.token in os.environ:
-            logging.info(f"Loading token from environment variable {config.token}")
-            config = replace(config, token=os.environ[config.token])
+        config = config._load_field_from_env("token")
+        config = config._load_field_from_env("base_url")
 
         self._api: ContreeClient = self._create_api_client(config)
-        self._config = replace(config, token="<hidden>")
+        self._config = config
 
     @property
     def config(self) -> ContreeConfig:
@@ -101,14 +106,15 @@ class _ContreeBase:
                         actual=type(resp.metadata),
                     )
                 interval = min(
-                    self._get_interval(spent / timeout), timeout - spent + self.config.operation_poll_secs_min
+                    get_wait_interval(self.config, spent / timeout),
+                    timeout - spent + self.config.operation_poll_secs_min,
                 )
                 finished = resp.status in final_statuses
                 if finished:
                     finished_event.set()
                     break
 
-                logging.info(f"Sleeping for {interval:0.2f} seconds for {resp.kind} operation {operation_uuid}")
+                logger.info(f"Sleeping for {interval:0.2f} seconds for {resp.kind} operation {operation_uuid}")
                 await sleep(interval)
 
         if resp.status == OperationStatus.CANCELLED:
@@ -117,16 +123,6 @@ class _ContreeBase:
             raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error)
 
         return resp.metadata, resp.result
-
-    def _get_interval(self, progress_ratio: float) -> float:
-        progress_ratio = progress_ratio ** (1 / self.config.operation_poll_secs_backoff_grow)
-        mid = 0.5
-        jitter_size = 0.1 + 0.4 * (1 - 2 * abs(progress_ratio - mid))
-        progress_ratio = progress_ratio * (1 + uniform(-jitter_size, jitter_size))
-        res = self.config.operation_poll_secs_min + progress_ratio * (
-            self.config.operation_poll_secs_max - self.config.operation_poll_secs_min
-        )
-        return max(self.config.operation_poll_secs_min, min(res, self.config.operation_poll_secs_max))
 
 
 @dataclass

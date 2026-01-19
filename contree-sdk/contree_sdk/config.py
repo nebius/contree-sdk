@@ -1,14 +1,19 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-from contree_sdk._internals.utils.config import ContreeEndpoint
+import logging
+import os
+from dataclasses import dataclass, field, replace
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ContreeConfig:
     """Authentication token or env var name."""
 
-    token: str = "CONTREE_TOKEN"
-    base_url: str = ContreeEndpoint.PRODUCTION
+    base_url: str = field(default="CONTREE_BASE_URL")
+    token: str = field(default="CONTREE_TOKEN", repr=False)
 
     transport_timeout: float = 10.0
     file_upload_chunk_size: int = 1024 * 1024
@@ -22,3 +27,10 @@ class ContreeConfig:
     images_list_batch_size: int = 100
 
     images_relations_registry_size: int = 1000
+
+    def _load_field_from_env(self, field_name: str) -> ContreeConfig:
+        value = getattr(self, field_name)
+        if value in os.environ:
+            logger.info(f"Loading {field_name} from environment variable {value}")
+            return replace(self, **{field_name: os.environ[value]})
+        return self

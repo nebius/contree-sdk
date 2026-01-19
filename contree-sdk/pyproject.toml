@@ -51,7 +51,12 @@ build-backend = "hatchling.build"
 packages = ["contree_sdk"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["contree_sdk", "pyproject.toml", "README.md", "LICENSE"]
+only-include = [
+    "contree_sdk",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE"
+]
 
 [tool.hatch.build]
 only-packages = true
@@ -71,6 +76,7 @@ exclude = [
 [tool.ruff.lint]
 extend-safe-fixes = [
     "C408", # unnecessary-collection-call
+    "PT006", # pytest-parametrize-names-wrong-type
     "RUF022", # unsorted-dunder-all
     "SIM101", # duplicate-isinstance-call
     "SIM108", # if-else-block-instead-of-if-exp
@@ -88,10 +94,7 @@ extend-unsafe-fixes = [
 select = [
     "A",   # flake8-builtins
     "AIR", # Airflow
-    #    "ANN",  # ideally, flake8-annotations
-    "ANN001", # missing-type-function-argument
-    "ANN201", # missing-return-type-undocumented-public-function
-    "ANN206", # missing-return-type-class-method
+    "ANN",  # flake8-annotations
     "ASYNC", # flake8-async
     "B",   # flake8-bugbear
     "C",   # flake8-comprehensions
@@ -102,22 +105,25 @@ select = [
     "F",     # Pyflakes
     "FA",    # flake8-future-annotations
     "I",     # isort
-    #    "N",     # ideally, pep8-naming
-    #    "PERF",  # ideally, Perflint
+    "LOG", # flake8-logging
+    "N",     # pep8-naming
+    "PERF",  # ideally, Perflint
     "PGH", # pygrep-hooks
     "PIE", # flake8-pie
     "PL",  # Pylint
-    #    "PT",    # ideally, flake8-pytest-style
+    "PT",    # ideally, flake8-pytest-style
     "PTH", # flake8-use-pathlib
     "PYI", # flake8-pyi
     "RET", # flake8-return
     "RSE",   # flake8-raise
     "RUF", # Ruff-specific rules
-    #    "S",    # ideally, flake8-bandit
+    "S",
+    "S",    # ideally, flake8-bandit
+    "S101", # assert
     "SIM", # flake8-simplify
     "SLOT",  # flake8-slots
     "T",   # flake8-debugger
-    # "TCH", # flake8-type-checking <- Disabled for now due to issues with generic pydantic models
+    "TCH", # flake8-type-checking
     "TID",   # flake8-tidy-imports
     "TRY", # tryceratops
     "UP",  # pyupgrade
@@ -126,11 +132,11 @@ select = [
 ]
 
 extend-ignore = [
-    "ANN002",   # missing-type-args
-    "ANN003",   # missing-type-kwargs
-    "ANN202",   # missing-return-type-private-function
-    "ANN204",   # missing-return-type-special-method
-    "ANN401",   # any-type
+    "ANN002", # missing-type-args
+    "ANN003", # missing-type-kwargs
+    "ANN202", # missing-return-type-private-function
+    "ANN204", # missing-return-type-special-method
+    "ANN401", # any-type
     "COM812", # missing-trailing-comma
     "E203",   # whitespace-before-punctuation
     "E741",   # ambiguous-variable-name
@@ -138,6 +144,7 @@ extend-ignore = [
     "RUF012", # mutable-class-default
     "RUF013", # implicit-optional
     "S311",   # suspicious-non-cryptographic-random-usage
+    "S604",    # hardcoded-password-func-arg
     "TRY003", # raise-vanilla-args
 ]
 
@@ -149,10 +156,12 @@ extend-ignore = [
     "PLR2004",  # ideally, magic-value-comparison
     "PLW1510",  # unspecified-encoding
     "PLW2901",  # redefined-loop-name
+    "PT019",    # pytest-fixture-param-without-value
     "PTH118",   # os-path-join
     "PYI051",   # redundant-literal-union
     "RUF005",   # collection-literal-concatenation
     "RUF012",   # mutable-class-default,  because of old pydantic, ideally to turn on
+    "S404",     # suspicious-subprocess-import
     "TC",       # typing-only-*-import
     "TRY003",   # ideally, raise-vanilla-args
 ]
@@ -160,8 +169,10 @@ extend-ignore = [
 "tests/**/test_*.py" = [
     "ANN",      # flake8-annotations-ann
     "ASYNC110", # async-busy-wait
-    "RUF059",   # unused-unpacked-variable
     "PLC1901",  # compare-to-empty-string
+    "RUF059",   # unused-unpacked-variable
+    "S101",     # assert
+    "S106",     # hardcoded-password-func-arg
 ]
 
 [tool.ruff.lint.mccabe]
