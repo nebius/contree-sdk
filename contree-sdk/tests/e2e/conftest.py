@@ -11,7 +11,7 @@ from tests.utils.marker import create_directory_marker
 pytest_collection_modifyitems, should_be_marked_e2e = create_directory_marker(pytest.mark.e2e)
 
 
-@pytest.fixture()
+@pytest.fixture
 def _contree_token() -> str:
     value = getenv("CONTREE_SDK_TOKEN_E2E_TESTS")
     if not value:
@@ -19,7 +19,7 @@ def _contree_token() -> str:
     return value
 
 
-@pytest.fixture()
+@pytest.fixture
 def contree_config(_contree_token: str) -> ContreeConfig:
     return ContreeConfig(
         token=_contree_token,
@@ -27,11 +27,11 @@ def contree_config(_contree_token: str) -> ContreeConfig:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def contree(contree_config: ContreeConfig) -> Contree:
     return Contree(config=contree_config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def contree_s(contree_config: ContreeConfig) -> ContreeSync:
     return ContreeSync(config=contree_config)

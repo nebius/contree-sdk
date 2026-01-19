@@ -2,28 +2,28 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from contree_sdk.sdk.exceptions.base import ContreeException
+from contree_sdk.sdk.exceptions.base import ContreeError
 from contree_sdk.sdk.objects.image_like.state import ImageState
 
 
 @dataclass
-class ContreeImageNotFound(ContreeException):
+class ContreeImageNotFound(ContreeError):
     image_ref: UUID | str | None
     field: Literal["uuid", "tag"] = "uuid"
 
     _template = 'Image {field} "{image_ref}" not found'
 
 
-class ContreeImageParametersError(ContreeException): ...
+class ContreeImageParametersError(ContreeError): ...
 
 
 @dataclass
-class DisposableImageRunError(ContreeException):
+class DisposableImageRunError(ContreeError):
     _template = "Disposable image run cannot be used for running"
 
 
 @dataclass
-class ContreeImageStateError(ContreeException):
+class ContreeImageStateError(ContreeError):
     image_uuid: UUID | None
     state: ImageState | str | None
     states: list[ImageState] | None
@@ -41,4 +41,4 @@ class ContreeImageImpossibleStateError(ContreeImageStateError):
     possible_states: list[ImageState] | None
 
 
-class ContreeImageEmptyRequestError(ContreeException): ...
+class ContreeImageEmptyRequestError(ContreeError): ...

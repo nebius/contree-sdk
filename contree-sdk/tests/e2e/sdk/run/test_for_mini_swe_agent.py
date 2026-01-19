@@ -16,9 +16,7 @@ N_WORKERS = 3
 
 def test_threaded_pool_run_same_client(image_s: ContreeImageSync):
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = []
-    for _ in range(N_RUNS):
-        futures.append(pool.submit(image_s.run(shell=RANDOM_INT_COMMAND).wait))
+    futures = [pool.submit(image_s.run(shell=RANDOM_INT_COMMAND).wait) for _ in range(N_RUNS)]
 
     raw_results = [fut.result().stdout for fut in futures]
     results = list(map(int, raw_results))
@@ -43,9 +41,7 @@ def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfi
         return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = []
-    for _ in range(N_RUNS):
-        futures.append(pool.submit(_run))
+    futures = [pool.submit(_run) for _ in range(N_RUNS)]
 
     raw_results = [fut.result().stdout for fut in futures]
     results = list(map(int, raw_results))
@@ -58,9 +54,7 @@ def test_thread_pool_create_run_same_client(contree_s: ContreeSync, image_tag):
         return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = []
-    for _ in range(N_RUNS):
-        futures.append(pool.submit(_run))
+    futures = [pool.submit(_run) for _ in range(N_RUNS)]
 
     raw_results = [fut.result().stdout for fut in futures]
     results = list(map(int, raw_results))

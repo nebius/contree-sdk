@@ -1,12 +1,12 @@
 from .api import (
     ApiStatusCodeError,
     ApiTimeoutError,
-    ContreeApiException,
+    ContreeApiError,
     ContreeTransportError,
     ForbiddenError,
     NotFoundError,
 )
-from .base import ContreeException
+from .base import ContreeError
 from .image import (
     ContreeImageEmptyRequestError,
     ContreeImageImpossibleStateError,
@@ -22,15 +22,15 @@ from .operation import (
     OperationTimedOutError,
     WrongOperationTypeError,
 )
-from .other import UnknownContreeException
+from .other import UnknownContreeError
 
 
 __all__ = [
     "ApiStatusCodeError",
     "ApiTimeoutError",
     "CancelledOperationError",
-    "ContreeApiException",
-    "ContreeException",
+    "ContreeApiError",
+    "ContreeError",
     "ContreeImageEmptyRequestError",
     "ContreeImageImpossibleStateError",
     "ContreeImageNotFound",
@@ -43,6 +43,6 @@ __all__ = [
     "NotFoundError",
     "OperationError",
     "OperationTimedOutError",
-    "UnknownContreeException",
+    "UnknownContreeError",
     "WrongOperationTypeError",
 ]

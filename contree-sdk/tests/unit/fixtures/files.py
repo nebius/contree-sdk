@@ -6,12 +6,12 @@ from pytest_httpx import HTTPXMock
 from tests.unit.fixtures.utils import r
 
 
-@pytest.fixture()
+@pytest.fixture
 def file_uuid() -> str:
     return str(uuid4())
 
 
-@pytest.fixture()
+@pytest.fixture
 def file_sha256() -> str:
     return "1c338c24f4a82e6dc440204d8d6a08058a58136d3e01b4f7aa0f7588b51ba197"
 
@@ -32,7 +32,7 @@ def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_upload(file_uuid: str, file_sha256: str, strict_httpx: HTTPXMock) -> HTTPXMock:
     add_file_responses(strict_httpx, file_uuid, file_sha256)
     return strict_httpx

@@ -19,7 +19,7 @@ from contree_sdk.utils.models.stream import StreamDescription, StreamEncoding
 from tests.unit.fixtures.utils import r
 
 
-@pytest.fixture()
+@pytest.fixture
 def operation_id() -> str:
     return str(uuid4())
 

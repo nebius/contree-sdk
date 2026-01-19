@@ -16,7 +16,7 @@ from tests.e2e.sdk.images.test_images import test_pull_nonexistent_uuid_image_s 
 from tests.unit.fixtures.utils import r
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_images_with_params(strict_httpx: HTTPXMock) -> HTTPXMock:
     image1 = {"uuid": str(uuid4()), "tag": "test-image-1:latest", "created_at": "2024-01-01T12:00:00+00:00"}
     image2 = {"uuid": str(uuid4()), "tag": "test-image-2:latest", "created_at": "2024-01-01T12:00:00+00:00"}
@@ -33,7 +33,7 @@ def api_fake_images_with_params(strict_httpx: HTTPXMock) -> HTTPXMock:
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_images_with_404(api_fake_images: HTTPXMock) -> HTTPXMock:
     api_fake_images.add_response(
         method="GET",

@@ -3,7 +3,7 @@ from typing import ClassVar
 
 
 @dataclass
-class ContreeException(Exception):
+class ContreeError(Exception):
     _template: ClassVar[str | None] = None
 
     @property

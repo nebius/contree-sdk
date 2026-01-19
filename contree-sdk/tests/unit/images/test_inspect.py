@@ -55,7 +55,7 @@ def create_output_file(size: int) -> list[dict]:
     ]
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMock:
     api_fake_images.add_response(
         method="GET",
@@ -74,7 +74,7 @@ def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMo
     return api_fake_images
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_inspect_download(
     image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock
 ) -> HTTPXMock:

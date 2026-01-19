@@ -8,18 +8,18 @@ from httpx import HTTPError, HTTPStatusError, Response, TimeoutException, Transp
 from contree_sdk.sdk.exceptions import (
     ApiStatusCodeError,
     ApiTimeoutError,
-    ContreeException,
+    ContreeError,
     ContreeTransportError,
     ForbiddenError,
     NotFoundError,
-    UnknownContreeException,
+    UnknownContreeError,
 )
 from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo
 
 
 # for now, it works with httpx errors
 # when be implementing multi transport support, we should change it to some other class
-def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeException:
+def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeError:
     additionals = {
         "request": RequestInfo(
             url=str(exc.request.url),
@@ -49,7 +49,7 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeExc
             class_ = ForbiddenError
         return class_(**data, **additionals)
 
-    return UnknownContreeException(exception=exc)
+    return UnknownContreeError(exception=exc)
 
 
 @contextmanager

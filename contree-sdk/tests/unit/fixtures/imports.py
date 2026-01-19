@@ -101,19 +101,19 @@ def add_import_operation(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_import(result_image_uuid: UUID, strict_httpx: HTTPXMock) -> HTTPXMock:
     add_import_operation(strict_httpx, str(uuid4()), result_image_uuid)
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_import_failed(result_image_uuid: UUID, strict_httpx: HTTPXMock) -> HTTPXMock:
     add_import_operation(strict_httpx, str(uuid4()), result_image_uuid, final_status=OperationStatus.FAILED)
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_import_cancel(result_image_uuid: UUID, strict_httpx: HTTPXMock) -> HTTPXMock:
     add_import_operation(
         strict_httpx, str(uuid4()), result_image_uuid, pending_count=10, final_status=OperationStatus.CANCELLED
@@ -121,7 +121,7 @@ def api_fake_import_cancel(result_image_uuid: UUID, strict_httpx: HTTPXMock) -> 
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_import_slow(result_image_uuid: UUID, httpx_mock: HTTPXMock) -> HTTPXMock:
     add_import_operation(
         httpx_mock,

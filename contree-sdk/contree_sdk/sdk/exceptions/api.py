@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from contree_sdk.sdk.exceptions.base import ContreeException
+from contree_sdk.sdk.exceptions.base import ContreeError
 
 
 @dataclass
@@ -18,24 +18,24 @@ class ResponseInfo:
 
 
 @dataclass
-class ContreeApiException(ContreeException):
+class ContreeApiError(ContreeError):
     request: RequestInfo | None = None
     response: ResponseInfo | None = None
 
 
 @dataclass
-class ApiTimeoutError(ContreeApiException):
+class ApiTimeoutError(ContreeApiError):
     timeout_type: Literal["connect", "read", "write", "pool"] | str | None = None
 
 
 @dataclass
-class ContreeTransportError(ContreeApiException):
+class ContreeTransportError(ContreeApiError):
     error: str | None = None
     _raw: Exception | None = None
 
 
 @dataclass
-class ApiStatusCodeError(ContreeApiException):
+class ApiStatusCodeError(ContreeApiError):
     status: int | None = None
     error: str | None = None
 

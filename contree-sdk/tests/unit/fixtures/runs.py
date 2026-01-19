@@ -61,12 +61,12 @@ def add_multiple_run_operations(
         )
 
 
-@pytest.fixture()
+@pytest.fixture
 def result_image_uuid() -> UUID:
     return uuid4()
 
 
-@pytest.fixture()
+@pytest.fixture
 def process_state() -> ProcessState:
     return ProcessState(
         continued=False,
@@ -79,7 +79,7 @@ def process_state() -> ProcessState:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def resource_usage() -> ProcessResources:
     return ProcessResources(
         block_input=0,
@@ -101,7 +101,7 @@ def resource_usage() -> ProcessResources:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_run_base(
     image_uuid: UUID,
     operation_id: str,
@@ -114,7 +114,7 @@ def api_fake_run_base(
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_run(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -134,7 +134,7 @@ def api_fake_run(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_run_with_files(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -155,7 +155,7 @@ def api_fake_run_with_files(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_session_multiple_runs(
     image_uuid: UUID,
     file_uuid: str,
@@ -184,7 +184,7 @@ def api_fake_session_multiple_runs(
     return strict_httpx
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -213,7 +213,7 @@ crw-rw-rw-  1 root  root  1, 3 Jan  7 10:00 null
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen_error(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -236,7 +236,7 @@ def api_fake_popen_error(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen_shell(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -257,7 +257,7 @@ def api_fake_popen_shell(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen_stdin(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -278,7 +278,7 @@ def api_fake_popen_stdin(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen_communicate(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -299,7 +299,7 @@ def api_fake_popen_communicate(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_popen_env(
     image_uuid: UUID,
     result_image_uuid: UUID,
@@ -320,7 +320,7 @@ def api_fake_popen_env(
     return api_fake_run_base
 
 
-@pytest.fixture()
+@pytest.fixture
 def api_fake_thread_pool(
     image_uuid: UUID,
     image_tag: str,

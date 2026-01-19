@@ -82,9 +82,7 @@ def test_thread_pool_object_with_lock():
         return a.sync_meth()
 
     pool = ThreadPoolExecutor(max_workers=3)
-    futures = []
-    for _ in range(10):
-        futures.append(pool.submit(_run))
+    futures = [pool.submit(_run) for _ in range(10)]
 
     results = [fut.result() for fut in futures]
     assert results == [42] * 10

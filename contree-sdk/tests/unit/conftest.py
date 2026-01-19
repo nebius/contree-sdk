@@ -75,27 +75,27 @@ __all__ = [
 ]
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_token() -> str:
     return "fake-token"
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_contree_config(fake_token: str) -> ContreeConfig:
     return ContreeConfig(token=fake_token, base_url="https://fake.contree.endpoint")
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_contree(fake_contree_config: ContreeConfig) -> Contree:
     return Contree(config=fake_contree_config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_contree_s(fake_contree_config: ContreeConfig) -> ContreeSync:
     return ContreeSync(config=fake_contree_config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def strict_httpx(httpx_mock: HTTPXMock, fake_token: str) -> HTTPXMock:
     httpx_mock.reset()
     httpx_mock.strict_responses = True

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from contree_sdk.sdk.exceptions import ContreeException
+from contree_sdk.sdk.exceptions import ContreeError
 
 
 @dataclass
-class UnknownContreeException(ContreeException):
+class UnknownContreeError(ContreeError):
     exception: Exception | None = None

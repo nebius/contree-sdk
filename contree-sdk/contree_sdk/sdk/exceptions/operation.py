@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from contree_sdk.sdk.exceptions import ContreeException
+from contree_sdk.sdk.exceptions import ContreeError
 
 
 @dataclass
-class OperationError(ContreeException):
+class OperationError(ContreeError):
     operation_uuid: UUID
 
     _template = "Something went wrong with the operation {operation_uuid}"
