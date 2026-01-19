@@ -1,13 +1,12 @@
 import pytest
-from pytest import Config, Function, Item, MarkDecorator
 
 
-def create_directory_marker(marker: MarkDecorator) -> tuple[callable, callable]:
+def create_directory_marker(marker: pytest.MarkDecorator) -> tuple[callable, callable]:
     fixture_name: str = f"should_be_marked_{marker.name}"
 
-    def pytest_collection_modifyitems(config: Config, items: list[Item]) -> None:
+    def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
         for item in items:
-            if not isinstance(item, Function):
+            if not isinstance(item, pytest.Function):
                 continue
             if fixture_name not in item.fixturenames:
                 continue

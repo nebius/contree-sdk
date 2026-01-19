@@ -94,11 +94,11 @@ class AsyncWrapper:
 
     def wrap_iter(self, coro_iter: AsyncIterable[Y]) -> Iterator[Y]:
         async_iter = coro_iter.__aiter__()
-        while True:
-            try:
+        try:
+            while True:
                 yield self.wrap(async_iter.__anext__())
-            except StopAsyncIteration:
-                return
+        except StopAsyncIteration:
+            return
 
 
 def to_sync(func: Callable[P, Awaitable[T]]) -> Callable[P, T]:

@@ -10,7 +10,7 @@ from .base import ContreeError
 from .image import (
     ContreeImageEmptyRequestError,
     ContreeImageImpossibleStateError,
-    ContreeImageNotFound,
+    ContreeImageNotFoundError,
     ContreeImageParametersError,
     ContreeImageStateError,
     DisposableImageRunError,
@@ -33,7 +33,7 @@ __all__ = [
     "ContreeError",
     "ContreeImageEmptyRequestError",
     "ContreeImageImpossibleStateError",
-    "ContreeImageNotFound",
+    "ContreeImageNotFoundError",
     "ContreeImageParametersError",
     "ContreeImageStateError",
     "ContreeTransportError",

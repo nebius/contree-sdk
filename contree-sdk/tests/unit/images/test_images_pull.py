@@ -8,7 +8,7 @@ from contree_sdk._internals.models.image import ContreeImageModel
 
 
 @pytest.mark.parametrize(
-    "input_value, method",
+    ("input_value", "method"),
     [
         ("env-94e7fe25d6cf22df8654492fbf845b4680da0d68bab77a97c3:v0.0.3", "tag"),
         ("12345678-1234-5678-9012-123456789012", "uuid"),

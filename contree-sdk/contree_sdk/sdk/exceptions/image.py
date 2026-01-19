@@ -7,7 +7,7 @@ from contree_sdk.sdk.objects.image_like.state import ImageState
 
 
 @dataclass
-class ContreeImageNotFound(ContreeError):
+class ContreeImageNotFoundError(ContreeError):
     image_ref: UUID | str | None
     field: Literal["uuid", "tag"] = "uuid"
 

@@ -22,7 +22,7 @@ async def test_token_from_env_var(fake_token: str, monkeypatch, fake_contree_con
 
 
 @pytest.mark.parametrize(
-    "config,progress_ratio,expected_range",
+    ("config", "progress_ratio", "expected_range"),
     [
         (ContreeConfig(), 0.0, (0.1, 0.15)),
         (ContreeConfig(), 0.25, (4.0, 5.0)),

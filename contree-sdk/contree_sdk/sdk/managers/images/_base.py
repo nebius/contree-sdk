@@ -42,16 +42,16 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         since: datetime | timedelta | None = None,
         until: datetime | timedelta | None = None,
     ) -> list[_ImageT]:
-        images = []
-        async for image in self._iter(
-            number=number,
-            kind=kind,
-            tagged=tagged,
-            since=since,
-            until=until,
-        ):
-            images.append(image)
-        return images
+        return [
+            image
+            async for image in self._iter(
+                number=number,
+                kind=kind,
+                tagged=tagged,
+                since=since,
+                until=until,
+            )
+        ]
 
     async def _iter(
         self,
