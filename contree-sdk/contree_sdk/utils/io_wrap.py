@@ -61,7 +61,8 @@ def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:
     if isinstance(obj, IOBase):
         return obj
     if isinstance(obj, bytes):
-        assert mode == IOMode.read
+        if mode != IOMode.read:
+            raise TypeError("bytes cannot be used as output")
         return BytesIO(obj)
     if isinstance(obj, str):
         if mode == IOMode.read:
