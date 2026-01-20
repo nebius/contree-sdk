@@ -106,6 +106,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         new_tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        timeout: float | None = None,
     ) -> _ImageT:
         uuid = url_or_tag_or_uuid if isinstance(url_or_tag_or_uuid, UUID) else None
 
@@ -123,6 +124,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 new_tag=new_tag,
                 username=username,
                 password=password,
+                timeout=timeout,
             )
 
         # return by tag
@@ -146,6 +148,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         new_tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        timeout: float | None = None,
     ) -> _ImageT:
         if isinstance(image_url, str):
             image_url = urlparse(image_url)
@@ -161,16 +164,19 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         else:
             registry = PublicRegistryInfo(url=image_url)
 
+        timeout = timeout or self._client.config.operation_import_timeout or self._client.config.operation_timeout
         with wrap_api_call():
             operation_uuid = await self._client._api.start_import_image(
                 ImageImportRequest(
                     registry=registry,
                     tag=new_tag,
-                    timeout=round(self._client.config.operation_timeout),
+                    timeout=round(timeout),
                 )
             )
         _, image_info = await self._client._wait_operation(
-            operation_uuid=operation_uuid, result_type=ImageImportRequest
+            operation_uuid=operation_uuid,
+            result_type=ImageImportRequest,
+            timeout=timeout,
         )
         return self._image_by_data(
             ContreeImageModel(

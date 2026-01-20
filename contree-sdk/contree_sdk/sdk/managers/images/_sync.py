@@ -21,5 +21,8 @@ class ImagesManagerSync(_ImagesBaseManager[ContreeImageSync]):
         new_tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        timeout: float | None = None,
     ) -> ContreeImageSync:
-        return coro_sync(self._pull_image(url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password))
+        return coro_sync(
+            self._pull_image(url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password, timeout=timeout)
+        )

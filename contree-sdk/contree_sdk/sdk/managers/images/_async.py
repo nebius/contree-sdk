@@ -23,5 +23,8 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
         new_tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        timeout: float | None = None,
     ) -> ContreeImage:
-        return await self._pull_image(url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password)
+        return await self._pull_image(
+            url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password, timeout=timeout
+        )

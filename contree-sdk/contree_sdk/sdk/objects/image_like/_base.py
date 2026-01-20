@@ -130,7 +130,6 @@ class _ImageLikeBase:
             if isinstance(timeout, timedelta):
                 timeout = timeout.total_seconds()
             timeout = ceil(timeout)
-
         new_self._request = RunRequest(
             command=command,
             args=list(args or []),
@@ -236,6 +235,10 @@ class _ImageLikeBase:
 
         files, stdin = await gather(new_self._prepare_files_for_api(req.files), to_thread(new_self._read_stdin))
 
+        timeout = req.timeout
+        if timeout is None:
+            timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
+
         with wrap_api_call():
             operation_uuid = await self._client._api.spawn_instance(
                 InstanceSpawnRequest(
@@ -247,12 +250,14 @@ class _ImageLikeBase:
                     shell=req.shell,
                     cwd=req.cwd,
                     disposable=req.disposable,
-                    timeout=req.timeout or 60,
+                    timeout=timeout,
                     stdin=stdin,
                     files=files,
                 )
             )
-        image_metadata, result = await self._client._wait_operation(operation_uuid, InstanceOperationMetadata)
+        image_metadata, result = await self._client._wait_operation(
+            operation_uuid, InstanceOperationMetadata, timeout=timeout
+        )
 
         new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = result.image

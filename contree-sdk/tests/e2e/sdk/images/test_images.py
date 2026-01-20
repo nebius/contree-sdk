@@ -47,7 +47,7 @@ def test_pull_image_by_tag_s(contree_s: ContreeSync, image_tag):
 
 def test_import_public_image_s(contree_s: ContreeSync):
     url = "docker://ghcr.io/linuxserver/code-server:latest"
-    image = contree_s.images.pull(url)
+    image = contree_s.images.pull(url, timeout=250)
     assert isinstance(image, ContreeImageSync)
     assert isinstance(image.uuid, UUID)
     assert image.state == ImageState.PULLED
