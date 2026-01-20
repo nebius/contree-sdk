@@ -10,26 +10,38 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ContreeConfig:
-    """Authentication token or env var name."""
+    """Configuration for the Contree SDK client.
+
+    Fields ``base_url`` and ``token`` support env var lookup: if the value
+    matches an existing environment variable name, the value is loaded from it.
+    """
 
     base_url: str = field(default="CONTREE_BASE_URL")
+    """API server URL or env var name to load from."""
     token: str = field(default="CONTREE_TOKEN", repr=False)
+    """Auth token or env var name to load from."""
 
     transport_timeout: float = 10.0
+    """HTTP timeout in seconds."""
+
     file_upload_chunk_size: int = 1024 * 1024
+    """Chunk size in bytes for uploads."""
 
     operation_import_timeout: float | None = None
+    """Import operation timeout, falls back to operation_timeout."""
     operation_run_timeout: float | None = None
+    """Run operation timeout, falls back to operation_timeout."""
     operation_timeout: float = 600.0
-
+    """Default timeout for operations."""
     operation_poll_secs_min: float = 0.1
+    """Min polling interval for operation status checks."""
     operation_poll_secs_max: float = 10.0
+    """Max polling interval for operation status checks."""
     operation_poll_secs_backoff_grow: float = 1.75
-    # the more value is, the faster backoff grows, better to be between 1 and 2
+    """Backoff multiplier between polls. Higher values mean faster backoff growth; recommended range is 1 to 2."""
 
     images_list_batch_size: int = 100
-
-    images_relations_registry_size: int = 1000
+    """Batch size for listing images."""
 
     def _load_field_from_env(self, field_name: str) -> ContreeConfig:
         value = getattr(self, field_name)
