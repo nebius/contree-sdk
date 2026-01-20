@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from asyncio import Event, shield, sleep
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -35,9 +35,23 @@ logger = logging.getLogger(__name__)
 
 class _ContreeBase:
     files: _FilesBaseManager
+    """Manager for file operations."""
     images: _ImagesBaseManager
+    """Manager for image operations."""
 
     def __init__(self, config: ContreeConfig | None = None, *, base_url: str | None = None, token: str | None = None):
+        """Initialize the Contree client.
+
+        Args:
+            config: Full configuration object. If provided, base_url and token
+                must not be passed separately.
+            base_url: API server URL. Ignored if config is provided.
+            token: Authentication token. Ignored if config is provided.
+
+        Raises:
+            ValueError: If config is provided along with base_url or token.
+
+        """
         if config is None:
             config = ContreeConfig()
             if token is not None:
@@ -58,6 +72,7 @@ class _ContreeBase:
 
     @property
     def config(self) -> ContreeConfig:
+        """Current client configuration."""
         return self._config
 
     def _create_api_client(self, config: ContreeConfig) -> ContreeClient:
@@ -123,11 +138,3 @@ class _ContreeBase:
             raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error)
 
         return resp.metadata, resp.result
-
-
-@dataclass
-class OperationControl:
-    finished: bool = False
-
-    def done(self):
-        self.finished = True

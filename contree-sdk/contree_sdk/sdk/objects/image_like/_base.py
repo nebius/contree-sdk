@@ -48,10 +48,22 @@ DirTypeT = TypeVar("DirTypeT")
 
 
 class _ImageLikeBase:
+    """Base class for image-like objects that can execute commands."""
+
     uuid: UUID
-    tag: str
+    """Unique identifier of the image."""
+    tag: str | None
+    """Optional tag associated with the image."""
 
     def __init__(self, client: _ContreeBase, uuid: UUID | str, tag: str | None):
+        """Initialize image-like object.
+
+        Args:
+        client: The Contree client instance.
+        uuid: Image UUID as string or UUID object.
+        tag: Optional tag for the image.
+
+        """
         self.uuid: UUID | None = UUID(uuid) if isinstance(uuid, str) else uuid
         self.tag: str | None = tag
         self._client = client
@@ -95,7 +107,6 @@ class _ImageLikeBase:
     # utils methods
 
     def _copy_self(self, clear: bool = True) -> Self:
-        # todo make an actual copy when developing chaining
         new_self = copy(self)
         if clear:
             new_self._stdout = new_self._stderr = new_self._raw_result = None
@@ -119,6 +130,30 @@ class _ImageLikeBase:
         timeout: float | timedelta | None = None,
         disposable: bool = True,
     ) -> Self:
+        """Prepare image for command execution.
+
+        Args:
+            command: Command to execute (mutually exclusive with shell).
+            shell: Shell command string (mutually exclusive with command).
+            args: Command arguments.
+            env: Environment variables.
+            cwd: Working directory inside the image.
+            hostname: Hostname for the container.
+            stdin: Input source.
+            stdout: Output destination for stdout.
+            stderr: Output destination for stderr.
+            tag: Tag for the resulting image.
+            files: Files to upload into the image.
+            timeout: Execution timeout in seconds or as timedelta.
+            disposable: If True, image is discarded after execution.
+
+        Returns:
+            New image instance configured for execution.
+
+        Raises:
+            DisposableImageRunError: If attempting to run on a disposed image.
+
+        """
         if not self.uuid:
             raise DisposableImageRunError
         new_self = self._copy_self()
@@ -213,7 +248,6 @@ class _ImageLikeBase:
     def _assert_states(self, *states: ImageState) -> None:
         if self.state not in set(states):
             raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(states))
-        # todo add tests for wrong states
 
     def _can_transition(self, state: ImageState):
         possible_states = _STATE_MACHINE.get(self._state, set())
@@ -226,6 +260,7 @@ class _ImageLikeBase:
 
     @property
     def state(self) -> ImageState:
+        """Current state of the image in the execution lifecycle."""
         return self._state
 
     async def _await(self) -> Self:
@@ -307,25 +342,31 @@ class _ImageLikeBase:
 
     @property
     def result(self) -> ContreeResult:
+        """Execution result. Only available after successful execution."""
         self._assert_states(ImageState.SUCCEEDED)
         return self._result
 
     @property
     def stdin(self) -> IO | None:
+        """Configured stdin source."""
         return self._stdin
 
     @property
     def stdout(self) -> IO_TYPES | None:
+        """Stdout output from the execution."""
         return self.result.stdout
 
     @property
     def stderr(self) -> IO_TYPES | None:
+        """Stderr output from the execution."""
         return self.result.stderr
 
     @property
     def exit_code(self) -> int:
+        """Exit code of the executed command."""
         return self.result.exit_code
 
     @property
     def elapsed(self) -> timedelta:
+        """Time elapsed during execution."""
         return self.result.elapsed_time

@@ -6,6 +6,8 @@ from contree_sdk.sdk.managers.images._async import ImagesManager
 
 
 class Contree(_ContreeBase):
+    """Asynchronous Contree SDK client."""
+
     files: FilesManager
     images: ImagesManager
 
