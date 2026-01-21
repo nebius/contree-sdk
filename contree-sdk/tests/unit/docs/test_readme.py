@@ -1,3 +1,4 @@
+import logging
 from hashlib import sha256
 from pathlib import Path
 
@@ -12,6 +13,8 @@ PROJECT_ROOT = DOCS_TESTS_PATH.parent.parent.parent
 README_MD_PATH = PROJECT_ROOT / "README.md"
 
 TMP_FILES_PATH = DOCS_TESTS_PATH / "_tmp"
+
+logger = logging.getLogger(__name__)
 
 
 def test_readme_exists():
@@ -50,6 +53,8 @@ def run_check(path: Path):
         capture_output=True,
         text=True,
     )
+    logger.info(result.stdout)
+    logger.info(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
 
 

@@ -12,7 +12,7 @@ from contree_sdk._internals.lib.types import EMPTY, ApiEndpointInfo, Body, Octet
 
 
 if TYPE_CHECKING:
-    from contree_sdk._internals.client import ContreeClientBase
+    from contree_sdk._internals.client.client import ContreeClientBase
 
 _formatter = Formatter()
 
@@ -24,7 +24,7 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
         case True:
             json_path = []
         case _:
-            json_path = json
+            json_path = list(json)
 
     parsed_path_params = set()
     for (
@@ -86,8 +86,6 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
 
         @wraps(func)
         def wrapper(self: ContreeClientBase, *args, **kwargs):
-            self: ContreeClientBase
-
             return self._handle_api_call(
                 endpoint_info=endpoint_info, data=args_kwargs_to_kwargs(all_params, args, kwargs)
             )

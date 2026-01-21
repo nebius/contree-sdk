@@ -26,9 +26,10 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeErr
             method=exc.request.method,
         ),
     }
-    if hasattr(exc, "response") and isinstance(exc.response, Response):
+    response = getattr(exc, "response", None)
+    if isinstance(response, Response):
         additionals["response"] = ResponseInfo(
-            headers=exc.response.headers,
+            headers=dict(response.headers),
         )
     if isinstance(exc, TimeoutException):
         return ApiTimeoutError(timeout_type=str(exc.__class__.__name__).lower().replace("timeout", ""), **additionals)

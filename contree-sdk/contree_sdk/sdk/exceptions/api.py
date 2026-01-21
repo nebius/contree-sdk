@@ -42,10 +42,10 @@ class ApiStatusCodeError(ContreeApiError):
 
 @dataclass
 class NotFoundError(ApiStatusCodeError):
-    status: int = 404
+    status: int | None = 404
 
 
 @dataclass
 class ForbiddenError(ApiStatusCodeError):
-    status: int = 403
+    status: int | None = 403
     _template = "You do not have permission to perform this action"

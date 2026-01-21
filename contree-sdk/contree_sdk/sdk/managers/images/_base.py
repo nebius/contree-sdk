@@ -13,6 +13,7 @@ from contree_sdk._internals.models.image_import import (
     RegistryCredentials,
 )
 from contree_sdk._internals.utils.exception import wrap_api_call
+from contree_sdk.sdk.exceptions import FailedOperationError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
@@ -116,6 +117,9 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         if uuid is not None:
             return await self._get_image_by_uuid(uuid)
 
+        if not isinstance(url_or_tag_or_uuid, str):
+            raise TypeError(f"Expected str for url_or_tag_or_uuid, got {type(url_or_tag_or_uuid)}")
+
         parsed = urlparse(url_or_tag_or_uuid)
 
         if parsed.netloc or username or password:
@@ -139,7 +143,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             uuid = UUID(uuid)
 
         with wrap_api_call():
-            return self._image_by_data(await self._client._api.get_image_by_uuid(uuid))
+            return self._image_by_data(await self._client._api.get_image_by_uuid(str(uuid)))
 
     async def _import_image(
         self,
@@ -157,6 +161,8 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         image_url = image_url.geturl()
 
         if username or password:
+            if not (username and password):
+                raise ValueError("Both username and password must be provided")
             registry = PrivateRegistryInfo(
                 url=image_url,
                 credentials=RegistryCredentials(username=username, password=password),
@@ -178,6 +184,11 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             result_type=ImageImportRequest,
             timeout=timeout,
         )
+        if image_info.image is None:
+            raise FailedOperationError(
+                operation_uuid=operation_uuid if isinstance(operation_uuid, UUID) else UUID(operation_uuid),
+                error="Image import returned no image uuid",
+            )
         return self._image_by_data(
             ContreeImageModel(
                 uuid=image_info.image,

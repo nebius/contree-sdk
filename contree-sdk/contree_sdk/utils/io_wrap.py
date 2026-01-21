@@ -3,7 +3,7 @@ from io import BytesIO, IOBase, StringIO
 from os import fdopen, pipe
 from pathlib import Path
 from subprocess import PIPE
-from typing import IO, AnyStr
+from typing import IO, AnyStr, Literal
 
 
 class PipeIO(IOBase):
@@ -25,7 +25,7 @@ class PipeIO(IOBase):
     def read(self, size: int = -1) -> bytes:
         return self._r.read(size)
 
-    def readline(self, size: int = -1) -> bytes:
+    def readline(self, size: int | None = -1) -> bytes:
         return self._r.readline(size)
 
     def write(self, b: bytes) -> int:
@@ -50,7 +50,8 @@ class IOMode(StrEnum):
     write = "w"
 
 
-IO_TYPES = str | bytes | Path | IO[AnyStr] | PIPE
+PipeLiteral = Literal[-1]  # subprocess.PIPE
+IO_TYPES = str | bytes | Path | IO[AnyStr] | PipeLiteral
 
 
 def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:

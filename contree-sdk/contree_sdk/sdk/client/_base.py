@@ -101,6 +101,8 @@ class _ContreeBase:
         result_type: type[_OperationResultT],
         timeout: float | None = None,
     ) -> tuple[_OperationResultT, InstanceOperationResult]:
+        if isinstance(operation_uuid, str):
+            operation_uuid = UUID(operation_uuid)
         started = datetime.now()
         spent = 0
         timeout = timeout or self.config.operation_timeout
@@ -132,9 +134,13 @@ class _ContreeBase:
                 logger.info(f"Sleeping for {interval:0.2f} seconds for {resp.kind} operation {operation_uuid}")
                 await sleep(interval)
 
+        if resp is None:
+            raise RuntimeError("Operation response is None")
         if resp.status == OperationStatus.CANCELLED:
             raise CancelledOperationError(operation_uuid=operation_uuid)
         if resp.status == OperationStatus.FAILED:
-            raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error)
+            raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error or "Unknown error")
+        if resp.metadata is None or resp.result is None:
+            raise RuntimeError("Operation completed but metadata or result is None")
 
         return resp.metadata, resp.result

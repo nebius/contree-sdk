@@ -41,6 +41,8 @@ class ContreeResult:
         if expected is str or expected is None:
             return parsed.decode()
         io_obj = get_io_by_obj(expected, IOMode.write)
+        if io_obj is None:
+            return None
 
         try:
             io_obj.write(parsed)

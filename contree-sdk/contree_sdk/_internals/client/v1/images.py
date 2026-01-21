@@ -1,4 +1,4 @@
-from typing import Annotated, overload
+from typing import Annotated, Literal, overload
 
 from contree_sdk._internals.lib.api_decorator import get, post
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
@@ -15,7 +15,7 @@ class ImagesMixin:
         kind: ImageKind | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        tagged: str | None = None,
+        tagged: Literal[0, 1] | None = None,
         since: str | None = None,
         until: str | None = None,
     ) -> list[ContreeImageModel]: ...
@@ -25,7 +25,7 @@ class ImagesMixin:
         kind: ImageKind | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        tagged: str | None = None,
+        tagged: Literal[0, 1] | None = None,
         since: str | None = None,
         until: str | None = None,
     ) -> list[ContreeImageModel]: ...
@@ -36,7 +36,7 @@ class ImagesMixin:
         kind: ImageKind | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        tagged: int | None = None,
+        tagged: Literal[0, 1] | None = None,
         since: str | None = None,
         until: str | None = None,
     ) -> list[ContreeImageModel]: ...

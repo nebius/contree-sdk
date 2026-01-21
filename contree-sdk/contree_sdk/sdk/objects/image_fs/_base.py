@@ -26,12 +26,12 @@ class _ImageFsEntryBase(FileItemModel):
 
 @dataclass
 class _ImageFileBase(_ImageFsEntryBase):
-    is_dir: Literal[False]
+    is_dir: Literal[False]  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass
 class _ImageDirectoryBase(_ImageFsEntryBase):
-    is_dir: Literal[True]
+    is_dir: Literal[True]  # pyright: ignore[reportIncompatibleVariableOverride]
 
     async def _ls(
         self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]

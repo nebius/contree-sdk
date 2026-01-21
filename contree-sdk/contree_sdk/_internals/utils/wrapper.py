@@ -19,6 +19,10 @@ def _on_task_done(future: Future, task: asyncio.Task):
         future.set_result(task.result())
 
 
+async def _await(x: Awaitable[T]) -> T:
+    return await x
+
+
 class _WrapperContext:
     def __init__(self):
         self.thread: Thread | None = None
@@ -27,19 +31,21 @@ class _WrapperContext:
         self._lock: Lock = Lock()
         self._start_event: Event = Event()
 
-    def ensure_running(self):
+    def ensure_running(self) -> AbstractEventLoop:
         with self._lock:
             if self._loop is not None:
-                return
+                return self._loop
             self._start_event.clear()
             self.thread = Thread(target=self._thread_main, daemon=True)
             self.thread.start()
             self._start_event.wait()
+            if self._loop is None:
+                raise RuntimeError("_thread_main has not provided loop")
+            return self._loop
 
     @property
-    def loop(self):
-        self.ensure_running()
-        return self._loop
+    def loop(self) -> AbstractEventLoop:
+        return self.ensure_running()
 
     def _thread_main(self):
         self._loop = asyncio.new_event_loop()
@@ -56,7 +62,8 @@ class _WrapperContext:
     def close(self):
         for future in self.futures:
             future.cancel()
-        self._loop.call_soon_threadsafe(self._close)
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._close)
 
     def __del__(self):
         self.close()
@@ -72,8 +79,8 @@ class AsyncWrapper:
         else:
             self._context = _WrapperContext()
 
-    def _coro_to_future(self, coro: Awaitable[T]) -> Future:
-        future = asyncio.run_coroutine_threadsafe(coro, self._context.loop)
+    def _coro_to_future(self, coro: Awaitable[T]) -> Future[T]:
+        future = asyncio.run_coroutine_threadsafe(_await(coro), self._context.loop)
         self._context.futures.add(future)
         return future
 

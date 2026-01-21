@@ -232,6 +232,8 @@ class _ImageLikeBase:
 
     async def _await(self) -> Self:
         req = self._request
+        if req is None:
+            raise RuntimeError("Run request has not been set")
         new_self = self._copy_self()  # todo add support for start() method
         new_self._transition_state(ImageState.EXECUTING)
 
