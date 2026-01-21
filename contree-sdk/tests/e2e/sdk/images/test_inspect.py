@@ -59,6 +59,7 @@ async def test_read_file(image: ContreeImage, random_data):
     for file in await res.ls():
         if file.full_path == Path("/output.txt"):
             res_file = file
+    assert res_file is not None
     assert await res_file.read() == random_data
 
 

@@ -22,6 +22,8 @@ class ContreeResult:
 
     @classmethod
     def from_result(cls, raw_result: InstanceOperationMetadata, request: RunRequest) -> ContreeResult:
+        if raw_result.result is None:
+            raise RuntimeError("Result cannot be found")
         return cls(
             exit_code=raw_result.result.state.exit_code,
             stdout=cls._parse_io(raw_result.result.stdout, request.stdout),

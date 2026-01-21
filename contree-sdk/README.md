@@ -59,6 +59,7 @@ from pathlib import Path
 
 from contree_sdk import Contree
 from contree_sdk.utils.models.file import UploadFileSpec
+from contree_sdk.sdk.objects.image_fs import ImageFile
 
 
 async def amain():
@@ -100,6 +101,7 @@ async def amain():
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
+            assert isinstance(item, ImageFile)
             await item.download("/local/files/downloaded/")
 
     # using session

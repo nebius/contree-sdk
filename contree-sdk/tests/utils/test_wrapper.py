@@ -12,7 +12,7 @@ from contree_sdk._internals.utils.wrapper import coro_iter_sync, coro_sync, to_s
 _wait_time = 0.01
 
 
-async def fake_task(a: int, b: int = 1, ex: Exception = None) -> int:
+async def fake_task(a: int, b: int = 1, ex: Exception | None = None) -> int:
     await asyncio.sleep(_wait_time)
     if ex:
         raise ex

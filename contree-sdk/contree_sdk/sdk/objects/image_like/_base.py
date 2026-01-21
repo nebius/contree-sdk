@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Self, TypeVar
+from typing import IO, TYPE_CHECKING, Self, TypeVar
 from uuid import UUID
 
 import cattrs
@@ -72,44 +72,11 @@ class _ImageLikeBase:
         self._result: ContreeResult | None = None
         self._state = ImageState.PULLED
 
-    # command methods
-    def command(self, command: str, /) -> Self:
-        raise NotImplementedError
-
-    def shell(self, command: str, /) -> Self:
-        raise NotImplementedError
-
-    # run arguments methods
-    def args(self, *args: str) -> Self:
-        raise NotImplementedError
-
-    def stdin_from(self, stdin: IO_TYPES, /) -> Self:
-        raise NotImplementedError
-
-    def cwd(self, cwd: str, /) -> Self:
-        raise NotImplementedError
-
-    def env(self, env: dict = None, **envs) -> Self:
-        raise NotImplementedError
-
-    def stdout_to(self, stdout: IO_TYPES, /) -> Self:
-        raise NotImplementedError
-
-    def stderr_to(self, stderr: IO_TYPES, /) -> Self:
-        raise NotImplementedError
-
-    def add_tag(self, tag: str, /) -> Self:
-        raise NotImplementedError
-
-    def add_file(self, file_desc: Any) -> Self:
-        raise NotImplementedError
-
     # utils methods
-
     def _copy_self(self, clear: bool = True) -> Self:
         new_self = copy(self)
         if clear:
-            new_self._stdout = new_self._stderr = new_self._raw_result = None
+            new_self._result = None
         return new_self
 
     # main methods
@@ -285,7 +252,7 @@ class _ImageLikeBase:
                     shell=req.shell,
                     cwd=req.cwd,
                     disposable=req.disposable,
-                    timeout=timeout,
+                    timeout=round(timeout or self._client.config.operation_timeout),
                     stdin=stdin,
                     files=files,
                 )

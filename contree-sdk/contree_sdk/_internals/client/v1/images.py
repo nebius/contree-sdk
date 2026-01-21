@@ -36,7 +36,7 @@ class ImagesMixin:
         kind: ImageKind | None = None,
         limit: int | None = None,
         offset: int | None = None,
-        tagged: str | None = None,
+        tagged: int | None = None,
         since: str | None = None,
         until: str | None = None,
     ) -> list[ContreeImageModel]: ...

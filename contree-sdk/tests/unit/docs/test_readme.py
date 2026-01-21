@@ -6,11 +6,12 @@ import pytest
 from pytest_examples import CodeExample, find_examples
 
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+DOCS_TESTS_PATH = Path(__file__).parent
+PROJECT_ROOT = DOCS_TESTS_PATH.parent.parent.parent
 
 README_MD_PATH = PROJECT_ROOT / "README.md"
 
-TMP_FILES_PATH = Path(__file__).parent / "_tmp"
+TMP_FILES_PATH = DOCS_TESTS_PATH / "_tmp"
 
 
 def test_readme_exists():
@@ -41,13 +42,15 @@ def run_check(path: Path):
         [
             str(Path(basedpyright.__file__).parent / "index.js"),
             "--project",
-            str(PROJECT_ROOT / "pyproject.toml"),
+            str(DOCS_TESTS_PATH / "pyproject.docs.toml"),
             "--baselinemode=discard",
             str(path),
         ],
         return_completed_process=True,
+        capture_output=True,
+        text=True,
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_check_can_fail():

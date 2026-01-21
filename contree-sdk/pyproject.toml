@@ -223,7 +223,10 @@ max-args = 12
 [tool.pyright]
 include = ["contree_sdk", "tests"]
 
-exclude = []
+exclude = [
+    "tests/unit/docs/_tmp/**"
+]
+
 pythonVersion = "3.13"
 pythonPlatform = "Linux"
 

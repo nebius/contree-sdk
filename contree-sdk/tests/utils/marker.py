@@ -1,7 +1,9 @@
+from collections.abc import Callable
+
 import pytest
 
 
-def create_directory_marker(marker: pytest.MarkDecorator) -> tuple[callable, callable]:
+def create_directory_marker(marker: pytest.MarkDecorator) -> tuple[Callable, Callable]:
     fixture_name: str = f"should_be_marked_{marker.name}"
 
     def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

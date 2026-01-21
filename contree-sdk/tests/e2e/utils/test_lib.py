@@ -29,9 +29,9 @@ async def test_read_timeout(contree_config: ContreeConfig):
     exc = e_info.value
     assert exc is not None
     assert isinstance(exc, ReadTimeout)
-    assert hasattr(exc, "response")
-    assert isinstance(exc.response, Response)
-    assert isinstance(exc.response.headers["content-type"], str)
+    resp = getattr(exc, "response", None)
+    assert isinstance(resp, Response)
+    assert isinstance(resp.headers["content-type"], str)
 
     new_exp = wrap_api_exception(exc)
     assert isinstance(new_exp, ApiTimeoutError)

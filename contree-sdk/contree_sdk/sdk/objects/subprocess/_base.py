@@ -31,6 +31,8 @@ class ContreeProcessBase:
         self._image = await self._image._await()
         if self._check and self.returncode != 0:
             req = self._image._request
+            if req is None:
+                raise RuntimeError("Image is not configured")
             cmd = [req.command]
             if req.args:
                 cmd.extend(req.args)

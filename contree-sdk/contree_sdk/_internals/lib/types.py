@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import IO, Any, TypeVar
 
 import cattrs
+from aiofiles.threadpool.binary import AsyncBufferedReader
 
 
 class _Empty:
@@ -69,4 +70,4 @@ def to_dict(data: Any) -> Any:
     return cattrs.unstructure(data)
 
 
-FileContent = IO[bytes] | bytes | str
+FileContent = IO[bytes] | bytes | str | AsyncBufferedReader
