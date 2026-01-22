@@ -9,8 +9,8 @@ from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import ApiTimeoutError
 
 
-async def test_read_timeout(contree_config: ContreeConfig):
-    config = replace(contree_config, transport_timeout=1)
+async def test_read_timeout(fake_contree_config: ContreeConfig, httpbin):
+    config = replace(fake_contree_config, transport_timeout=1)
     contree = Contree(config=config)
     client = contree._api
 
@@ -20,7 +20,7 @@ async def test_read_timeout(contree_config: ContreeConfig):
 
     req = client._client.build_request(
         "GET",
-        f"https://httpbin.org/drip?{numbytes=}&{duration=}&delay=0&code=200",
+        f"{httpbin.url}/drip?{numbytes=}&{duration=}&delay=0&code=200",
     )
 
     with pytest.raises(ReadTimeout) as e_info:
