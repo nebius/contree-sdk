@@ -3,6 +3,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
+from _pytest.monkeypatch import MonkeyPatch
 from pytest_httpx import HTTPXMock
 from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_token, strict_httpx
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
@@ -216,3 +217,8 @@ def api_fake_quick_start(
     add_inspect_list_download_responses(api_fake_session_multiple_runs)
 
     return api_fake_session_multiple_runs
+
+
+@pytest.fixture(autouse=True)
+def set_contree_base_url_env(monkeypatch: MonkeyPatch):
+    monkeypatch.setenv("CONTREE_BASE_URL", "https://fake.contree.endpoint")

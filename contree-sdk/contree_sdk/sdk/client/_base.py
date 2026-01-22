@@ -21,6 +21,7 @@ from contree_sdk.sdk.exceptions import (
     OperationTimedOutError,
     WrongOperationTypeError,
 )
+from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.operation import OperationStatus
 
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 class _ContreeBase:
     files: _FilesBaseManager
     """Manager for file operations."""
-    images: _ImagesBaseManager
+    images: _ImagesBaseManager[_ContreeImageBase]
     """Manager for image operations."""
 
     def __init__(self, config: ContreeConfig | None = None, *, base_url: str | None = None, token: str | None = None):

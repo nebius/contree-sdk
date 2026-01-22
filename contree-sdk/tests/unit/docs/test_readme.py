@@ -55,7 +55,7 @@ def run_check(path: Path):
     )
     logger.info(result.stdout)
     logger.info(result.stderr)
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == 0, str(result.stdout) + str(result.stderr)
 
 
 def test_check_can_fail():

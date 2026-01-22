@@ -136,6 +136,7 @@ import stat
 
 from contree_sdk import ContreeSync
 from contree_sdk.utils.models.file import UploadFileSpec
+from contree_sdk.sdk.objects.image_fs import ImageFileSync
 
 
 def main():
@@ -176,6 +177,7 @@ def main():
     for item in result1.ls("~"):
         print(item.name, item.is_dir)
         if item.is_file:
+            assert isinstance(item, ImageFileSync)
             # download file
             item.download("/local/files/downloaded/")
 
