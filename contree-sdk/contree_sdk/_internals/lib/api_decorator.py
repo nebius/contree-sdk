@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import inspect
 from collections.abc import Callable, Iterable
 from functools import partial, wraps
-from inspect import isclass
 from string import Formatter
-from typing import TYPE_CHECKING, Annotated, get_args, get_origin
+from typing import TYPE_CHECKING
 
 from contree_sdk._internals.lib.helpers import args_kwargs_to_kwargs
-from contree_sdk._internals.lib.types import EMPTY, ApiEndpointInfo, Body, OctetFile, ReturnType
+from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
 
 
 if TYPE_CHECKING:
@@ -18,6 +16,20 @@ _formatter = Formatter()
 
 
 def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
+    """Define an API endpoint on a client method.
+
+    Builds ApiEndpointInfo from the function signature and annotations, then
+    replaces the method with a wrapper calling `_handle_api_call`.
+
+    Args:
+        method: HTTP method name.
+        path: Endpoint path with `{param}` placeholders.
+        json:
+            False — no JSON handling,
+            True — whole response as JSON,
+            iterable — JSON path to extract.
+
+    """
     match json:
         case False:
             json_path = None
@@ -26,69 +38,18 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
         case _:
             json_path = list(json)
 
-    parsed_path_params = set()
-    for (
-        _,
-        path_param,
-        *_,
-    ) in _formatter.parse(path):
-        if path_param is None:
-            continue
-        parsed_path_params.add(path_param)
-
     def decorator(func: Callable[..., ReturnType]):
-        path_params = []
-        query_params = []
-        body_params = []
-        file_params = []
-
-        all_params = []
-
-        sig = inspect.signature(func)
-        for name, param in sig.parameters.items():
-            if name == "self":
-                continue
-            all_params.append(name)
-            annotation = param.annotation
-            is_body = False
-            is_file = False
-
-            if get_origin(annotation) is Annotated:
-                _, *meta = get_args(annotation)
-                for class_ in meta:
-                    if not isclass(class_):
-                        continue
-                    if issubclass(class_, Body):
-                        is_body = True
-                    if issubclass(class_, OctetFile):
-                        is_file = True
-
-            if is_body:
-                body_params.append(name)
-            elif is_file:
-                file_params.append(name)
-            elif name in parsed_path_params:
-                path_params.append(name)
-            else:
-                query_params.append(name)
-
-        endpoint_info = ApiEndpointInfo(
+        endpoint_info = ApiEndpointInfo.from_func(
             method=method,
             path=path,
             json_path=json_path,
             func=func,
-            path_params=path_params,
-            query_params=query_params,
-            body_params=body_params,
-            file_params=file_params,
-            return_type=func.__annotations__.get("return", EMPTY),
         )
 
         @wraps(func)
         def wrapper(self: ContreeClientBase, *args, **kwargs):
-            return self._handle_api_call(
-                endpoint_info=endpoint_info, data=args_kwargs_to_kwargs(all_params, args, kwargs)
-            )
+            data = args_kwargs_to_kwargs(endpoint_info.all_params, args, kwargs)
+            return self._handle_api_call(endpoint_info=endpoint_info, data=data)
 
         return wrapper
 
