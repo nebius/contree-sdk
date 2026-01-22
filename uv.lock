@@ -328,7 +328,7 @@ provides-extras = ["docs", "dev"]
 
 [[package]]
 name = "contree-sdk"
-version = "0.0.1.dev5"
+version = "0.0.1.dev6"
 source = { editable = "contree-sdk" }
 dependencies = [
     { name = "aiofiles" },

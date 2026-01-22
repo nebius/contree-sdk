@@ -38,18 +38,12 @@ class ClientBase(ABC):
     def _send_request(self, request: Request) -> Response:
         pass
 
-    @overload
-    def _parse_response(
-        self,
-        response: Response,
-        endpoint_info: ApiEndpointInfo,
-    ) -> ReturnType: ...
     def _parse_response(
         self,
         *,
         response: Response,
         endpoint_info: ApiEndpointInfo,
-    ) -> ReturnType | dict | Response:
+    ) -> ReturnType | dict | Response | str | bytes:
         response.raise_for_status()
         if endpoint_info.json_path is None:
             if endpoint_info.return_type is str:

@@ -20,22 +20,26 @@ from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo
 # for now, it works with httpx errors
 # when be implementing multi transport support, we should change it to some other class
 def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeError:
-    additionals = {
-        "request": RequestInfo(
-            url=str(exc.request.url),
-            method=exc.request.method,
-        ),
-    }
+    request_info = RequestInfo(
+        url=str(exc.request.url),
+        method=exc.request.method,
+    )
     response = getattr(exc, "response", None)
+    response_info = None
     if isinstance(response, Response):
-        additionals["response"] = ResponseInfo(
+        response_info = ResponseInfo(
             headers=dict(response.headers),
         )
+
     if isinstance(exc, TimeoutException):
-        return ApiTimeoutError(timeout_type=str(exc.__class__.__name__).lower().replace("timeout", ""), **additionals)
+        return ApiTimeoutError(
+            timeout_type=str(exc.__class__.__name__).lower().replace("timeout", ""),
+            request=request_info,
+            response=response_info,
+        )
 
     if isinstance(exc, TransportError):
-        return ContreeTransportError(_raw=exc, error=str(exc), **additionals)
+        return ContreeTransportError(_raw=exc, error=str(exc), request=request_info, response=response_info)
 
     if isinstance(exc, HTTPStatusError):
         response = exc.response
@@ -48,7 +52,7 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeErr
             class_ = NotFoundError
         elif response.status_code == 403:
             class_ = ForbiddenError
-        return class_(**data, **additionals)
+        return class_(**data, request=request_info, response=response_info)
 
     return UnknownContreeError(exception=exc)
 

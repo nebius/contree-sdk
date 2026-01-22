@@ -50,7 +50,7 @@ DirTypeT = TypeVar("DirTypeT")
 class _ImageLikeBase:
     """Base class for image-like objects that can execute commands."""
 
-    uuid: UUID
+    uuid: UUID | None
     """Unique identifier of the image."""
     tag: str | None
     """Optional tag associated with the image."""
@@ -64,8 +64,8 @@ class _ImageLikeBase:
         tag: Optional tag for the image.
 
         """
-        self.uuid: UUID | None = UUID(uuid) if isinstance(uuid, str) else uuid
-        self.tag: str | None = tag
+        self.uuid = UUID(uuid) if isinstance(uuid, str) else uuid
+        self.tag = tag
         self._client = client
         self._request: RunRequest | None = None
         self._stdin = None
@@ -83,8 +83,8 @@ class _ImageLikeBase:
 
     def run(  # noqa: PLR0913
         self,
-        command: str = None,
-        shell: str = None,
+        command: str | None = None,
+        shell: str | None = None,
         args: Iterable[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -127,6 +127,8 @@ class _ImageLikeBase:
         new_self._transition_state(ImageState.PREPARED)
         if shell is not None:
             command = shell
+        if command is None:
+            raise ValueError("Either command or shell must be provided")
 
         if timeout is not None:
             if isinstance(timeout, timedelta):
@@ -183,10 +185,11 @@ class _ImageLikeBase:
 
     async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, InstanceFileSpec]:
         async def _upload_file(file: UploadFileSpec) -> tuple[str, InstanceFileSpec]:
-            if not isinstance(file.source, UploadedFile):
-                file = replace(file, source=await self._client.files._upload_file(file.source))
+            source = file.source
+            if not isinstance(source, UploadedFile):
+                source = await self._client.files._upload_file(source)
             return str(file.path), InstanceFileSpec(
-                uuid=file.source.uuid,
+                uuid=source.uuid,
                 mode=f"{file.mode:04o}",
                 uid=file.uid,
                 gid=file.gid,
@@ -202,12 +205,16 @@ class _ImageLikeBase:
     def _update_request(self, **kwargs) -> Self:
         self._assert_states(ImageState.PREPARED)
         new_self = self._copy_self()
+        if self._request is None:
+            raise RuntimeError("Request is not prepared")
         self._request = replace(self._request, **kwargs)
         if stdin := kwargs.get("stdin"):
             new_self._prepare_stdin(stdin)
         return new_self
 
     def _read_stdin(self) -> StreamDescription:
+        if self._stdin is None:
+            return io_encode("")
         return io_encode(self._stdin.read())
 
     # internal methods
@@ -248,10 +255,10 @@ class _ImageLikeBase:
                 InstanceSpawnRequest(
                     command=req.command,
                     image=str(self.uuid),
-                    hostname=req.hostname,
-                    args=req.args,
+                    hostname=req.hostname or "localhost",
+                    args=req.args or [],
                     env=req.env,
-                    shell=req.shell,
+                    shell=bool(req.shell),
                     cwd=req.cwd,
                     disposable=req.disposable,
                     timeout=round(timeout or self._client.config.operation_timeout),
@@ -265,8 +272,8 @@ class _ImageLikeBase:
 
         new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = result.image
-        new_self.uuid = new_uuid and UUID(new_uuid)
-        new_self.tag = result.tag
+        new_self.uuid = new_uuid and UUID(new_uuid)  # type: ignore[reportAttributeAccessIssue]
+        new_self.tag = result.tag  # type: ignore[reportAttributeAccessIssue]
         new_self._result = ContreeResult.from_result(image_metadata, request=req)
         return new_self
 
@@ -299,7 +306,7 @@ class _ImageLikeBase:
             local_path = image_path.name
         with await to_thread(open, local_path, "wb") as file:
             await to_thread(file.write, await self._read_file(image_path))
-        return local_path
+        return Path(local_path)
 
     def __repr__(self):
         other = ""
@@ -313,6 +320,8 @@ class _ImageLikeBase:
     def result(self) -> ContreeResult:
         """Execution result. Only available after successful execution."""
         self._assert_states(ImageState.SUCCEEDED)
+        if self._result is None:
+            raise RuntimeError("Result has not been set")
         return self._result
 
     @property

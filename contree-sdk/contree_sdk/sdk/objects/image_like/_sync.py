@@ -45,7 +45,7 @@ class _ImageLikeSync(_ImageLikeBase):
         """
         return coro_sync(self._download(image_path, local_path))
 
-    def read(self, image_path: str | Path | None = None) -> bytes:
+    def read(self, image_path: str | Path) -> bytes:
         """Read file contents from the image.
 
         Args:

@@ -9,7 +9,7 @@ REQUEST_IO_TYPES = IO_TYPES | type[str | bytes] | None
 
 @dataclass(frozen=True, kw_only=True)
 class RunRequest:
-    command: str | None = None
+    command: str
     args: list[str] | None = None
     shell: bool | None = None
     env: dict[str, str] = field(default_factory=dict)
