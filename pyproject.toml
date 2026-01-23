@@ -20,7 +20,6 @@ dev = [
 
 [tool.uv]
 package = false
-default-groups = ["dev", "docs"]
 
 [tool.uv.workspace]
 members = [

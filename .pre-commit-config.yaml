@@ -35,4 +35,22 @@ repos:
         language: system
         files: ^contree-sdk/.*\.md$
         pass_filenames: false
+  - repo: local
+    hooks:
+      - id: basedpyright-contree-sdk
+        name: basedpyright (contree-sdk)
+        entry: bash -lc 'cd contree-sdk && exec uv run --no-sync basedpyright --project pyproject.toml "${@/#contree-sdk\//}"' --
+        language: system
+        types_or: [python]
+        files: ^contree-sdk/.*\.py$
+
+
+
+
+#  - repo: https://github.com/DetachHead/basedpyright-pre-commit-mirror
+#    rev: 1.37.1
+#    hooks:
+#      - id: basedpyright
+#        args: ["--project", "contree-sdk/pyproject.toml"]
+#        files: ^contree-sdk/
 # todo add ruff config
