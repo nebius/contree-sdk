@@ -1,0 +1,29 @@
+name: RTD docs
+
+on: [pull_request, workflow_dispatch]
+
+jobs:
+  deploy-rtd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: uv run sphinx-build docs docs/_build/html
+
+      - uses: andreiio/rclone-action@v1
+        with:
+          args: >
+            sync docs/_build/html
+            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/pr/${{ github.event.pull_request.number }}
+            --checksum --delete-during -v
+        env:
+          RCLONE_CONFIG_S3_TYPE: s3
+          RCLONE_CONFIG_S3_PROVIDER: Other
+          RCLONE_CONFIG_S3_ENDPOINT: ${{ secrets.RCLONE_CONFIG_S3_ENDPOINT }}
+          RCLONE_CONFIG_S3_REGION: ${{ secrets.RCLONE_CONFIG_S3_REGION }}
+          RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${{ secrets.RCLONE_CONFIG_S3_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${{ secrets.RCLONE_CONFIG_S3_SECRET_ACCESS_KEY }}
