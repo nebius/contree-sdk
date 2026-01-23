@@ -20,6 +20,7 @@ dev = [
 
 [tool.uv]
 package = false
+default-groups = ["dev", "docs"]
 
 [tool.uv.workspace]
 members = [
@@ -30,6 +31,10 @@ members = [
 [tool.uv.sources]
 contree-docs = { workspace = true }
 contree-sdk = { workspace = true }
+
+[[tool.uv.index]]
+url = "https://artifactory.nebius.dev/artifactory/api/pypi/pypi-proxy/simple/"
+default = true
 
 [[tool.uv.index]]
 name = "nebius"
