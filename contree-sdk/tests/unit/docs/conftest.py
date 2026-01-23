@@ -63,8 +63,8 @@ __all__ = [
 ]
 
 
-def pytest_ignore_collect(path: Path, config: pytest.Config) -> bool:
-    return "_tmp" in str(path) or Path(path).name == "README.FUTURE.md"
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+    return "_tmp" in str(collection_path) or Path(collection_path).name == "README.FUTURE.md"
 
 
 @pytest.fixture
