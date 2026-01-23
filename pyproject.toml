@@ -31,9 +31,6 @@ members = [
 contree-docs = { workspace = true }
 contree-sdk = { workspace = true }
 
-[[tool.uv.index]]
-url = "https://artifactory.nebius.dev/artifactory/api/pypi/pypi-proxy/simple/"
-default = true
 
 [[tool.uv.index]]
 name = "nebius"
