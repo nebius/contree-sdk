@@ -32,6 +32,8 @@ dev = [
     "pytest-mock",
     "pytest-xdist",
     "pytest-httpbin",
+    "pytest-cov",
+    "pytest-html",
     "rich",
 
     # for format+checks
