@@ -14,9 +14,11 @@ jobs:
       - run: pipx install uv
       - run: uv run --all-extras sphinx-build docs docs/_build/html
 
-      - run: |
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<'EOF'
+      - name: Write rclone config
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_HOME/.config/rclone"
+          cat > "$GITHUB_HOME/.config/rclone/rclone.conf" <<EOF
           [s3]
           type = s3
           provider = Other
@@ -25,7 +27,6 @@ jobs:
           endpoint = ${{ secrets.RCLONE_CONFIG_S3_ENDPOINT }}
           region = ${{ secrets.RCLONE_CONFIG_S3_REGION }}
           EOF
-
 
       - uses: andreiio/rclone-action@v1
         with:
