@@ -39,11 +39,10 @@ repos:
     hooks:
       - id: basedpyright-contree-sdk
         name: basedpyright (contree-sdk)
-        entry: bash -lc 'cd contree-sdk && exec uv run --no-sync basedpyright --project pyproject.toml contree-sdk/' --
+        entry: bash -lc 'cd contree-sdk && exec uv run --no-sync basedpyright --project pyproject.toml .' --
         language: system
-        types_or: [python]
         pass_filenames: false
-        files: ^contree-sdk/.*\.py$
+        files: ^contree-sdk/.*
 
 
 # todo add ruff config
