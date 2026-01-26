@@ -30,6 +30,7 @@ pip install contree_sdk-0.0.0.dev2-py3-none-any.whl
 import asyncio
 from contree_sdk import Contree
 
+
 async def main():
     # Get client
     contree = Contree(token="your-token")
@@ -43,6 +44,7 @@ async def main():
     # Output result
     print(result.stdout)
 
+
 asyncio.run(main())
 ```
 
@@ -53,6 +55,7 @@ asyncio.run(main())
 
 ```python
 from contree_sdk import ContreeSync
+
 
 def main():
     # Get client
@@ -66,6 +69,7 @@ def main():
 
     # Output result
     print(result.stdout)
+
 
 main()
 ```

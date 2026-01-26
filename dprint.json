@@ -13,7 +13,10 @@
   },
   "yaml": {
   },
-  "includes": ["README.md"],
+  "includes": [
+    "README.md",
+    "contree_sdk/README.md"
+  ],
   "excludes": [
     "**/*-lock.json",
     "**/node_modules"
