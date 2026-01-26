@@ -176,6 +176,7 @@ extend-ignore = [
     "S404",     # suspicious-subprocess-import
     "TC",       # typing-only-*-import
     "TRY003",   # ideally, raise-vanilla-args
+    "ASYNC109", # async-function-with-timeout
 ]
 
 "tests/**" = [
