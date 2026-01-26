@@ -1,6 +1,10 @@
 name: RTD docs
 
-on: [pull_request, workflow_dispatch]
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-rtd:
@@ -18,7 +22,7 @@ jobs:
         with:
           args: >
             sync docs/_build/html
-            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/pr/${{ github.event.pull_request.number }}
+            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}${{ github.event_name == 'pull_request' && format('/pr/{0}', github.event.pull_request.number) || '' }}
             --delete-during -v --s3-upload-cutoff=0
         env:
           RCLONE_CONFIG_S3_TYPE: s3

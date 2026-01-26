@@ -27,7 +27,7 @@ While Contree is purpose-built to support research on SWE agents, it's just as u
 - SWE-bench and SWE-rebench evaluations
 - Software engineering agent research and development
 
-**Also suitable for:**
+**Also, suitable for:**
 
 - General LLM agents requiring code execution
 - AI-powered development tools
