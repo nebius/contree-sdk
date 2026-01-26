@@ -315,7 +315,7 @@ images[0].run('some command').wait()
 
 ---
 
-## ⚙️ Advanced usage {#advanced-usage}
+## Advanced usage
 
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
