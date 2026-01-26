@@ -1,0 +1,38 @@
+name: SDK checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ruff-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: cd contree-sdk && uv run --all-extras ruff check .
+
+  ruff-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: cd contree-sdk && uv run --all-extras ruff format --check .
+
+  basedpyright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: cd contree-sdk && uv run --all-extras basedpyright --project pyproject.toml .
