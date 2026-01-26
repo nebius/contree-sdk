@@ -6,14 +6,13 @@
 ## Table of Contents
 
 - [Installation](#-installation)
-  - [Installation from Nebius Artifactory](#installation-from-nebius-artifactory)
 - [Quick Start](#-quick-start)
 - [Core Concepts](#-core-concepts)
   - [Sessions and Versioning](#sessions-and-versioning)
   - [Subprocess-like interface](#subprocess-like-interface)
   - [Stable image UUID](#stable-image-uuid)
   - [Async/sync clients and objects](#asyncsync-clients-and-objects)
-- [Advanced Usage](#-advanced-usage)
+- [Advanced Usage](#advanced-usage)
   - [Client configuration](#client-configuration)
   - [Command and other run parameters](#command-and-other-run-parameters)
   - [Shell vs command](#shell-vs-command)
@@ -41,33 +40,6 @@ Optional extras allow you to install dependencies for specific transports or int
 
 If you are planning to use it as shell, install `shell` extra: `pip install contree-sdk[shell]`
 
-### Installation from Nebius Artifactory
-
-> [!NOTE]
-> While the project is under development, it's not available publicly. It's available only through Nebius `ai-rnd` PyPI registry.
-
-1. Open https://artifactory.nebius.dev/
-2. Log in using SSO
-3. In top right corner click on your profile
-4. Click on `Set Me Up`
-5. Select `pypi`
-6. Inside repository selector choose `ai-rnd`
-7. Inside `Configure` tab click on `Generate Token & Create Instructions`
-8. Copy and save your token somewhere
-9. Add the following to your `~/.pip/pip.conf` file inside `[global]` section:
-
-```ini
-extra-index-url = https://<EMAIL>:<TOKEN>@artifactory.nebius.dev/artifactory/api/pypi/ai-rnd/simple
-```
-
-10. Replace `<EMAIL>` with your Nebius email (e.g. `yourname@nebius.com`) and `<TOKEN>` with your saved token
-11. Install the package like you normally would using `pip install contree-sdk`
-
-> [!TIP]
-> For package managers that don't use `~/.pip/pip.conf` (e.g. `uv`, `pdm`) please refer to their respective documentation.
-
----
-
 ## 🚀 Quick Start
 
 <details open>
@@ -82,16 +54,16 @@ from contree_sdk import Contree
 async def amain():
     # create client
     contree = Contree(token='real-contree-token')
-    
+
     # list images
     images = await contree.images()
-    
+
     # pulling existing image
     ubuntu_image = await contree.images.pull("ubuntu:latest")
-    
-    # pulling image from a remote registry 
+
+    # pulling image from a remote registry
     busybox_image = await contree.images.pull("docker://docker.io/busybox:latest")
-    
+
     # running command
     result0 = await (
         ubuntu_image.command('app.sh').args('arg1', 'arg2')
@@ -103,24 +75,24 @@ async def amain():
     )
     print(result0.stdout)
     print(result0.stderr)
-    
+
     # running next command
     result1 = await result0.shell('echo output.csv | grep something')
-    
+
     # getting files and directories by path
     items = await result1.ls('files/path')
     print(len(items))
-    
+
     # iterating through files and directories by path
     async for item in result1.ls('~'):
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
             await item.download('/local/files/downloaded/')
-    
+
     files = await result1.files('/bin')
     print(files)
-    
+
     # using session
     session = await busybox_image.session()
     await (
@@ -129,13 +101,13 @@ async def amain():
     )
     res = await session.command('cat result.txt')
     print(res.stdout)
-    
+
     # downloading file from session
     await (
         session.file('/tmp/log.jsonl')
         .download('/local/logs/session_1.log')
     )
-    
+
 
 asyncio.run(amain())
 ```
@@ -153,16 +125,16 @@ from contree_sdk import ContreeSync
 def main():
     # Create client
     contree = ContreeSync(token='real-contree-token')
-    
+
     # list images
     images = contree.images()
-    
+
     # Pulling existing image
     ubuntu_image = contree.images.pull("ubuntu:latest")
-    
-    # Pulling image from a remote registry 
+
+    # Pulling image from a remote registry
     busybox_image = contree.images.pull("docker://docker.io/busybox:latest")
-    
+
     # running command
     result0 = (
         ubuntu_image.command('app.sh').args('arg1', 'arg2')
@@ -173,24 +145,24 @@ def main():
     ).wait()
     print(result0.stdout)
     print(result0.stderr)
-    
+
     # running next command
     result1 = result0.command('echo output.csv | grep something').wait()
-    
+
     # getting files and directories by path
     items = result1.ls('files/path')
     print(len(items))
-    
+
     # iterating through files and directories by path
     for item in result1.ls('~'):
         print(item.name, item.is_dir)
         if item.is_file:
             # download file
             item.download('/local/files/downloaded/')
-    
+
     files = result1.files('/bin')
     print(files)
-    
+
     # using session
     session = busybox_image.session()
     (
@@ -199,11 +171,11 @@ def main():
     ).wait()
     res = session.run('cat result.txt').wait()
     print(res.stdout)
-    
+
     # downloading file from session
     session.file('/tmp/log.jsonl').download('/local/logs/session_1.log')
-    
-    
+
+
 main()
 ```
 
@@ -225,12 +197,12 @@ A **session** is essentially an image whose version automatically updates after 
 ```python
 # Each command creates a new image version
 image = await contree.images.pull("ubuntu:latest")        # ubuntu:latest
-result1 = await image.run("apt update")             # some-uuid 
+result1 = await image.run("apt update")             # some-uuid
 result2 = await result1.run("apt install python3") # another-uuid
 
 # Sessions work the same way
 session = image.session()                     # ubuntu:latest
-res0 = await session.run("touch /app/file1.txt")    # some-uuid 
+res0 = await session.run("touch /app/file1.txt")    # some-uuid
 res1 = await session.run("echo 'hello' > /app/file1.txt") # another-uuid
 
 assert session.current == res1
@@ -245,6 +217,7 @@ Any session can provide Subprocess-like interface
 <summary>🔀 Async examples</summary>
 
 Running command
+
 ```python
 proc = await session.popen(
     ["cat"],
@@ -254,6 +227,7 @@ stdout, stderr = await proc.communicate("a\nb\nc\n")
 ```
 
 Shell example
+
 ```python
 import subprocess
 
@@ -273,6 +247,7 @@ print(proc.stdout)
 <summary>🔁 Sync examples</summary>
 
 Running command
+
 ```python
 proc = session.popen(
     ["cat"],
@@ -282,6 +257,7 @@ stdout, stderr = proc.communicate("a\nb\nc\n")
 ```
 
 Shell example
+
 ```python
 import subprocess
 
@@ -297,7 +273,6 @@ print(proc.stdout)
 ```
 
 </details>
-
 
 ### Stable image UUID
 
@@ -340,13 +315,15 @@ images[0].run('some command').wait()
 
 ---
 
-## ⚙️ Advanced usage
+## ⚙️ Advanced usage {#advanced-usage}
 
 [//]: # (todo cancelling on Ctrl+C)
 [//]: # (todo add grep example)
 
 ### Client configuration
+
 You can create configuration object and use it later in client
+
 ```python
 from contree_sdk.config import ContreeConfig, ContreeEndpoints
 from contree_sdk.transport import HttpxTransport
@@ -426,7 +403,7 @@ result0 = ubuntu_image.run(
 
 The SDK provides two distinct ways to execute commands:
 
-- **`command()`** - Direct program execution 
+- **`command()`** - Direct program execution
 - **`shell()`** - Shell command execution
 
 <details open>
@@ -437,7 +414,7 @@ The SDK provides two distinct ways to execute commands:
 result = await image.command('ls').args('-la', '/home')
 # Equivalent to: execve("/bin/ls", ["ls", "-la", "/home"], env)
 
-# shell() - shell command interpretation  
+# shell() - shell command interpretation
 result = await image.shell('ls -la /home')
 # Equivalent to: execve("/bin/sh", ["sh", "-c", "ls -la /home"], env)
 
@@ -489,9 +466,9 @@ image.env({'VAR': 'VALUE', 'http_proxy': 'http://10.20.30.40:1234'})
 image.env({'VAR': 'VALUE'}, http_proxy='http://10.20.30.40:1234')
 ```
 
-
 ### Disposable containers
-You can add `.disposable()` to the chain or as run parameter to make the container disposable. 
+
+You can add `.disposable()` to the chain or as run parameter to make the container disposable.
 It means it deletes itself right after executing, leaving only the result.
 
 ```python
@@ -499,7 +476,6 @@ res = image.disposable().run('one time thing').wait()
 # OR
 res = image.run('one time thing', disposable=True).wait()
 ```
-
 
 ### Multiple commands chaining
 
@@ -522,7 +498,7 @@ result2 = await result1.shell("echo $PATH")  # Clean run, no env/stdin
 ```
 
 > [!IMPORTANT]
-> **Async**: `.run()` queues the command, execution happens on `await`  
+> **Async**: `.run()` queues the command, execution happens on `await`
 > **Sync**: `.run()` queues the command, execution happens on `.wait()`
 
 Each finished `.run()` creates a new image version with changes from that command.
@@ -532,6 +508,7 @@ Each finished `.run()` creates a new image version with changes from that comman
 ### Objects reusing
 
 You can preconfigure run and then reuse it, for example:
+
 ```python
 # preconfigure a run that generates random string and writes to file
 preconfigured_run = (
@@ -550,6 +527,7 @@ assert result1.parent == result2.parent == result3.parent == image
 ```
 
 ### Forwarding output to IO objects
+
 You can forward stdout/stderr output to IO-like objects and files
 
 ```python
@@ -576,6 +554,7 @@ res = image.stderr_to('/local/files/error.log').run('failing command').wait()
 ```
 
 ### Forwarding input from IO objects
+
 Similarly, you can forward input from IO-like object
 
 ```python
@@ -606,7 +585,7 @@ await image.stdin_from(b"binary data\x00\x01\x02").shell('hexdump -C')
 ### File uploading
 
 > [!WARNING]
-> This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management. 
+> This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management.
 > For most use cases, prefer `.add_file()` method on images and sessions.
 
 ```python
@@ -621,7 +600,7 @@ print(file.uuid)
 
 ### History browsing
 
-Since server doesn't store info about which containers were parents for which, it is implemented on client side. 
+Since server doesn't store info about which containers were parents for which, it is implemented on client side.
 It means that once you delete `Contree` (or `ContreeSync` object), the history (as wel as tree) erases itself.
 
 ```python
@@ -654,7 +633,7 @@ assert busybox_image.tree == [result_image, result_image_new, result_image2]
 
 ```python
 image = await contree.images.pull("ubuntu:latest")
-session = image.session()  
+session = image.session()
 
 await session.run('command1')
 result2 = await session.run('command2')
