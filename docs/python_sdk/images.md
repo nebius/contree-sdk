@@ -1,6 +1,6 @@
 # Working with Images
 
-Contree SDK allows you to pull and manage container images. You can use images from public registries, your own private registries, or import Docker Hub images.
+Contree SDK allows you to pull and import container images. You can use images from public registries, your own private registries, or import Docker Hub images.
 
 For detailed API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
 
