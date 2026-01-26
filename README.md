@@ -32,7 +32,7 @@ from contree_sdk import Contree
 
 async def main():
     # Get client
-    contree = Contree(token='your-token')
+    contree = Contree(token="your-token")
 
     # Get image
     image = await contree.images.pull("ubuntu:latest")
@@ -56,7 +56,7 @@ from contree_sdk import ContreeSync
 
 def main():
     # Get client
-    contree = ContreeSync(token='your-token')
+    contree = ContreeSync(token="your-token")
 
     # Get image
     image = contree.images.pull("ubuntu:latest")
