@@ -36,3 +36,31 @@ jobs:
           python-version: "3.12"
       - run: pipx install uv
       - run: cd contree-sdk && uv run --all-extras basedpyright --project pyproject.toml .
+
+  dprint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dprint/check@v2
+        with:
+          config-path: contree-sdk/dprint.json
+          paths: contree-sdk
+
+  markdownlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: |
+            **/*.md
+
+  uv-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: uv lock --check
