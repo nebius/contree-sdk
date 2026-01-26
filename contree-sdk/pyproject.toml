@@ -3,15 +3,16 @@ name = "contree-sdk"
 version = "0.0.1.dev6"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.10, <3.14"
+requires-python = ">=3.11, <3.14"
 
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: Apache Software License",
 ]
 
@@ -66,7 +67,7 @@ only-packages = true
 line-length = 120
 src = ["contree_sdk"]
 
-target-version = "py310"
+target-version = "py311"
 
 exclude = [
     ".git",
@@ -228,7 +229,7 @@ exclude = [
     "tests/unit/docs/_tmp/**"
 ]
 
-pythonVersion = "3.13"
+pythonVersion = "3.11"
 pythonPlatform = "Linux"
 
 typeCheckingMode = "standard"
