@@ -14,23 +14,16 @@ jobs:
       - run: pipx install uv
       - run: uv run --all-extras sphinx-build docs docs/_build/html
 
-      - name: Write rclone config
-        shell: bash
-        run: |
-          mkdir -p "$GITHUB_HOME/.config/rclone"
-          cat > "$GITHUB_HOME/.config/rclone/rclone.conf" <<EOF
-          [s3]
-          type = s3
-          provider = Other
-          access_key_id = ${{ secrets.RCLONE_CONFIG_S3_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.RCLONE_CONFIG_S3_SECRET_ACCESS_KEY }}
-          endpoint = ${{ secrets.RCLONE_CONFIG_S3_ENDPOINT }}
-          region = ${{ secrets.RCLONE_CONFIG_S3_REGION }}
-          EOF
-
       - uses: andreiio/rclone-action@v1
         with:
           args: >
             sync docs/_build/html
             s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/pr/${{ github.event.pull_request.number }}
             --delete-during -v
+        env:
+          RCLONE_CONFIG_S3_TYPE: s3
+          RCLONE_CONFIG_S3_PROVIDER: Other
+          RCLONE_CONFIG_S3_ENDPOINT: ${{ secrets.RCLONE_CONFIG_S3_ENDPOINT }}
+          RCLONE_CONFIG_S3_REGION: ${{ secrets.RCLONE_CONFIG_S3_REGION }}
+          RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${{ secrets.RCLONE_CONFIG_S3_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${{ secrets.RCLONE_CONFIG_S3_SECRET_ACCESS_KEY }}
