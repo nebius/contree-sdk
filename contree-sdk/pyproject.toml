@@ -3,7 +3,7 @@ name = "contree-sdk"
 version = "0.0.1.dev7"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.11, <3.14"
+requires-python = ">=3.11, <3.15"
 
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
