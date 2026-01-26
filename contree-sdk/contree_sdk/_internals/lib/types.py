@@ -77,7 +77,7 @@ class ApiEndpointInfo:
         *,
         method: str,
         path: str,
-        json_path: list | None,
+        json_path: list[str] | None,
         func: Callable[..., Any],
     ) -> ApiEndpointInfo:
         parsed_path_params = {name for _, name, *_ in _formatter.parse(path) if name is not None}

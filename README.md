@@ -88,6 +88,50 @@ Explore all examples in the [`examples/`](./examples/) directory
 
 ---
 
+## 🛠 Development Setup
+
+### Prerequisites
+
+- Python 3.10 - 3.13
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### Env setup
+
+```bash
+git clone https://github.com/nebius/contree.git
+cd contree
+uv sync
+```
+
+### Running Checks
+
+Linting and formatting with [Ruff](https://docs.astral.sh/ruff/):
+
+```bash
+uv run ruff check .
+uv run ruff format .
+```
+
+Type checking with [basedpyright](https://docs.basedpyright.com/):
+
+```bash
+cd contree-sdk && uv run basedpyright
+```
+
+### Running Tests
+
+```bash
+uv run pytest contree-sdk
+```
+
+### Documentation Dev Server
+
+```bash
+make rtd-dev
+```
+
+---
+
 ## License
 
 Copyright 2026 Nebius B.V.
