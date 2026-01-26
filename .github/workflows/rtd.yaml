@@ -19,7 +19,7 @@ jobs:
           args: >
             sync docs/_build/html
             s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/pr/${{ github.event.pull_request.number }}
-            --delete-during -v
+            --delete-during -v --s3-upload-cutoff=0
         env:
           RCLONE_CONFIG_S3_TYPE: s3
           RCLONE_CONFIG_S3_PROVIDER: Other
