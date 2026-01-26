@@ -1,8 +1,13 @@
 import json
-import tomllib
+import sys
 from pathlib import Path
 from re import findall
 
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 

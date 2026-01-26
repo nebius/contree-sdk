@@ -65,7 +65,6 @@ extend-unsafe-fixes = [
     "RUF100",
     "RUF102",
 ]
-
 select = [
     "A",   # flake8-builtins
     "AIR", # Airflow

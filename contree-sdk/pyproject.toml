@@ -35,6 +35,7 @@ dev = [
     "pytest-cov",
     "pytest-html",
     "rich",
+    "tomli; python_version < '3.11'",
 
     # for format+checks
     "pytest-markdown-docs",
