@@ -1,9 +1,10 @@
-from enum import StrEnum
 from io import BytesIO, IOBase, StringIO
 from os import fdopen, pipe
 from pathlib import Path
 from subprocess import PIPE
 from typing import IO, AnyStr, Literal
+
+from strenum import StrEnum
 
 
 class PipeIO(IOBase):

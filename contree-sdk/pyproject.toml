@@ -3,7 +3,7 @@ name = "contree-sdk"
 version = "0.0.1.dev7"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.11, <3.15"
+requires-python = ">=3.10, <3.15"
 
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -69,7 +69,7 @@ only-packages = true
 line-length = 120
 src = ["contree_sdk"]
 
-target-version = "py311"
+target-version = "py310"
 
 exclude = [
     ".git",
@@ -179,6 +179,7 @@ extend-ignore = [
     "TC",       # typing-only-*-import
     "TRY003",   # ideally, raise-vanilla-args
     "ASYNC109", # async-function-with-timeout
+    "PYI019",   # custom-type-var-for-self/
 ]
 
 "tests/**" = [
@@ -232,7 +233,7 @@ exclude = [
     "tests/unit/docs/_tmp/**"
 ]
 
-pythonVersion = "3.11"
+pythonVersion = "3.10"
 pythonPlatform = "Linux"
 
 typeCheckingMode = "standard"

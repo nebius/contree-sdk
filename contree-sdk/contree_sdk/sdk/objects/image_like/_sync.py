@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Self
+from typing import TypeVar
 
 from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
@@ -8,10 +10,13 @@ from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
 from contree_sdk.utils.io_wrap import IO_TYPES
 
 
+_T = TypeVar("_T", bound="_ImageLikeSync")
+
+
 class _ImageLikeSync(_ImageLikeBase):
     """Synchronous image-like object for command execution."""
 
-    def wait(self) -> Self:
+    def wait(self: _T) -> _T:
         """Execute the prepared command and wait for completion.
 
         Returns:

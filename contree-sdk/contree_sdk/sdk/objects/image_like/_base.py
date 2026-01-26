@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Self, TypeVar
+from typing import IO, TYPE_CHECKING, TypeVar
 from uuid import UUID
 
 import cattrs
@@ -46,6 +46,8 @@ _STATE_MACHINE: dict[ImageState, frozenset[ImageState]] = {
 FileTypeT = TypeVar("FileTypeT")
 DirTypeT = TypeVar("DirTypeT")
 
+_T = TypeVar("_T", bound="_ImageLikeBase")
+
 
 class _ImageLikeBase:
     """Base class for image-like objects that can execute commands."""
@@ -73,7 +75,7 @@ class _ImageLikeBase:
         self._state = ImageState.PULLED
 
     # utils methods
-    def _copy_self(self, clear: bool = True) -> Self:
+    def _copy_self(self: _T, clear: bool = True) -> _T:
         new_self = copy(self)
         if clear:
             new_self._result = None
@@ -82,7 +84,7 @@ class _ImageLikeBase:
     # main methods
 
     def run(  # noqa: PLR0913
-        self,
+        self: _T,
         command: str | None = None,
         shell: str | None = None,
         args: Iterable[str] | None = None,
@@ -96,7 +98,7 @@ class _ImageLikeBase:
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
-    ) -> Self:
+    ) -> _T:
         """Prepare image for command execution.
 
         Args:
@@ -202,7 +204,7 @@ class _ImageLikeBase:
         io_obj = get_io_by_obj(stdin, IOMode.read)
         self._stdin = io_obj  # todo do it on run or stdin_from
 
-    def _update_request(self, **kwargs) -> Self:
+    def _update_request(self: _T, **kwargs) -> _T:
         self._assert_states(ImageState.PREPARED)
         new_self = self._copy_self()
         if self._request is None:
@@ -237,7 +239,7 @@ class _ImageLikeBase:
         """Current state of the image in the execution lifecycle."""
         return self._state
 
-    async def _await(self) -> Self:
+    async def _await(self: _T) -> _T:
         req = self._request
         if req is None:
             raise RuntimeError("Run request has not been set")

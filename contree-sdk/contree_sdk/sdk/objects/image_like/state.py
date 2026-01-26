@@ -1,4 +1,6 @@
-from enum import StrEnum, auto
+from enum import auto
+
+from strenum import StrEnum
 
 
 # todo use it and use _state_lock inside image like

@@ -8,7 +8,6 @@ dependencies = [
     "contree-sdk[dev]",
 ]
 
-
 [project.optional-dependencies]
 docs = [
     "contree-docs",
