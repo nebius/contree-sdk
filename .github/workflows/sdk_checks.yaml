@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: cd contree-sdk && uv run --all-extras ruff check .
+      - run: uv run --all-extras ruff check .
 
   ruff-format:
     runs-on: ubuntu-latest
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: cd contree-sdk && uv run --all-extras ruff format --check .
+      - run: uv run --all-extras ruff format --check .
 
   basedpyright:
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: cd contree-sdk && uv run --all-extras basedpyright --project pyproject.toml .
+      - run: uv run --all-extras basedpyright --project pyproject.toml .
 
   dprint:
     runs-on: ubuntu-latest

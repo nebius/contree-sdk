@@ -21,7 +21,7 @@ jobs:
       - id: mk
         run: |
           python -m pip install -q packaging
-          py=$(python contree-sdk/tests/utils/versions.py)
+          py=$(python tests/utils/versions.py)
           echo "py=$py" >> "$GITHUB_OUTPUT"
 
   pytest:
@@ -43,13 +43,12 @@ jobs:
 
       - name: Run pytest
         run: |
-          cd contree-sdk
           uv run --all-extras pytest \
             --cov=contree_sdk \
-            --cov-report xml:../coverage.xml \
-            --junitxml=../report.xml \
+            --cov-report xml:coverage.xml \
+            --junitxml=report.xml \
             --cov-report=term-missing \
-            --html=../report.html \
+            --html=report.html \
             -vv .
 
       - uses: actions/upload-artifact@v4
