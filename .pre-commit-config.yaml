@@ -30,19 +30,24 @@ repos:
   - repo: local
     hooks:
       - id: dprint-contree-sdk
-        name: dprint (contree-sdk)
+        name: dprint
         entry: bash -lc 'dprint fmt --config dprint.json .'
         language: system
         files: (^|/)README\.md$
         pass_filenames: false
   - repo: local
     hooks:
-      - id: basedpyright-contree-sdk
-        name: basedpyright (contree-sdk)
-        entry: bash -lc 'cd contree-sdk && exec uv run --no-sync basedpyright --project pyproject.toml .' --
+      - id: basedpyright
+        name: basedpyright
+        entry: bash -lc 'exec uv run --no-sync basedpyright --project pyproject.toml .' --
         language: system
         pass_filenames: false
-        files: ^contree-sdk/.*
+        files: |
+          (?x)^(
+            .*\.py |
+            \.basedpyright/.* |
+            (?:.*/)?pyproject\.toml
+          )$
 
 
 # todo add ruff config
