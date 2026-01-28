@@ -43,13 +43,13 @@ jobs:
 
       - name: Run pytest
         run: |
-          uv run --all-extras pytest \
+          uv run --all-extras pytest -- \
             --cov=contree_sdk \
             --cov-report xml:coverage.xml \
             --junitxml=report.xml \
             --cov-report=term-missing \
             --html=report.html \
-            -vv .
+            -vv
 
       - uses: actions/upload-artifact@v4
         if: always()
