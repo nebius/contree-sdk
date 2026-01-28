@@ -391,4 +391,4 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-_Apache and [Apache Spark](http://spark.apache.org/) are either registered trademarks or trademarks of the Apache Software Foundation in the United States and/or other countries._
+_Apache and the Apache logo are either registered trademarks or trademarks of The Apache Software Foundation in the United States and/or other countries._
