@@ -76,7 +76,8 @@ class _ContreeBase:
         """Current client configuration."""
         return self._config
 
-    def _create_api_client(self, config: ContreeConfig) -> ContreeClient:
+    @staticmethod
+    def _create_api_client(config: ContreeConfig) -> ContreeClient:
         return ContreeClient(
             token=config.token,
             base_url=config.base_url,

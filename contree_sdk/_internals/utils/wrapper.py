@@ -100,10 +100,10 @@ class AsyncWrapper:
             raise
 
     def wrap_iter(self, coro_iter: AsyncIterable[Y]) -> Iterator[Y]:
-        async_iter = coro_iter.__aiter__()
+        async_iter = aiter(coro_iter)
         try:
             while True:
-                yield self.wrap(async_iter.__anext__())
+                yield self.wrap(anext(async_iter))
         except StopAsyncIteration:
             return
 

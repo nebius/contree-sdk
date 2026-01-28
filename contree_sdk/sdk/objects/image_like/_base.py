@@ -83,7 +83,7 @@ class _ImageLikeBase:
 
     # main methods
 
-    def run(  # noqa: PLR0913
+    def run(  # noqa: PLR0913, PLR0917
         self: _T,
         command: str | None = None,
         shell: str | None = None,
@@ -121,6 +121,7 @@ class _ImageLikeBase:
 
         Raises:
             DisposableImageRunError: If attempting to run on a disposed image.
+            ValueError: If neither command nor shell is provided.
 
         """
         if not self.uuid:
@@ -154,8 +155,8 @@ class _ImageLikeBase:
         new_self._prepare_stdin(stdin)
         return new_self
 
+    @staticmethod
     def _prepare_files(
-        self,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
         default_image_path: str = "/",
     ) -> list[UploadFileSpec]:
@@ -320,7 +321,12 @@ class _ImageLikeBase:
 
     @property
     def result(self) -> ContreeResult:
-        """Execution result. Only available after successful execution."""
+        """Execution result. Only available after successful execution.
+
+        Raises:
+            RuntimeError: If the result hasn't been set.
+
+        """
         self._assert_states(ImageState.SUCCEEDED)
         if self._result is None:
             raise RuntimeError("Result has not been set")

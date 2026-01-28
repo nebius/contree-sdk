@@ -27,7 +27,7 @@ def _process_time_param(value: datetime | timedelta | None, offset: timedelta) -
         return None
     if isinstance(value, datetime):
         return value.isoformat()
-    value = value + offset
+    value += offset
     seconds = value.total_seconds()
     return f"{seconds:.0f}s"
 

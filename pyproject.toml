@@ -81,10 +81,6 @@ only-include = [
 [tool.hatch.build]
 only-packages = true
 
-
-
-
-
 [tool.ruff]
 line-length = 120
 src = ["contree_sdk"]
@@ -97,22 +93,25 @@ exclude = [
     "venv",
 ]
 
+preview = true
+
 [tool.ruff.lint]
 extend-safe-fixes = [
-    "C408",   # unnecessary-collection-call
-    "PT006",  # pytest-parametrize-names-wrong-type
-    "RUF022", # unsorted-dunder-all
-    "SIM101", # duplicate-isinstance-call
-    "SIM108", # if-else-block-instead-of-if-exp
-    "UP006",  # non-pep585-annotation
-    "UP007",  # non-pep604-annotation-union
-    "UP035",  # deprecated-import
-    "UP038",  # non-pep604-isinstance
+    "C408",    # unnecessary-collection-call
+    "PT006",   # pytest-parametrize-names-wrong-type
+    "RUF022",  # unsorted-dunder-all
+    "SIM101",  # duplicate-isinstance-call
+    "SIM108",  # if-else-block-instead-of-if-exp
+    "UP006",   # non-pep585-annotation
+    "UP007",   # non-pep604-annotation-union
+    "UP035",   # deprecated-import
+    "UP038",   # non-pep604-isinstance
+    "PLR6104", # non-augmented-assignment
 ]
 extend-unsafe-fixes = [
-    "PGH003",
-    "RUF100",
-    "RUF102",
+    "PGH003", # blanket-type-ignore
+    "RUF100", # unused-noqa
+    "RUF102", # invalid-rule-code
 ]
 select = [
     "A",     # flake8-builtins
@@ -156,23 +155,23 @@ select = [
 ]
 
 extend-ignore = [
-    "ANN002",   # missing-type-args
-    "ANN003",   # missing-type-kwargs
-    "ANN202",   # missing-return-type-private-function
-    "ANN204",   # missing-return-type-special-method
-    "ANN401",   # any-type
-    "ASYNC230", # blocking-open-call-in-async-function
+    "ANN002", # missing-type-args
+    "ANN003", # missing-type-kwargs
+    "ANN202", # missing-return-type-private-function
+    "ANN204", # missing-return-type-special-method
+    "ANN401", # any-type
     "COM812", # missing-trailing-comma
     "E203",   # whitespace-before-punctuation
     "E741",   # ambiguous-variable-name
     "PIE790", # unnecessary-placeholder
     "RUF012", # mutable-class-default
     "RUF013", # implicit-optional
-    "RUF059", # unused-unpacked-variable
     "S311",   # suspicious-non-cryptographic-random-usage
-    "S604",    # hardcoded-password-func-arg
-    "T201",   # print
+    "S604",   # hardcoded-password-func-arg
     "TRY003", # raise-vanilla-args
+    "D203",   # incorrect-blank-line-before-class
+    "D213",   # multi-line-summary-second-line
+    "B903",   # class-as-data-structure
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -189,7 +188,6 @@ extend-ignore = [
     "D107",     # undocumented-public-init
     "N813",     # camelcase-imported-as-lowercase
     "PLC0415",  # import-outside-top-level
-    "PLR2004",  # ideally, magic-value-comparison
     "PLW1510",  # unspecified-encoding
     "PLW2901",  # redefined-loop-name
     "PT019",    # pytest-fixture-param-without-value
@@ -197,20 +195,28 @@ extend-ignore = [
     "PYI019",   # custom-type-var-for-self
     "PYI051",   # redundant-literal-union
     "RUF005",   # collection-literal-concatenation
-    "RUF012",   # mutable-class-default,  because of old pydantic, ideally to turn on
     "S404",     # suspicious-subprocess-import
     "TC",       # typing-only-*-import
-    "TRY003",   # ideally, raise-vanilla-args
+    "PLW1514",
 ]
 
-"examples" = [
+"contree_sdk/_internals/utils/**" = [
+    "PLR2004",
+]
+
+"examples/**" = [
     "ASYNC230", # blocking-open-call-in-async-function
     "RUF059",   # unused-unpacked-variable
     "T201",     # print
+    "PTH123",   # builtin-open
+    "S108",     # hardcoded-temp-file
+    "S106",     # hardcoded-password-func-arg
 ]
 "tests/**" = [
-    "D",     # pydocstyle
-    "DOC",   # pydoclint
+    "D",       # pydocstyle
+    "DOC",     # pydoclint
+    "RUF029",  # unused-async
+    "PLR2004", # magic-value-comparison
 ]
 
 "tests/**/test_*.py" = [
@@ -220,6 +226,14 @@ extend-ignore = [
     "RUF059",   # unused-unpacked-variable
     "S101",     # assert
     "S106",     # hardcoded-password-func-arg
+]
+
+"!tests/e2e/sdk/**" = [
+    "PLC2701", # import-private-name
+]
+
+"!examples/**" = [
+    "PLC2701", # import-private-name
 ]
 
 
@@ -252,7 +266,6 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.pylint]
 max-args = 12
-
 
 [tool.pyright]
 include = ["contree_sdk", "tests"]

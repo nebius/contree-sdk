@@ -166,7 +166,7 @@ def docs_file_upload(tmp_path: Path, api_fake_upload: HTTPXMock):
                 relative = path.relative_to(path.anchor)
                 redirected_path = tmp_path / relative
                 if redirected_path.is_dir() or str(local_path).endswith("/"):
-                    redirected_path = redirected_path / Path(image_path).name
+                    redirected_path /= Path(image_path).name
                 local_path = redirected_path
         return await original_download(self, image_path, local_path)
 

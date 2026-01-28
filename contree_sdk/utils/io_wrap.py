@@ -14,13 +14,13 @@ class PipeIO(IOBase):
         self._r = fdopen(r, "rb", buffering=0)
         self._w = fdopen(w, "wb", buffering=0)
 
-    def readable(self) -> bool:
+    def readable(self) -> bool:  # noqa: PLR6301
         return True
 
-    def writable(self) -> bool:
+    def writable(self) -> bool:  # noqa: PLR6301
         return True
 
-    def seekable(self) -> bool:
+    def seekable(self) -> bool:  # noqa: PLR6301
         return False
 
     def read(self, size: int = -1) -> bytes:

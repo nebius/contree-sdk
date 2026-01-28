@@ -39,15 +39,10 @@ repos:
     hooks:
       - id: basedpyright
         name: basedpyright
-        entry: bash -lc 'exec uv run --no-sync basedpyright --project pyproject.toml .' --
+        entry: bash -lc 'exec uv run basedpyright' --
         language: system
         pass_filenames: false
-        files: |
-          (?x)^(
-            .*\.py |
-            \.basedpyright/.* |
-            (?:.*/)?pyproject\.toml
-          )$
+        files: (?x)^(.*\.py|\.basedpyright/.*|(?:.*/)?pyproject\.toml)$
 
 
 # todo add ruff config
