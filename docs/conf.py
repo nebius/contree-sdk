@@ -13,8 +13,8 @@ extensions = [
     "sphinx.ext.duration",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
-    "sphinx.ext.napoleon",
     "sphinx.ext.autosummary",
+    "sphinx_autodoc_typehints",
     "sphinx_copybutton",
     "sphinx_inline_tabs",
     "sphinxcontrib.log_cabinet",
@@ -30,9 +30,11 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "_autosummary"]
 html_theme = "furo"
 html_title = project
 
-autodoc_typehints = "both"
+autodoc_typehints = "signature"
+autoclass_content = "class"
 set_type_hints_directive = True
 
+simplify_optional_unions = False
 
 # -- MyST configuration -----------------------------------------------------
 

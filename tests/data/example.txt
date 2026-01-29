@@ -1,0 +1,4 @@
+some txt file
+second line
+
+last line

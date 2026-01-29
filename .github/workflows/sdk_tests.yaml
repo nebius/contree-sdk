@@ -1,0 +1,61 @@
+name: SDK pytest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      py: ${{ steps.mk.outputs.py }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - id: mk
+        run: |
+          python -m pip install -q packaging
+          py=$(python tests/utils/versions.py)
+          echo "py=$py" >> "$GITHUB_OUTPUT"
+
+  pytest:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(needs.build-matrix.outputs.py) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - run: pipx install uv
+
+      - name: Run pytest
+        run: |
+          uv run --all-extras pytest \
+            --cov=contree_sdk \
+            --cov-report xml:coverage.xml \
+            --junitxml=report.xml \
+            --cov-report=term-missing \
+            --html=report.html \
+            -vv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            report.xml
+            report.html

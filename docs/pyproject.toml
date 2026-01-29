@@ -1,12 +1,13 @@
 [project]
 name = "contree-docs"
-version = "0.0.0.dev4"
+version = "0.0.0"
 dependencies = [
   "furo",
   "myst-parser[linkify]",
   "pallets-sphinx-themes",
   "sphinx",
   "sphinx-autobuild",
+  "sphinx-autodoc-typehints",
   "sphinx-copybutton",
   "sphinxcontrib-log-cabinet",
   "sphinx-inline-tabs",

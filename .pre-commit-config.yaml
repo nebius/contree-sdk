@@ -23,4 +23,26 @@ repos:
     hooks:
       - id: markdownlint-cli2
         args: ["--fix"]
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.26
+    hooks:
+      - id: uv-lock
+  - repo: local
+    hooks:
+      - id: dprint-contree-sdk
+        name: dprint
+        entry: bash -lc 'dprint fmt --config dprint.json .'
+        language: system
+        files: (^|/)README\.md$
+        pass_filenames: false
+  - repo: local
+    hooks:
+      - id: basedpyright
+        name: basedpyright
+        entry: bash -lc 'exec uv run basedpyright' --
+        language: system
+        pass_filenames: false
+        files: (?x)^(.*\.py|\.basedpyright/.*|(?:.*/)?pyproject\.toml)$
+
+
 # todo add ruff config

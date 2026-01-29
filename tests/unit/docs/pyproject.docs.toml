@@ -1,0 +1,5 @@
+[tool.pyright]
+extends = "./../../../pyproject.toml"
+exclude = []
+
+baselineFile = "./baseline.json"

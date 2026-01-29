@@ -1,0 +1,33 @@
+{
+  "json": {
+  },
+  "markdown": {
+  },
+  "toml": {
+  },
+  "ruff": {
+  },
+  "malva": {
+  },
+  "markup": {
+  },
+  "yaml": {
+  },
+  "includes": [
+    "README.md",
+    "contree_sdk/README.md"
+  ],
+  "excludes": [
+    "**/*-lock.json",
+    "**/node_modules"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/json-0.21.1.wasm",
+    "https://plugins.dprint.dev/markdown-0.20.0.wasm",
+    "https://plugins.dprint.dev/toml-0.7.0.wasm",
+    "https://plugins.dprint.dev/ruff-0.6.12.wasm",
+    "https://plugins.dprint.dev/g-plane/malva-v0.15.1.wasm",
+    "https://plugins.dprint.dev/g-plane/markup_fmt-v0.25.3.wasm",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"
+  ]
+}
