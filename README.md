@@ -26,14 +26,14 @@ pip install contree_sdk-0.0.0.dev2-py3-none-any.whl
 <details open>
 <summary>🔀 Async Example</summary>
 
-```python
+```python fixture:api_fake_quick_start fixture:name:test_quick_start_async_simple
 import asyncio
 from contree_sdk import Contree
 
 
 async def main():
     # Get client
-    contree = Contree(token="your-token")
+    contree = Contree(token="fake-token")
 
     # Get image
     image = await contree.images.pull("ubuntu:latest")
@@ -53,13 +53,13 @@ asyncio.run(main())
 <details>
 <summary>🔁 Sync Example</summary>
 
-```python
+```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync_simple
 from contree_sdk import ContreeSync
 
 
 def main():
     # Get client
-    contree = ContreeSync(token="your-token")
+    contree = ContreeSync(token="fake-token")
 
     # Get image
     image = contree.images.pull("ubuntu:latest")
