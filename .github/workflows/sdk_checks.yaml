@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: uv run --all-extras basedpyright --project pyproject.toml .
+      - run: uv run --all-extras basedpyright --project pyproject.toml
 
   dprint:
     runs-on: ubuntu-latest

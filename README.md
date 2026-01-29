@@ -121,7 +121,7 @@ uv run basedpyright
 ### Running Tests
 
 ```bash
-uv run pytest contree-sdk
+uv run pytest
 ```
 
 ### Documentation Dev Server
