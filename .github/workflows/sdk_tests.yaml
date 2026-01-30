@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       py: ${{ steps.mk.outputs.py }}
+      py_edges: ${{ steps.mk.outputs.py_edges }}
     steps:
       - uses: actions/checkout@v4
 
