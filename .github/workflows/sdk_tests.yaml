@@ -87,7 +87,12 @@ jobs:
       - run: uv pip uninstall contree-sdk
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
-      - run: source .venv/bin/activate && pip list -v
+      - name: Show packages
+        run: |
+          source .venv/bin/activate
+          echo "Python: $(which python)"
+          echo "Pip: $(which pip)"
+          pip list -v
       - run: rm -rf contree_sdk
 
       - name: Run pytest
