@@ -84,7 +84,7 @@ jobs:
 
       - run: rm -rf .venv
       - run: uv venv
-      - run: uv pip install --group dev
+      - run: uv pip install --extra dev
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
 
