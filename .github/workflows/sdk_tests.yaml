@@ -82,9 +82,15 @@ jobs:
       - run: pipx install uv
       - run: uv build
 
+      - run: rm -rf .venv
+      - run: uv venv
+      - run: uv pip install --group dev
+      - run: uv pip install dist/*.${{ matrix.format }}
+      - run: source .venv/bin/activate
+
       - name: Run pytest
         run: |
-          uv run --all-extras --with dist/*.${{ matrix.format }} pytest \
+          pytest \
             --cov=contree_sdk \
             --cov-report xml:coverage.xml \
             --junitxml=report.xml \
