@@ -83,16 +83,26 @@ jobs:
       - run: uv build
 
       - run: uv sync --all-extras
+      - name: Verify package installation
+        run: |
+          echo "Checking contree-sdk installation:"
+          uv pip list | grep contree-sdk
+          echo "$PWD";
       - run: uv venv
       - run: uv pip uninstall contree-sdk
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
-      - name: Show packages
-        run: |
-          source .venv/bin/activate
-          echo "Python: $(which python)"
-          python -m pip list -v
       - run: rm -rf contree_sdk
+
+      - name: Verify package installation
+        run: |
+          echo "Checking contree-sdk installation:"
+          uv pip list | grep contree-sdk
+          if uv pip list | grep contree-sdk | grep -q "$PWD"; then
+            echo "ERROR: Package installed from local directory!"
+            exit 1
+          fi
+          echo "OK: Package installed from built artifact"
 
       - name: Run pytest
         run: |
