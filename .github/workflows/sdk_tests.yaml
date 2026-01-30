@@ -22,7 +22,9 @@ jobs:
         run: |
           python -m pip install -q packaging
           py=$(python tests/utils/versions.py)
+          py_edges=$(echo "$py" | jq -c '[.[0], .[-1]]')
           echo "py=$py" >> "$GITHUB_OUTPUT"
+          echo "py_edges=$py_edges" >> "$GITHUB_OUTPUT"
 
   pytest:
     needs: build-matrix
@@ -55,6 +57,44 @@ jobs:
         if: always()
         with:
           name: pytest-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            report.xml
+            report.html
+
+  pytest-after-build:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(needs.build-matrix.outputs.py_edges) }}
+        format: [tar.gz, whl]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - run: pipx install uv
+      - run: uv build
+
+      - name: Run pytest
+        run: |
+          uv run --all-extras --with dist/*.${{ matrix.format }} pytest \
+            --cov=contree_sdk \
+            --cov-report xml:coverage.xml \
+            --junitxml=report.xml \
+            --cov-report=term-missing \
+            --html=report.html \
+            -vv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-${{ matrix.python-version }}-${{ matrix.format }}
           path: |
             coverage.xml
             report.xml
