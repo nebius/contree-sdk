@@ -40,7 +40,7 @@ class ContreeConfig:
     operation_poll_secs_backoff_grow: float = 1.75
     """Backoff multiplier between polls. Higher values mean faster backoff growth; recommended range is 1 to 2."""
     operation_poll_not_found_limit: int = 10
-    """Maximum number of not found responces when awaiting operation"""
+    """Maximum number of not found responses when awaiting operation"""
 
     images_list_batch_size: int = 100
     """Batch size for listing images."""

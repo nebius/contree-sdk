@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import Event, shield, sleep
-from contextlib import ExitStack, asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -118,12 +118,13 @@ class _ContreeBase:
                 if spent > timeout:
                     raise OperationTimedOutError(operation_uuid=operation_uuid)
                 spent = (datetime.now() - started).total_seconds()
-                resp = None
-                with ExitStack() as stack:
-                    if not_founds_num < self.config.operation_poll_not_found_limit:
-                        stack.enter_context(suppress(NotFoundError))
-                    stack.enter_context(wrap_api_call())
-                    resp = await self._api.get_operation_status(operation_uuid)
+                try:
+                    with wrap_api_call():
+                        resp = await self._api.get_operation_status(operation_uuid)
+                except NotFoundError:
+                    if not_founds_num >= self.config.operation_poll_not_found_limit:
+                        raise
+                    resp = None
                 not_founds_num += int(resp is None)
                 kind_str = ""
                 if resp is not None:

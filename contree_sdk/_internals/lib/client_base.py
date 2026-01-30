@@ -37,8 +37,8 @@ class ClientBase(ABC):
     def _send_request(self, request: Request) -> Response:
         pass
 
+    @staticmethod
     def _parse_response(
-        self,
         *,
         response: Response,
         endpoint_info: ApiEndpointInfo,

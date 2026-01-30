@@ -29,6 +29,10 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
             True — whole response as JSON,
             iterable — JSON path to extract.
 
+    Returns:
+        A decorator that wraps a client method and routes the call through
+        `ContreeClientBase._handle_api_call`.
+
     """
     match json:
         case False:
