@@ -82,11 +82,14 @@ jobs:
       - run: pipx install uv
       - run: uv build
 
-      - run: rm -rf .venv
+      - run: uv sync --all-extras
       - run: uv venv
-      - run: uv pip install --extra dev
+      - run: uv pip uninstall contree-sdk
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
+      - run: pip list -v
+      - run: rm -rf contree_sdk
+
 
       - name: Run pytest
         run: |
