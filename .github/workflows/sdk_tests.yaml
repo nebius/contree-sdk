@@ -87,13 +87,12 @@ jobs:
       - run: uv pip uninstall contree-sdk
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
-      - run: pip list -v
+      - run: source .venv/bin/activate && pip list -v
       - run: rm -rf contree_sdk
-
 
       - name: Run pytest
         run: |
-          pytest \
+          source .venv/bin/activate && pytest \
             --cov=contree_sdk \
             --cov-report xml:coverage.xml \
             --junitxml=report.xml \
