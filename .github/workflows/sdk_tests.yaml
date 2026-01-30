@@ -83,13 +83,8 @@ jobs:
       - run: uv build
 
       - run: uv sync --all-extras
-      - name: Verify package installation
-        run: |
-          echo "Checking contree-sdk installation:"
-          uv pip list | grep contree-sdk
-          echo "$PWD";
       - run: uv venv
-      - run: uv pip uninstall contree-sdk
+      - run: uv pip uninstall contree-sdk contree-docs
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
       - run: rm -rf contree_sdk
