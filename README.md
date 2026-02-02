@@ -5,7 +5,7 @@
 
 Contree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
-👉 **[See full feature list and use cases in the documentation →](docs/index.md)**
+👉 **[See full feature list and use cases in the documentation →](docs/about.md)**
 
 ## 📥 Get Started
 
