@@ -2,7 +2,7 @@ from datetime import datetime
 from importlib.metadata import version as get_version
 
 
-project = "Contree"
+project = "Contree SDK"
 copyright = f"{datetime.now().year}, Nebius"  # noqa: A001
 author = "Nebius"
 version = release = get_version("contree-docs")
@@ -28,7 +28,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "_autosummary"]
 
 
 html_theme = "furo"
-html_title = project
+html_title = f"{project} Documentation"
+html_logo = "_static/logo.svg"
+
 
 autodoc_typehints = "signature"
 autoclass_content = "class"
