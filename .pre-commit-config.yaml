@@ -43,6 +43,9 @@ repos:
         language: system
         pass_filenames: false
         files: (?x)^(.*\.py|\.basedpyright/.*|(?:.*/)?pyproject\.toml)$
-
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
 
 # todo add ruff config
