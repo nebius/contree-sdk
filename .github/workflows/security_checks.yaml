@@ -20,15 +20,7 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
-          uv run --extra dev-security semgrep ci \
-            --sarif \
-            --output=semgrep.sarif
-
-      - name: Upload to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: semgrep.sarif
+          uv run --extra dev-security semgrep ci
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -42,12 +34,4 @@ jobs:
           docker run -v ${PWD}:/path ghcr.io/gitleaks/gitleaks:latest \
             detect \
             --source="/path" \
-            --report-format=sarif \
-            --report-path=/path/gitleaks.sarif \
             --redact
-
-      - name: Upload to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: gitleaks.sarif
