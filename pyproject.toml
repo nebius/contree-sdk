@@ -42,7 +42,11 @@ dev = [
     "dprint-py",
     "pytest-examples",
     "basedpyright",
-    "ruff"
+    "ruff",
+]
+
+dev-security = [
+    "semgrep",
 ]
 
 httpx = [
