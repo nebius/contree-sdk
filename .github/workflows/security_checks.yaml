@@ -14,6 +14,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pipx install uv
 
       - name: Run Semgrep
         env:
@@ -36,6 +37,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Gitleaks scan
+        run: |
+          docker run -v ${PWD}:/path ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --source="/path" \
+            --report-format=sarif \
+            --report-path=/path/gitleaks.sarif \
+            --redact
+
+      - name: Upload to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gitleaks.sarif
