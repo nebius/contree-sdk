@@ -5,23 +5,13 @@ import threading
 import time
 from contextlib import contextmanager
 
-
-def _keyboard_interrupt_win():
-    """Windows-specific: send CTRL_C_EVENT to process group"""
-    import ctypes
-
-    kernel32 = ctypes.windll.kernel32  # type: ignore[reportAttributeAccessIssue]
-    # CTRL_C_EVENT = 0 # noqa: ERA001
-    kernel32.GenerateConsoleCtrlEvent(0, 0)
-
-
-def _keyboard_interrupt_unix():
-    """Unix-specific: send SIGINT signal"""
-    os.kill(os.getpid(), signal.SIGINT)
+import pytest
 
 
 @contextmanager
 def interrupter(sleep_time: float):
+    if sys.platform == "win32":
+        pytest.skip("Cannot interrupt blocking I/O operations on Windows")
     old_handler = signal.getsignal(signal.SIGINT)
 
     try:
@@ -29,10 +19,7 @@ def interrupter(sleep_time: float):
 
         def _interrupter():
             time.sleep(sleep_time)
-            if sys.platform == "win32":
-                _keyboard_interrupt_win()
-            else:
-                _keyboard_interrupt_unix()
+            os.kill(os.getpid(), signal.SIGINT)
 
         t = threading.Thread(target=_interrupter, daemon=True)
         t.start()
