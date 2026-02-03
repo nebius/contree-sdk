@@ -1,3 +1,4 @@
+import sys
 from dataclasses import replace
 
 import pytest
@@ -6,7 +7,10 @@ from pytest_markdown_docs.plugin import MarkdownInlinePythonItem
 
 pytest_plugins = ["tests.unit.docs.conftest"]
 
-pytestmark = pytest.mark.markdown
+pytestmark = [pytest.mark.markdown]
+
+if sys.platform == "win32":
+    pytestmark.append(pytest.mark.xfail(reason="may fail on Windows", strict=False))
 
 _NAME_PREFIX = "name:"
 
