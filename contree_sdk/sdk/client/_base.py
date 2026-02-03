@@ -18,6 +18,7 @@ from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
     FailedOperationError,
+    NotFoundError,
     OperationTimedOutError,
     WrongOperationTypeError,
 )
@@ -111,29 +112,39 @@ class _ContreeBase:
         resp = None
         finished = False
         final_statuses = {OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED}
+        not_founds_num = 0
         async with self._operation_canceller(operation_uuid) as finished_event:
             while not finished:
                 if spent > timeout:
                     raise OperationTimedOutError(operation_uuid=operation_uuid)
                 spent = (datetime.now() - started).total_seconds()
-                with wrap_api_call():
-                    resp = await self._api.get_operation_status(operation_uuid)
-                if not isinstance(resp.metadata, result_type):
-                    raise WrongOperationTypeError(
-                        operation_uuid=operation_uuid,
-                        expected=result_type,
-                        actual=type(resp.metadata),
-                    )
+                try:
+                    with wrap_api_call():
+                        resp = await self._api.get_operation_status(operation_uuid)
+                except NotFoundError:
+                    if not_founds_num >= self.config.operation_poll_not_found_limit:
+                        raise
+                    resp = None
+                not_founds_num += int(resp is None)
+                kind_str = ""
+                if resp is not None:
+                    kind_str = resp.kind + " "
+                    if not isinstance(resp.metadata, result_type):
+                        raise WrongOperationTypeError(
+                            operation_uuid=operation_uuid,
+                            expected=result_type,
+                            actual=type(resp.metadata),
+                        )
+                    finished = resp.status in final_statuses
+                    if finished:
+                        finished_event.set()
+                        break
+
                 interval = min(
                     get_wait_interval(self.config, spent / timeout),
                     timeout - spent + self.config.operation_poll_secs_min,
                 )
-                finished = resp.status in final_statuses
-                if finished:
-                    finished_event.set()
-                    break
-
-                logger.info(f"Sleeping for {interval:0.2f} seconds for {resp.kind} operation {operation_uuid}")
+                logger.info(f"Sleeping for {interval:0.2f} seconds for {kind_str}operation {operation_uuid}")
                 await sleep(interval)
 
         if resp is None:

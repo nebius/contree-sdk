@@ -75,6 +75,7 @@ def add_operation_responses(
     resource_usage: ProcessResources,
     stdout_content: str = "my input\nthis is stdout\n",
     stderr_content: str = "this is stderr\n",
+    not_found_first: bool = False,
 ):
     pending_op = create_operation_model(
         image_uuid,
@@ -96,16 +97,23 @@ def add_operation_responses(
         0.5,
         stderr_content,
     )
+    operation_url = re.compile(f".*/operations/{operation_id}")
+    if not_found_first:
+        httpx_mock.add_response(
+            status_code=404,
+            is_optional=True,
+            json={"error": "Operation not found", "status": 404},
+        )
 
     httpx_mock.add_response(
         method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
+        url=operation_url,
         json=asdict(pending_op),
         is_optional=True,
     )
     httpx_mock.add_response(
         method="GET",
-        url=re.compile(f".*/operations/{operation_id}"),
+        url=operation_url,
         json=asdict(success_op),
         is_optional=True,
     )

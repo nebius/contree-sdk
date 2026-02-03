@@ -13,6 +13,10 @@ async def test_basic_run(fake_image, api_fake_run: HTTPXMock):
     await _test_basic_run(fake_image)
 
 
+async def test_basic_run_deferred(fake_image, api_fake_run_deferred: HTTPXMock):
+    await _test_basic_run(fake_image)
+
+
 def test_basic_run_s(fake_image_s, api_fake_run: HTTPXMock):
     _test_basic_run_s(fake_image_s)
 
