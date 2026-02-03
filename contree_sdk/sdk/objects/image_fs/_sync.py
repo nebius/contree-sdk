@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._base import _ImageDirectoryBase, _ImageFileBase
@@ -18,5 +18,5 @@ class ImageFileSync(_ImageFileBase):
 
 @dataclass
 class ImageDirectorySync(_ImageDirectoryBase):
-    def ls(self, path: str | Path = "") -> list[ImageFileSync | ImageDirectorySync]:
+    def ls(self, path: str | PurePosixPath = "") -> list[ImageFileSync | ImageDirectorySync]:
         return coro_sync(self._ls(path, ImageFileSync, ImageDirectorySync))

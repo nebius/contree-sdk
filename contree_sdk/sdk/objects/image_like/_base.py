@@ -6,7 +6,7 @@ from copy import copy
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, TypeVar
 from uuid import UUID
 
@@ -283,28 +283,28 @@ class _ImageLikeBase:
     # inspect methods
 
     async def _ls(
-        self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]
+        self, path: str | PurePosixPath, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
         with wrap_api_call():
-            ls_res = await self._client._api.list_image_files(self.uuid, path)
+            ls_res = await self._client._api.list_image_files(str(self.uuid), path)
         result = []
         for obj in ls_res:
             type_ = dir_type if obj.is_dir else file_type
             result.append(
                 type_(
                     _image=self,
-                    _path=Path(path),
+                    _path=PurePosixPath(path),
                     **cattrs.unstructure(obj),
                 )
             )
         return result
 
-    async def _read_file(self, path: Path) -> bytes:
+    async def _read_file(self, path: str | PurePosixPath) -> bytes:
         with wrap_api_call():
             return await self._client._api.download_image_file(self.uuid, path)
 
-    async def _download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path:
-        image_path = Path(image_path)
+    async def _download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path:
+        image_path = PurePosixPath(image_path)
         if local_path is None:
             local_path = image_path.name
         with await to_thread(open, local_path, "wb") as file:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
 from contree_sdk._internals.utils.wrapper import coro_sync
@@ -25,7 +25,7 @@ class _ImageLikeSync(_ImageLikeBase):
         """
         return coro_sync(self._await())
 
-    def ls(self, path: str | Path = "/") -> list[ImageFileSync | ImageDirectorySync]:
+    def ls(self, path: str | PurePosixPath = "/") -> list[ImageFileSync | ImageDirectorySync]:
         """List files and directories at the given path.
 
         Args:
@@ -37,7 +37,7 @@ class _ImageLikeSync(_ImageLikeBase):
         """
         return coro_sync(self._ls(path, ImageFileSync, ImageDirectorySync))
 
-    def download(self, image_path: str | Path, local_path: str | Path | None = None) -> Path | None:
+    def download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path | None:
         """Download a file from the image to local filesystem.
 
         Args:

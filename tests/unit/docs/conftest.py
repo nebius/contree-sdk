@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -159,7 +159,9 @@ def docs_file_upload(tmp_path: Path, api_fake_upload: HTTPXMock):
 
     original_download = _ImageLikeBase._download
 
-    async def patched_download(self: _ImageLikeBase, image_path: str | Path, local_path: str | Path | None = None):
+    async def patched_download(
+        self: _ImageLikeBase, image_path: str | PurePosixPath, local_path: str | Path | None = None
+    ):
         if local_path is not None:
             path = Path(local_path)
             if path.is_absolute():
