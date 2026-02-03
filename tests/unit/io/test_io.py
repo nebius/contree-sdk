@@ -1,8 +1,6 @@
-from collections.abc import Iterator
 from io import BytesIO, StringIO
 from pathlib import Path
 from subprocess import PIPE
-from tempfile import NamedTemporaryFile
 
 import pytest
 
@@ -10,9 +8,8 @@ from contree_sdk.utils.io_wrap import IOMode, get_io_by_obj
 
 
 @pytest.fixture
-def tmp_file() -> Iterator[Path]:
-    with NamedTemporaryFile() as f:
-        yield Path(f.name)
+def tmp_file(tmp_path: Path) -> Path:
+    return tmp_path / "tmp.bin"
 
 
 def test_str_input():
