@@ -3,6 +3,7 @@ from asyncio import sleep
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import Thread
+from time import perf_counter
 
 import pytest
 
@@ -126,10 +127,10 @@ async def fake_iter(a: int, num: int = 10):
 
 def test_basic_iter():
     res = []
-    started = datetime.now()
+    started = perf_counter()
     for item in coro_iter_sync(fake_iter(5)):
-        spent = datetime.now() - started
-        assert spent.total_seconds() <= _wait_time * 2.5
+        spent = perf_counter() - started
+        assert spent <= _wait_time * 2.5
         res.append(item)
-        started = datetime.now()
+        started = perf_counter()
     assert res == [i**5 for i in range(10)]
