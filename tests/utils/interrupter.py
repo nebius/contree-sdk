@@ -7,12 +7,12 @@ from contextlib import contextmanager
 
 
 def _keyboard_interrupt_win():
-    """Windows-specific: inject KeyboardInterrupt"""
+    """Windows-specific: send CTRL_C_EVENT to process group"""
     import ctypes
 
-    main_thread_id = threading.main_thread().ident
-    assert main_thread_id is not None  # noqa: S101
-    ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(main_thread_id), ctypes.py_object(KeyboardInterrupt))
+    kernel32 = ctypes.windll.kernel32  # type: ignore[reportAttributeAccessIssue]
+    # CTRL_C_EVENT = 0 # noqa: ERA001
+    kernel32.GenerateConsoleCtrlEvent(0, 0)
 
 
 def _keyboard_interrupt_unix():
