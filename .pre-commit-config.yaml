@@ -47,5 +47,9 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+  - repo: https://github.com/semgrep/pre-commit
+    rev: 'v1.150.0'
+    hooks:
+      - id: semgrep
 
 # todo add ruff config
