@@ -15,6 +15,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
+      - name: Cache venv
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
+
       - run: uv run --all-extras ruff check .
 
   ruff-format:
@@ -25,6 +32,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
+      - name: Cache venv
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
       - run: uv run --all-extras ruff format --check .
 
   basedpyright:
@@ -35,6 +48,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
+      - name: Cache venv
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
+
       - run: uv run --all-extras basedpyright --project pyproject.toml
 
   dprint:
