@@ -89,6 +89,12 @@ jobs:
 
       - run: pipx install uv
       - run: uv build
+      - name: Cache venv
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-all-extras-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
 
       - run: uv sync --all-extras
       - run: uv venv
