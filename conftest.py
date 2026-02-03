@@ -7,16 +7,15 @@ from pytest_markdown_docs.plugin import MarkdownInlinePythonItem
 
 pytest_plugins = ["tests.unit.docs.conftest"]
 
-pytestmark = [pytest.mark.markdown]
-
-if sys.platform == "win32":
-    pytestmark.append(pytest.mark.xfail(reason="may fail on Windows", strict=False))
+pytestmark = pytest.mark.markdown
 
 _NAME_PREFIX = "name:"
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
     for item in items:
+        if sys.platform == "win32":
+            item.add_marker(pytest.mark.xfail(reason="may fail on Windows", strict=False))
         if isinstance(item, MarkdownInlinePythonItem):
             fixtures = set(item.fixturenames)
 
