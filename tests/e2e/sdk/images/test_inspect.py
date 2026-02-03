@@ -1,5 +1,4 @@
-from pathlib import Path
-from tempfile import NamedTemporaryFile
+from pathlib import Path, PurePosixPath
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_fs import ImageDirectory, ImageDirectorySync, ImageFile, ImageFileSync
@@ -44,11 +43,11 @@ def test_image_ls_s(image_s: ContreeImageSync):
         assert str(item.full_path).startswith(str(directory.full_path))
 
 
-async def test_download_file(image: ContreeImage, random_data):
+async def test_download_file(image: ContreeImage, tmp_file: Path, random_data):
     res = await image.run(shell="cat > /output.txt", stdin=random_data, disposable=False)
-    with NamedTemporaryFile("rb") as f:
-        await res.download("/output.txt", f.name)
-        assert f.read() == random_data
+
+    await res.download("/output.txt", tmp_file)
+    assert tmp_file.read_bytes() == random_data  # noqa: ASYNC240
 
 
 async def test_read_file(image: ContreeImage, random_data):
@@ -57,17 +56,17 @@ async def test_read_file(image: ContreeImage, random_data):
 
     res_file = None
     for file in await res.ls():
-        if file.full_path == Path("/output.txt"):
+        if file.full_path == PurePosixPath("/output.txt"):
             res_file = file
     assert res_file is not None
     assert await res_file.read() == random_data
 
 
-def test_download_file_s(image_s: ContreeImageSync, random_data):
+def test_download_file_s(image_s: ContreeImageSync, tmp_file, random_data):
     res = image_s.run(shell="cat > /output.txt", stdin=random_data, disposable=False).wait()
-    with NamedTemporaryFile("rb") as f:
-        res.download("/output.txt", f.name)
-        assert f.read() == random_data
+
+    res.download("/output.txt", tmp_file)
+    assert tmp_file.read_bytes() == random_data
 
 
 def test_read_file_s(image_s: ContreeImageSync, random_data):
@@ -76,6 +75,6 @@ def test_read_file_s(image_s: ContreeImageSync, random_data):
 
     res_file = None
     for file in res.ls():
-        if file.full_path == Path("/output.txt"):
+        if file.full_path == PurePosixPath("/output.txt"):
             res_file = file
     assert res_file.read() == random_data

@@ -19,3 +19,8 @@ def test_txt_path(test_data_path: Path) -> Path:
 @pytest.fixture
 def random_data() -> bytes:
     return b"Some random data\n" + urandom(16)
+
+
+@pytest.fixture
+def tmp_file(tmp_path: Path) -> Path:
+    return tmp_path / "tmp.bin"
