@@ -135,6 +135,27 @@ def api_fake_run(
 
 
 @pytest.fixture
+def api_fake_run_deferred(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    api_fake_run_base: HTTPXMock,
+) -> HTTPXMock:
+    add_operation_responses(
+        api_fake_run_base,
+        operation_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        not_found_first=True,
+    )
+    return api_fake_run_base
+
+
+@pytest.fixture
 def api_fake_run_with_files(
     image_uuid: UUID,
     result_image_uuid: UUID,
