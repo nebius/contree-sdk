@@ -8,13 +8,17 @@ from httpx._config import DEFAULT_TIMEOUT_CONFIG, Timeout
 from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import EMPTY, ApiEndpointInfo, ReturnType
+from contree_sdk._internals.utils.config import build_user_agent
 
 
 class ClientBase(ABC):
     _client_class: type[httpx._client.BaseClient]
 
     def __init__(self, token: str, base_url: str, transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect) -> None:
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": build_user_agent(),
+        }
         self._client = self._client_class(
             headers=headers, base_url=base_url, timeout=Timeout(timeout=transport_timeout)
         )
@@ -37,8 +41,8 @@ class ClientBase(ABC):
     def _send_request(self, request: Request) -> Response:
         pass
 
+    @staticmethod
     def _parse_response(
-        self,
         *,
         response: Response,
         endpoint_info: ApiEndpointInfo,
