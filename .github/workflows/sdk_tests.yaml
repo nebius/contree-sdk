@@ -52,6 +52,7 @@ jobs:
           key: venv-all-extras-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
 
       - name: Run pytest
+        shell: bash
         run: |
           uv run --all-extras pytest \
             --cov=contree_sdk \
@@ -64,7 +65,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pytest-${{ matrix.python-version }}
+          name: pytest-${{ matrix.python-version }}-${{ runner.os }}
           path: |
             coverage.xml
             report.xml
