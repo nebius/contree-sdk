@@ -106,12 +106,16 @@ def test_image_ls_s(api_fake_inspect_ls: HTTPXMock, fake_image_s: ContreeImageSy
     _test_image_ls_s(fake_image_s)
 
 
-async def test_download_file(api_fake_inspect_download: HTTPXMock, fake_image: ContreeImage, random_data: bytes):
-    await _test_download_file(fake_image, random_data)
+async def test_download_file(
+    api_fake_inspect_download: HTTPXMock, fake_image: ContreeImage, random_data: bytes, tmp_file
+):
+    await _test_download_file(fake_image, tmp_file, random_data)
 
 
-def test_download_file_s(api_fake_inspect_download: HTTPXMock, fake_image_s: ContreeImageSync, random_data: bytes):
-    _test_download_file_s(fake_image_s, random_data)
+def test_download_file_s(
+    api_fake_inspect_download: HTTPXMock, tmp_file, fake_image_s: ContreeImageSync, random_data: bytes
+):
+    _test_download_file_s(fake_image_s, tmp_file, random_data)
 
 
 async def test_read_file(api_fake_inspect_download: HTTPXMock, fake_image: ContreeImage, random_data: bytes):

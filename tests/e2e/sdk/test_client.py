@@ -8,7 +8,11 @@ from contree_sdk.sdk.exceptions import ApiTimeoutError, ForbiddenError
 
 
 async def test_client_timeout(contree_config: ContreeConfig):
-    config = replace(contree_config, transport_timeout=0.00001)
+    config = replace(
+        contree_config,
+        base_url="http://127.0.0.1:9999",
+        transport_timeout=0.00001,
+    )
 
     client = Contree(config)
     with pytest.raises(ApiTimeoutError):

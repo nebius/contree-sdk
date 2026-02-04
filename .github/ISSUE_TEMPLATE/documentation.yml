@@ -1,0 +1,23 @@
+name: Documentation Issue
+description: Report missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: URL or file path (e.g., docs/python_sdk/images.md)
+      placeholder: "https://... or docs/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's wrong?
+      description: Describe the issue and suggest how to fix it.
+      placeholder: |
+        The documentation says X, but it should say Y...
+    validations:
+      required: true

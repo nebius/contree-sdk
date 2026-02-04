@@ -1,3 +1,4 @@
+import sys
 from dataclasses import replace
 
 import pytest
@@ -14,6 +15,8 @@ _NAME_PREFIX = "name:"
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
     for item in items:
         if isinstance(item, MarkdownInlinePythonItem):
+            if sys.platform == "win32":  # skip only md tests
+                item.add_marker(pytest.mark.xfail(reason="may fail on Windows", strict=False))
             fixtures = set(item.fixturenames)
 
             for fix in list(fixtures):

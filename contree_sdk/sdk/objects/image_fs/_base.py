@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Literal
 
 from contree_sdk._internals.models.file import FileItemModel
@@ -9,10 +9,10 @@ from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, _Image
 @dataclass
 class _ImageFsEntryBase(FileItemModel):
     _image: _ImageLikeBase
-    _path: Path
+    _path: PurePosixPath
 
     @property
-    def full_path(self) -> Path:
+    def full_path(self) -> PurePosixPath:
         return self._path.joinpath(self.path)
 
     @property
@@ -34,6 +34,6 @@ class _ImageDirectoryBase(_ImageFsEntryBase):
     is_dir: Literal[True]  # pyright: ignore[reportIncompatibleVariableOverride]
 
     async def _ls(
-        self, path: str | Path, file_type: type[FileTypeT], dir_type: type[DirTypeT]
+        self, path: str | PurePosixPath, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
         return await self._image._ls(self.full_path.joinpath(path), file_type, dir_type)

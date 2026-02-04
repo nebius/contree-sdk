@@ -2,7 +2,6 @@ from datetime import timedelta
 from io import IOBase, StringIO
 from pathlib import Path
 from subprocess import PIPE
-from tempfile import NamedTemporaryFile
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 
@@ -67,13 +66,12 @@ def test_run_io_output_s(image_s):
     assert stdout_io.getvalue() == _stdout
 
 
-def test_run_file_io_s(image_s, test_txt_path):
-    with NamedTemporaryFile() as f:
-        result = image_s.run(shell="cat - | grep line", stdin=test_txt_path, stdout=f.name).wait()
-        assert isinstance(result, ContreeImageSync)
+def test_run_file_io_s(image_s, tmp_file, test_txt_path):
+    result = image_s.run(shell="cat - | grep line", stdin=test_txt_path, stdout=str(tmp_file)).wait()
+    assert isinstance(result, ContreeImageSync)
 
-        assert f.read() == b"second line\nlast line\n"
-        assert result.exit_code == 0
+    assert tmp_file.read_bytes() == b"second line\nlast line\n"
+    assert result.exit_code == 0
 
 
 RANDOM_INT_COMMAND = "od -An -N2 -tu2 /dev/urandom"

@@ -1,0 +1,55 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Contree SDK
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is, including what you expected to happen.
+      placeholder: Describe the bug...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal code example or steps to reproduce
+      placeholder: |
+        ```python
+        contree = Contree(token="token")
+        image = await contree.images.pull("ubuntu:latest")
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please provide the following information:
+        - Version of `contree-sdk` package
+        - `python --version`
+        - Your OS and version
+      placeholder: |
+        contree-sdk version: 0.1.0
+        Python version: 3.11.0
+        OS: macOS 14.0 / Ubuntu 22.04 / Windows 11
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Please copy and paste any relevant error output or logs.
+      render: shell
