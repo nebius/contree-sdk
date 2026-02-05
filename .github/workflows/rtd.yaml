@@ -19,10 +19,11 @@ jobs:
       - run: uv run --all-extras sphinx-build docs docs/_build/html
 
       - uses: andreiio/rclone-action@v1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           args: >
             sync docs/_build/html
-            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/sdk${{ github.event_name == 'pull_request' && format('/pr/{0}', github.event.pull_request.number) || '' }}
+            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/sdk
             --delete-during -v --s3-upload-cutoff=0
         env:
           RCLONE_CONFIG_S3_TYPE: s3
