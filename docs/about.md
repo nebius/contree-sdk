@@ -1,6 +1,6 @@
-# About Contree
+# About ConTree
 
-**Contree** is a code execution runtime, purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state**
+**ConTree** is a code execution runtime, purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state**
 
 ## Key Features
 
@@ -10,7 +10,7 @@
 
 ## Use Cases
 
-While Contree is purpose-built to support research on SWE agents, it's just as usable as a general code execution sandbox.
+While ConTree is purpose-built to support research on SWE agents, it's just as usable as a general code execution sandbox.
 
 **Primary use case:**
 
@@ -25,8 +25,8 @@ While Contree is purpose-built to support research on SWE agents, it's just as u
 
 ## Python SDK
 
-Get started with the Contree Python SDK:
+Get started with the ConTree Python SDK:
 
 **[Python SDK Documentation →](python_sdk/index.md)**
 
-The Python SDK provides both async and sync APIs for working with Contree containers, including image management, command execution, and state versioning.
+The Python SDK provides both async and sync APIs for working with ConTree containers, including image management, command execution, and state versioning.

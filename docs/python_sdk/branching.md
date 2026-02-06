@@ -1,10 +1,10 @@
 # Branching Workflows
 
-One of Contree's most powerful features is the ability to branch execution flows from a single base filesystem state (a snapshot of all files and directories in a container at a specific point in time). This is similar to Git branches, but for container execution states.
+One of ConTree's most powerful features is the ability to branch execution flows from a single base filesystem state (a snapshot of all files and directories in a container at a specific point in time). This is similar to Git branches, but for container execution states.
 
 ## Why Branching Matters
 
-Without Contree, running the same operations twice (like installing packages, creating files, or compiling code) requires rebuilding the entire filesystem state from scratch each time. Contree captures the exact filesystem state after each command, making it reproducible and allowing you to branch from that exact state.
+Without ConTree, running the same operations twice (like installing packages, creating files, or compiling code) requires rebuilding the entire filesystem state from scratch each time. Contree captures the exact filesystem state after each command, making it reproducible and allowing you to branch from that exact state.
 
 ## Simple Branching Example
 
@@ -36,7 +36,7 @@ See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.run` for full API ref
 
 **Key Points:**
 
-- The `child` state contains a random value that would be different on each execution without Contree
+- The `child` state contains a random value that would be different on each execution without ConTree
 - All three grandchildren start from the exact same `child` state (same random value)
 - Each grandchild branches independently, creating different execution paths
 

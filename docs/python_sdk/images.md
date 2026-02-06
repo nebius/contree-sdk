@@ -1,6 +1,6 @@
 # Working with Images
 
-Contree SDK allows you to pull and import container images. You can use images from public registries, your own private registries, or import Docker Hub images.
+ConTree SDK allows you to pull and import container images. You can use images from public registries, your own private registries, or import Docker Hub images.
 
 For detailed API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
 
@@ -39,11 +39,11 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all para
 - **From registry**: `client.images.pull("docker://ghcr.io/owner/image:tag")` - Import from external registry
 - **From private registry**: `client.images.pull("docker://ghcr.io/owner/image:tag", username="user", password="token")` - Import from private registry with authentication
 
-The `docker://` prefix allows you to import any publicly accessible Docker image directly into Contree.
+The `docker://` prefix allows you to import any publicly accessible Docker image directly into ConTree.
 
 ## Listing Images
 
-View all available images in your Contree instance:
+View all available images in your ConTree instance:
 
 ````{tab} Async
 ```{literalinclude} ../../examples/images/list_images.py
