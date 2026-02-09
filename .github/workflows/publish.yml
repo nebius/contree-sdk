@@ -14,10 +14,23 @@ jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
     steps:
-      - uses: WyriHaximus/github-action-wait-for-status@v1.7
+      - uses: fountainhead/action-wait-for-check@v1.2.0
         with:
-          ignoreActions: check-required-workflows
-          checkInterval: 13
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: checks-complete
+          ref: ${{ github.sha }}
+
+      - uses: fountainhead/action-wait-for-check@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: tests-complete
+          ref: ${{ github.sha }}
+
+      - uses: fountainhead/action-wait-for-check@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: security-complete
+          ref: ${{ github.sha }}
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest

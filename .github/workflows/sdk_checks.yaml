@@ -85,6 +85,15 @@ jobs:
       - run: uv lock --check
   checks-complete:
     needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: echo "All checks passed"
+      - name: Check tests result
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+        run: echo "✅ All tests passed"
+
+      - name: Fail if any test failed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "❌ Some tests failed, were cancelled, or were skipped"
+          exit 1
