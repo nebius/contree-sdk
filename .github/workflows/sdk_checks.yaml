@@ -77,12 +77,18 @@ jobs:
               - "contree_sdk/**/*.py"
               - "pyproject.toml"
 
-      - name: Require pyproject version bump
-        if: steps.changes.outputs.watched == 'true'
-        uses: simplybusiness/version-forget-me-not@v2
-        env:
-          ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION_FILE_PATH: "pyproject.toml"
+      - name: Check version bump
+        run: |
+          pip install packaging toml
+          python -c "
+          import toml, subprocess, sys
+          from packaging.version import parse
+          with open('pyproject.toml') as f: current = toml.load(f)['project']['version']
+          base = '${{ github.event.pull_request.base.sha || \"HEAD~1\" }}'
+          old_content = subprocess.check_output(['git', 'show', f'{base}:pyproject.toml'], text=True)
+          old_version = toml.loads(old_content)['project']['version']
+          assert parse(current) > parse(old_version)
+          "
 
   checks-complete:
     needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock, version-check]
