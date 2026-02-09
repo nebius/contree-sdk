@@ -14,24 +14,35 @@ jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
     steps:
-      - uses: lewagon/wait-on-check-action@v1.5.0
+      - name: Wait for checks-complete
+        uses: lewagon/wait-on-check-action@v1.3.4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-name: checks-complete
+          ref: ${{ github.sha }}
+          check-name: 'checks-complete'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-      - uses: lewagon/wait-on-check-action@v1.5.0
+          wait-interval: 20
+          running-workflow-name: 'check-required-workflows'
+          allowed-conclusions: success
+
+      - name: Wait for tests-complete
+        uses: lewagon/wait-on-check-action@v1.3.4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-name: tests-complete
+          ref: ${{ github.sha }}
+          check-name: 'tests-complete'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-      - uses: lewagon/wait-on-check-action@v1.5.0
+          wait-interval: 20
+          running-workflow-name: 'check-required-workflows'
+          allowed-conclusions: success
+
+      - name: Wait for security-complete
+        uses: lewagon/wait-on-check-action@v1.3.4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          check-name: security-complete
+          ref: ${{ github.sha }}
+          check-name: 'security-complete'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
+          wait-interval: 20
+          running-workflow-name: 'check-required-workflows'
+          allowed-conclusions: success
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
