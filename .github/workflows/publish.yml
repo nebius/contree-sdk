@@ -13,24 +13,33 @@ permissions:
 jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        check:
+          - checks-complete
+          - tests-complete
+          - security-complete
     steps:
-      - uses: fountainhead/action-wait-for-check@v1.2.0
+      - name: Wait for ${{ matrix.check }}
+        uses: fountainhead/action-wait-for-check@v1.2.0
+        id: wait-for-check
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: checks-complete
-          ref: ${{ github.sha }}
+          checkName: ${{ matrix.check }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          timeoutSeconds: 3600
+          intervalSeconds: 10
 
-      - uses: fountainhead/action-wait-for-check@v1.2.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: tests-complete
-          ref: ${{ github.sha }}
+      - name: Verify ${{ matrix.check }} succeeded
+        if: steps.wait-for-check.outputs.conclusion != 'success'
+        run: |
+          echo "❌ Check '${{ matrix.check }}' did not succeed"
+          echo "Conclusion: ${{ steps.wait-for-check.outputs.conclusion }}"
+          exit 1
 
-      - uses: fountainhead/action-wait-for-check@v1.2.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: security-complete
-          ref: ${{ github.sha }}
+      - name: ${{ matrix.check }} passed
+        if: steps.wait-for-check.outputs.conclusion == 'success'
+        run: echo "✅ Check '${{ matrix.check }}' passed successfully"
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
