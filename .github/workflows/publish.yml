@@ -15,25 +15,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Wait for required checks
-        uses: fountainhead/action-wait-for-check@v1.2.0
+        uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: checks-complete
           ref: ${{ github.sha }}
+          check-name: checks-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
 
       - name: Wait for tests
-        uses: fountainhead/action-wait-for-check@v1.2.0
+        uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: tests-complete
           ref: ${{ github.sha }}
+          check-name: tests-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
 
       - name: Wait for security
-        uses: fountainhead/action-wait-for-check@v1.2.0
+        uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: security-complete
           ref: ${{ github.sha }}
+          check-name: security-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
