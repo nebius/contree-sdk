@@ -63,8 +63,35 @@ jobs:
           python-version: "3.12"
       - run: pipx install uv
       - run: uv lock --check
+
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pipx install uv
+
+      - name: Check version is new
+        run: |
+          PACKAGE_NAME=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")
+          CURRENT_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+
+          echo "Package: $PACKAGE_NAME"
+          echo "Current version: $CURRENT_VERSION"
+
+          if pip index versions "$PACKAGE_NAME" | grep -q "$CURRENT_VERSION"; then
+            echo "❌ Version $CURRENT_VERSION already exists on PyPI!"
+            exit 1
+          else
+            echo "✅ Version $CURRENT_VERSION is new and ready for publishing"
+          fi
+
   checks-complete:
-    needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock]
+    needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock, version-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
