@@ -14,23 +14,24 @@ jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for checks-complete
-        uses: Sibz/await-status-action@v1
+      - uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          contexts: checks-complete
-          authToken: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Wait for tests-complete
-        uses: Sibz/await-status-action@v1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-name: checks-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+      - uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          contexts: tests-complete
-          authToken: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Wait for security-complete
-        uses: Sibz/await-status-action@v1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-name: tests-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+      - uses: lewagon/wait-on-check-action@v1.5.0
         with:
-          contexts: security-complete
-          authToken: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          check-name: security-complete
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
