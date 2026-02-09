@@ -22,13 +22,10 @@ reference/index
 
 ### Installation
 
-> ⚠️ **Preview release**
-> The SDK is not yet published on PyPI. For now, ConTree SDK is distributed as a prebuilt wheel.
-
-Install the SDK from a wheel package:
+Install the SDK from PyPi:
 
 ```bash
-pip install contree_sdk-0.0.0.dev2-py3-none-any.whl
+pip install contree-sdk
 ```
 
 ### Basic Usage
