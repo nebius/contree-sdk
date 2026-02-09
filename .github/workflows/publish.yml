@@ -21,6 +21,7 @@ jobs:
           check-name: checks-complete
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           allowed-conclusions: success
+          running-workflow-name: 'Publish to PyPI'
 
       - name: Wait for tests
         uses: lewagon/wait-on-check-action@v1.5.0
@@ -29,6 +30,7 @@ jobs:
           check-name: tests-complete
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           allowed-conclusions: success
+          running-workflow-name: 'Publish to PyPI'
 
       - name: Wait for security
         uses: lewagon/wait-on-check-action@v1.5.0
@@ -37,6 +39,7 @@ jobs:
           check-name: security-complete
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           allowed-conclusions: success
+          running-workflow-name: 'Publish to PyPI'
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
