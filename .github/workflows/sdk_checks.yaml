@@ -84,7 +84,7 @@ jobs:
           import toml, subprocess, sys
           from packaging.version import parse
           with open('pyproject.toml') as f: current = toml.load(f)['project']['version']
-          base = '${{ github.event.pull_request.base.sha || \"HEAD~1\" }}'
+          base = '${{ github.event.pull_request.base.sha }}' or 'HEAD~1'
           old_content = subprocess.check_output(['git', 'show', f'{base}:pyproject.toml'], text=True)
           old_version = toml.loads(old_content)['project']['version']
           assert parse(current) > parse(old_version)
