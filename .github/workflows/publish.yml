@@ -1,0 +1,56 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches:
+      - main
+      - fix/pre-release-fixes
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check-required-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for required checks
+        uses: fountainhead/action-wait-for-check@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: checks-complete
+          ref: ${{ github.sha }}
+
+      - name: Wait for tests
+        uses: fountainhead/action-wait-for-check@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: tests-complete
+          ref: ${{ github.sha }}
+
+      - name: Wait for security
+        uses: fountainhead/action-wait-for-check@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: security-complete
+          ref: ${{ github.sha }}
+  publish:
+    needs: check-required-workflows
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pipx install uv
+
+      - name: Build
+        run: uv build
+
+      - name: Publish via OIDC
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

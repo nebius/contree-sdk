@@ -83,3 +83,8 @@ jobs:
           python-version: "3.12"
       - run: pipx install uv
       - run: uv lock --check
+  checks-complete:
+    needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All checks passed"

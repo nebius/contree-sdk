@@ -139,3 +139,8 @@ jobs:
             report.xml
             report.html
           retention-days: 7
+  tests-complete:
+    needs: [pytest, pytest-after-build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All tests passed"

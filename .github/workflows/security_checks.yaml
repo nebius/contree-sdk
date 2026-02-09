@@ -41,3 +41,8 @@ jobs:
             detect \
             --source="/path" \
             --redact
+  security-complete:
+    needs: [semgrep, gitleaks]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All checks passed"
