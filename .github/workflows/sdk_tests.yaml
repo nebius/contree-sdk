@@ -105,7 +105,6 @@ jobs:
           key: venv-all-extras-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
 
       - run: uv sync --all-extras
-      - run: uv venv
       - run: uv pip uninstall contree-sdk contree-docs
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
