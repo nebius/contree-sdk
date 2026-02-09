@@ -14,32 +14,23 @@ jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for required checks
-        uses: lewagon/wait-on-check-action@v1.5.0
+      - name: Wait for checks-complete
+        uses: Sibz/await-status-action@v1
         with:
-          ref: ${{ github.sha }}
-          check-name: checks-complete
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          allowed-conclusions: success
-          running-workflow-name: 'Publish to PyPI'
+          contexts: checks-complete
+          authToken: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Wait for tests
-        uses: lewagon/wait-on-check-action@v1.5.0
+      - name: Wait for tests-complete
+        uses: Sibz/await-status-action@v1
         with:
-          ref: ${{ github.sha }}
-          check-name: tests-complete
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          allowed-conclusions: success
-          running-workflow-name: 'Publish to PyPI'
+          contexts: tests-complete
+          authToken: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Wait for security
-        uses: lewagon/wait-on-check-action@v1.5.0
+      - name: Wait for security-complete
+        uses: Sibz/await-status-action@v1
         with:
-          ref: ${{ github.sha }}
-          check-name: security-complete
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          allowed-conclusions: success
-          running-workflow-name: 'Publish to PyPI'
+          contexts: security-complete
+          authToken: ${{ secrets.GITHUB_TOKEN }}
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
