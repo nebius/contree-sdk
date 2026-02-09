@@ -2,6 +2,7 @@ name: SDK checks
 
 on:
   pull_request:
+  release:
   push:
     branches: [main]
   workflow_dispatch:
@@ -15,13 +16,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
-        with:
-          path: .venv
-          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
-
       - run: uv run --all-extras ruff check .
 
   ruff-format:
@@ -32,29 +26,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
-        with:
-          path: .venv
-          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
       - run: uv run --all-extras ruff format --check .
 
   basedpyright:
     runs-on: ubuntu-latest
+    needs: [ruff-check, ruff-format]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
-        with:
-          path: .venv
-          key: venv-all-extras-${{ runner.os }}-3.12-${{ hashFiles('uv.lock', 'pyproject.toml')}}
-
       - run: uv run --all-extras basedpyright --project pyproject.toml
 
   dprint:
@@ -83,3 +65,46 @@ jobs:
           python-version: "3.12"
       - run: pipx install uv
       - run: uv lock --check
+
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            watched:
+              - "contree_sdk/**/*.py"
+              - "pyproject.toml"
+
+      - name: Check version bump
+        run: |
+          pip install packaging toml
+          python -c "
+          import toml, subprocess, sys
+          from packaging.version import parse
+          with open('pyproject.toml') as f: current = toml.load(f)['project']['version']
+          base = '${{ github.event.pull_request.base.sha }}' or 'HEAD~1'
+          old_content = subprocess.check_output(['git', 'show', f'{base}:pyproject.toml'], text=True)
+          old_version = toml.loads(old_content)['project']['version']
+          print(f'{old_version=}, {current=}')
+          assert parse(current) > parse(old_version)
+          "
+
+  checks-complete:
+    needs: [ruff-check, ruff-format, basedpyright, dprint, markdownlint, uv-lock, version-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tests result
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+        run: echo "✅ All tests passed"
+
+      - name: Fail if any test failed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "❌ Some tests failed, were cancelled, or were skipped"
+          exit 1

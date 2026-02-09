@@ -2,6 +2,7 @@ name: Security checks
 
 on:
   pull_request:
+  release:
   push:
     branches: [main]
   workflow_dispatch:
@@ -15,13 +16,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
-        with:
-          path: .venv
-          key: venv-dev-security-extra-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
-
       - name: Run Semgrep
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
@@ -41,3 +35,17 @@ jobs:
             detect \
             --source="/path" \
             --redact
+  security-complete:
+    needs: [semgrep, gitleaks]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tests result
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+        run: echo "✅ All tests passed"
+
+      - name: Fail if any test failed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "❌ Some tests failed, were cancelled, or were skipped"
+          exit 1

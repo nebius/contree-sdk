@@ -1,9 +1,10 @@
-# 📦 Contree SDK
+# 📦 ConTree SDK
 
-<!-- [![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
-[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/) -->
+[![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
+[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/)
 
-Contree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
+**SDK for ConTree: Sandboxes That Branch Like Git**.
+ConTree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
 👉 **[See full feature list and use cases in the documentation →](docs/about.md)**
 
@@ -11,14 +12,10 @@ Contree is a container runtime purpose-built to support research on SWE agents, 
 
 ### Installation
 
-> ⚠️ **Preview release**
-> The SDK is not yet published on PyPI
-> For now, Contree SDK is distributed as a prebuilt wheel.
-
-Install the SDK from a wheel package:
+Install the SDK from a PyPi:
 
 ```bash
-pip install contree_sdk-0.0.0.dev2-py3-none-any.whl
+pip install contree-sdk
 ```
 
 ### Quick Start
@@ -98,8 +95,8 @@ Explore all examples in the [`examples/`](./examples/) directory
 ### Env setup
 
 ```bash
-git clone https://github.com/nebius/contree.git
-cd contree
+git clone git@github.com:nebius/contree-sdk.git
+cd contree-sdk
 uv sync
 ```
 
@@ -484,7 +481,7 @@ asyncio.run(amain())
 ### File uploading
 
 > [!WARNING]
-> This is a low-level API. Use only if you are deeply familiar with Contree architecture and need direct file management.
+> This is a low-level API. Use only if you are deeply familiar with ConTree architecture and need direct file management.
 > For most use cases, prefer `files` parameter in `.run()` method.
 
 ```python fixture:docs_file_upload fixture:name:test_file_upload

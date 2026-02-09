@@ -1,8 +1,9 @@
 # Mini-SWE-Agent Integration
 
-[Mini-SWE-Agent](https://github.com/delphikettle/mini-swe-agent) is a lightweight software engineering agent. The Contree integration enables it to execute code in isolated, reproducible containers. Every command in Mini-SWE-Agent is executed in a fresh shell session, which makes it perfectly suitable for Contree.
+[Mini-SWE-Agent](https://mini-swe-agent.com/latest/) is a lightweight software engineering agent.
+The ConTree integration enables it to execute code in isolated, reproducible containers. Every command in Mini-SWE-Agent is executed in a fresh shell session, which makes it perfectly suitable for Contree.
 
-**Integration repository:** [mini-swe-agent with Contree](https://github.com/SWE-agent/mini-swe-agent/pull/628)
+Currently, integration is implemented inside our fork and [the pull request](https://github.com/SWE-agent/mini-swe-agent/pull/628) is soon to be merged into [Mini-SWE-Agent](https://mini-swe-agent.com/latest/):
 
 ## Using ContreeEnvironment
 

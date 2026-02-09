@@ -1,9 +1,9 @@
-# Python Contree SDK
+# Python ConTree SDK
 
-<!-- [![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
-[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/) -->
+[![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
+[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/)
 
-Contree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution. The SDK makes this accessible from Python.
+ConTree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution. The SDK makes this accessible from Python.
 
 ```{toctree}
 :maxdepth: 2
@@ -22,13 +22,10 @@ reference/index
 
 ### Installation
 
-> ⚠️ **Preview release**
-> The SDK is not yet published on PyPI. For now, Contree SDK is distributed as a prebuilt wheel.
-
-Install the SDK from a wheel package:
+Install the SDK from PyPi:
 
 ```bash
-pip install contree_sdk-0.0.0.dev2-py3-none-any.whl
+pip install contree-sdk
 ```
 
 ### Basic Usage

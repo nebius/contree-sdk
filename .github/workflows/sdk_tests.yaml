@@ -2,6 +2,7 @@ name: SDK pytest
 
 on:
   pull_request:
+  release:
   push:
     branches: [main]
   workflow_dispatch:
@@ -31,7 +32,6 @@ jobs:
     needs: build-matrix
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
         python-version: ${{ fromJson(needs.build-matrix.outputs.py) }}
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -44,12 +44,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - run: pipx install uv
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
-        with:
-          path: .venv
-          key: venv-all-extras-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
 
       - name: Run pytest
         shell: bash
@@ -75,7 +69,6 @@ jobs:
     needs: build-matrix
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         python-version: ${{ fromJson(needs.build-matrix.outputs.py_edges) }}
         format: [tar.gz, whl]
@@ -89,15 +82,15 @@ jobs:
 
       - run: pipx install uv
       - run: uv build
-      - name: Cache venv
-        id: cache-venv
-        uses: actions/cache@v5
+      - name: Upload built artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: .venv
-          key: venv-all-extras-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml')}}
+          name: dist-${{ matrix.python-version }}-${{ matrix.format }}
+          path: dist/*.${{ matrix.format }}
+          if-no-files-found: error
+          retention-days: 28
 
       - run: uv sync --all-extras
-      - run: uv venv
       - run: uv pip uninstall contree-sdk contree-docs
       - run: uv pip install dist/*.${{ matrix.format }}
       - run: source .venv/bin/activate
@@ -131,3 +124,18 @@ jobs:
             coverage.xml
             report.xml
             report.html
+          retention-days: 7
+  tests-complete:
+    needs: [pytest, pytest-after-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tests result
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+        run: echo "✅ All tests passed"
+
+      - name: Fail if any test failed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "❌ Some tests failed, were cancelled, or were skipped"
+          exit 1

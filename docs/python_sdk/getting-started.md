@@ -1,10 +1,10 @@
 # Getting Started
 
-This guide will help you get up and running with Contree SDK. By the end of this guide, you'll understand how to create clients, work with images, and run your first commands.
+This guide will help you get up and running with ConTree SDK. By the end of this guide, you'll understand how to create clients, work with images, and run your first commands.
 
 ## Creating a Client
 
-The first step is to create a Contree client. You can choose between async and sync versions depending on your application needs.
+The first step is to create a ConTree client. You can choose between async and sync versions depending on your application needs.
 
 Here's how to create a client and verify the connection by listing available images:
 
@@ -34,7 +34,7 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 
 ## Working with Images
 
-Images are the foundation of Contree. You can pull existing images from registries or work with images that are already available in your Contree environment.
+Images are the foundation of ConTree. You can pull existing images from registries or work with images that are already available in your Contree environment.
 
 ### Pulling Images
 
@@ -68,7 +68,7 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all imag
 
 You can pull images from several sources:
 
-- **By tag**: `"ubuntu:latest"` - Pull from your Contree registry
+- **By tag**: `"ubuntu:latest"` - Pull from your ConTree registry
 - **By UUID**: `"550e8400-e29b-41d4-a716-446655440000"` - Pull a specific image version
 - **Docker Hub**: `"docker://docker.io/busybox:latest"` - Import from Docker Hub
 - **Other registries**: `"docker://ghcr.io/user/image:tag"` - Import from other Docker registries

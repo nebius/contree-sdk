@@ -1,7 +1,7 @@
 API Reference
 =============
 
-Complete API reference for Contree SDK.
+Complete API reference for ConTree SDK.
 
 Core Components
 ---------------

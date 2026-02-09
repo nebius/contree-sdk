@@ -17,7 +17,7 @@ from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
-from contree_sdk.sdk.objects.run import RunRequest
+from contree_sdk.sdk.objects.run import REQUEST_IO_TYPES, RunRequest
 from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, get_io_by_obj
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
@@ -92,8 +92,8 @@ class _ImageLikeBase:
         cwd: str | None = None,
         hostname: str | None = None,
         stdin: IO_TYPES | None = None,
-        stdout: IO_TYPES | None = None,
-        stderr: IO_TYPES | None = None,
+        stdout: REQUEST_IO_TYPES | None = None,
+        stderr: REQUEST_IO_TYPES | None = None,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,

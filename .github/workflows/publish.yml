@@ -1,0 +1,70 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+
+jobs:
+  check-required-workflows:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        check:
+          - checks-complete
+          - tests-complete
+          - security-complete
+    steps:
+      - name: Wait for ${{ matrix.check }}
+        uses: fountainhead/action-wait-for-check@v1.2.0
+        id: wait-for-check
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: ${{ matrix.check }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          timeoutSeconds: 3600
+          intervalSeconds: 10
+
+      - name: Verify ${{ matrix.check }} succeeded
+        if: steps.wait-for-check.outputs.conclusion != 'success'
+        run: |
+          echo "❌ Check '${{ matrix.check }}' did not succeed"
+          echo "Conclusion: ${{ steps.wait-for-check.outputs.conclusion }}"
+          exit 1
+
+      - name: ${{ matrix.check }} passed
+        if: steps.wait-for-check.outputs.conclusion == 'success'
+        run: echo "✅ Check '${{ matrix.check }}' passed successfully"
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    needs: check-required-workflows
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Set version from tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          uv version "$VERSION"
+
+      - name: Build
+        run: uv build
+
+      - name: Publish via OIDC
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
