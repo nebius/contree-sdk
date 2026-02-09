@@ -19,6 +19,7 @@ jobs:
           - checks-complete
           - tests-complete
           - security-complete
+          - pytest
     steps:
       - name: Wait for ${{ matrix.check }}
         uses: fountainhead/action-wait-for-check@v1.2.0
