@@ -14,35 +14,10 @@ jobs:
   check-required-workflows:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for checks-complete
-        uses: lewagon/wait-on-check-action@v1.3.4
+      - uses: WyriHaximus/github-action-wait-for-status@v1.7
         with:
-          ref: ${{ github.sha }}
-          check-name: 'checks-complete'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 20
-          running-workflow-name: 'check-required-workflows'
-          allowed-conclusions: success
-
-      - name: Wait for tests-complete
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.sha }}
-          check-name: 'tests-complete'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 20
-          running-workflow-name: 'check-required-workflows'
-          allowed-conclusions: success
-
-      - name: Wait for security-complete
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.sha }}
-          check-name: 'security-complete'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 20
-          running-workflow-name: 'check-required-workflows'
-          allowed-conclusions: success
+          ignoreActions: check-required-workflows
+          checkInterval: 13
   publish:
     needs: check-required-workflows
     runs-on: ubuntu-latest
