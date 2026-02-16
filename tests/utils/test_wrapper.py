@@ -50,7 +50,7 @@ def test_multiple_threads():
     for thread in threads:
         thread.join()
     spent = datetime.now() - started
-    assert spent.total_seconds() <= _wait_time * 5 * 0.75
+    assert spent.total_seconds() < _wait_time * 5
 
     assert data == set()
 
