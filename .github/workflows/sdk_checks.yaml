@@ -81,6 +81,7 @@ jobs:
               - "pyproject.toml"
 
       - name: Check version bump
+        if: steps.changes.outputs.watched == 'true'
         run: |
           pip install packaging toml
           python -c "

@@ -6,7 +6,7 @@
 **SDK for ConTree: Sandboxes That Branch Like Git**.
 ConTree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
-👉 **[See full feature list and use cases in the documentation →](docs/about.md)**
+👉 **[See full feature list and use cases in the documentation →](https://docs.contree.dev/sdk/)**
 
 ## 📥 Get Started
 
@@ -77,11 +77,11 @@ main()
 
 Ready to explore more? Check out our comprehensive examples:
 
-- **[Session Management](./examples/session/)** - Working with persistent sessions and state management
-- **[Image Operations](./examples/images/)** - Advanced image pulling, versioning, and management
-- **[Branching Workflows](./examples/branching/)** - Complex workflow patterns with image branching
+- **[Session Management](https://github.com/nebius/contree-sdk/tree/main/examples/session)** - Working with persistent sessions and state management
+- **[Image Operations](https://docs.contree.dev/sdk/python_sdk/images.html)** - Advanced image pulling, versioning, and management
+- **[Branching Workflows](https://docs.contree.dev/sdk/python_sdk/branching.html)** - Complex workflow patterns with image branching
 
-Explore all examples in the [`examples/`](./examples/) directory
+Explore all examples in the [`examples/`](https://github.com/nebius/contree-sdk/tree/main/examples) directory
 
 ---
 
