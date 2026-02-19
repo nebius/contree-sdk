@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ContreeConfig:
-    """Configuration for the Contree SDK client.
+    """Configuration for the ConTree SDK client.
 
     Fields ``base_url`` and ``token`` support env var lookup: if the value
     matches an existing environment variable name, the value is loaded from it.

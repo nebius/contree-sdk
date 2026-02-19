@@ -61,7 +61,7 @@ class _ImageLikeBase:
         """Initialize image-like object.
 
         Args:
-        client: The Contree client instance.
+        client: The ConTree client instance.
         uuid: Image UUID as string or UUID object.
         tag: Optional tag for the image.
 

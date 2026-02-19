@@ -2,10 +2,10 @@ from datetime import datetime
 from importlib.metadata import version as get_version
 
 
-project = "Contree SDK"
+project = "ConTree SDK"
 copyright = f"{datetime.now().year}, Nebius"  # noqa: A001
 author = "Nebius"
-version = release = get_version("contree-docs")
+version = release = get_version("contree-sdk")
 
 extensions = [
     "myst_parser",
