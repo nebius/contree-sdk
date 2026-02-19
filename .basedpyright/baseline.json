@@ -342,32 +342,6 @@
                 }
             }
         ],
-        "./contree_sdk/_internals/utils/typing.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 23,
-                    "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 34,
-                    "endColumn": 42,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportReturnType",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 22,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./contree_sdk/_internals/utils/wrapper.py": [
             {
                 "code": "reportMissingTypeArgument",
@@ -472,32 +446,8 @@
             {
                 "code": "reportMissingTypeArgument",
                 "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
                     "startColumn": 36,
                     "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 62,
-                    "endColumn": 71,
                     "lineCount": 1
                 }
             },
@@ -1002,24 +952,6 @@
                 "range": {
                     "startColumn": 16,
                     "endColumn": 20,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./tests/unit/fixtures/utils.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 27,
-                    "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 48,
-                    "endColumn": 58,
                     "lineCount": 1
                 }
             }

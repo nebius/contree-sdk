@@ -1,16 +1,20 @@
 from collections.abc import Callable
 from functools import wraps
-from typing import TypeVar
+from inspect import signature
+from typing import Any, ParamSpec, TypeVar
 
 
-F = TypeVar("F", bound=Callable)
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
-def keep_signature(original_func: Callable) -> Callable[[F], F]:
-    def decorator(func: F) -> F:
+def keep_signature(original_func: Callable[P, Any]) -> Callable[[Callable[..., R]], Callable[P, R]]:
+
+    def decorator(func: Callable[..., R]) -> Callable[P, R]:
         wrapped = wraps(original_func)(func)
         wrapped.__name__ = func.__name__
         wrapped.__qualname__ = func.__qualname__
+        wrapped.__signature__ = signature(original_func)  # type: ignore[reportAttributeAccessIssue]
         return wrapped
 
     return decorator
