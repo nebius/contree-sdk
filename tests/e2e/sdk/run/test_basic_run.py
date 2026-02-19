@@ -20,6 +20,11 @@ async def test_basic_run(image):
     assert result.stderr == _stderr
     assert result.exit_code == 0
 
+    image_repr = repr(result)
+    assert "0" in image_repr
+    assert repr(_stdout[:10])[:-1] in image_repr
+    assert repr(_stderr[:10])[:-1] in image_repr
+
     elapsed = result.elapsed
     assert isinstance(elapsed, timedelta)
     assert elapsed.total_seconds() > 0
@@ -32,6 +37,11 @@ def test_basic_run_s(image_s):
     assert result.stdout == _stdout
     assert result.stderr == _stderr
     assert result.exit_code == 0
+
+    image_repr = repr(result)
+    assert "0" in image_repr
+    assert repr(_stdout[:10])[:-1] in image_repr
+    assert repr(_stderr[:10])[:-1] in image_repr
 
     elapsed = result.elapsed
     assert isinstance(elapsed, timedelta)

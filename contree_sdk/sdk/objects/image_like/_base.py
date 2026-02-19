@@ -315,7 +315,12 @@ class _ImageLikeBase:
         other = ""
         if self.tag:
             other += f", tag={self.tag}"
-        return f"{type(self).__name__}(uuid={self.uuid!r}, state={self.state!r}{other})"
+        try:
+            result = self.result
+            result_str = f", result={result}"
+        except RuntimeError:
+            result_str = ""
+        return f"{type(self).__name__}(uuid={self.uuid!r}, state={self.state!r}{other}{result_str})"
 
     # result methods
 
