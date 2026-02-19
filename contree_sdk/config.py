@@ -31,7 +31,7 @@ class ContreeConfig:
     """Import operation timeout, falls back to operation_timeout."""
     operation_run_timeout: float | None = None
     """Run operation timeout, falls back to operation_timeout."""
-    operation_timeout: float = 600.0
+    operation_timeout: float = 1000.0
     """Default timeout for operations."""
     operation_poll_secs_min: float = 0.1
     """Min polling interval for operation status checks."""
