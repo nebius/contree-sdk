@@ -318,7 +318,7 @@ class _ImageLikeBase:
         try:
             result = self.result
             result_str = f", result={result}"
-        except RuntimeError:
+        except ContreeImageStateError:
             result_str = ""
         return f"{type(self).__name__}(uuid={self.uuid!r}, state={self.state!r}{other}{result_str})"
 
