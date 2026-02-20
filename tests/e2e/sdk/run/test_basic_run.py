@@ -13,6 +13,9 @@ _stderr = "this is stderr\n"
 
 
 async def test_basic_run(image):
+    image_repr = repr(image)
+    assert repr(_stdout[:10])[:-1] not in image_repr
+
     result = await image.run(shell=_shell_command, stdin=_stdin)
     assert isinstance(result, ContreeImage)
 
@@ -31,6 +34,9 @@ async def test_basic_run(image):
 
 
 def test_basic_run_s(image_s):
+    image_repr = repr(image_s)
+    assert repr(_stdout[:10])[:-1] not in image_repr
+
     result = image_s.run(shell=_shell_command, stdin=_stdin).wait()
     assert isinstance(result, ContreeImageSync)
 
