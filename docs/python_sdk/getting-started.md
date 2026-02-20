@@ -2,6 +2,20 @@
 
 This guide will help you get up and running with ConTree SDK. By the end of this guide, you'll understand how to create clients, work with images, and run your first commands.
 
+## Configuration
+
+ConTree SDK uses environment variables for configuration:
+
+- **CONTREE_TOKEN**: Your authentication token
+- **CONTREE_BASE_URL**: Your ConTree instance URL
+
+```bash
+export CONTREE_TOKEN="your_token_here"
+export CONTREE_BASE_URL="https://your-instance.of.contree"
+```
+
+Alternatively, you can pass `token` and `base_url` directly when creating a client.
+
 ## Creating a Client
 
 The first step is to create a ConTree client. You can choose between async and sync versions depending on your application needs.
