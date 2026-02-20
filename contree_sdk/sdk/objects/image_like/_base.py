@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path, PurePosixPath
-from typing import IO, TYPE_CHECKING, TypeVar
+from typing import IO, TYPE_CHECKING, TypeVar, overload
 from uuid import UUID
 
 import cattrs
@@ -83,9 +83,46 @@ class _ImageLikeBase:
 
     # main methods
 
-    def run(  # noqa: PLR0913, PLR0917
+    @overload
+    def run(
+        self: _T,
+        command: str,
+        *,
+        args: Iterable[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        hostname: str | None = None,
+        stdin: IO_TYPES | None = None,
+        stdout: REQUEST_IO_TYPES | None = None,
+        stderr: REQUEST_IO_TYPES | None = None,
+        tag: str | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        timeout: float | timedelta | None = None,
+        disposable: bool = True,
+    ) -> _T: ...
+
+    @overload
+    def run(
+        self: _T,
+        *,
+        shell: str,
+        args: Iterable[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        hostname: str | None = None,
+        stdin: IO_TYPES | None = None,
+        stdout: REQUEST_IO_TYPES | None = None,
+        stderr: REQUEST_IO_TYPES | None = None,
+        tag: str | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        timeout: float | timedelta | None = None,
+        disposable: bool = True,
+    ) -> _T: ...
+
+    def run(  # noqa: PLR0913
         self: _T,
         command: str | None = None,
+        *,
         shell: str | None = None,
         args: Iterable[str] | None = None,
         env: dict[str, str] | None = None,

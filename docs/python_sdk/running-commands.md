@@ -30,6 +30,40 @@ See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` 
 See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for all options.
 ````
 
+## Command Execution Mode
+
+You can execute commands by specifying the executable path and arguments separately:
+
+````{tab} Async
+```{literalinclude} ../../examples/run/run_command.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
+```
+
+See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` and {meth}`ContreeSession.run() <contree_sdk.sdk.objects.session.ContreeSession.run>` for command execution details.
+````
+
+````{tab} Sync
+```{literalinclude} ../../examples/run/run_command_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
+```
+
+See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for command execution details.
+````
+
+### Command vs Shell Mode
+
+- **Command mode**: Use `command="/bin/ls"` with `args=["-la", "/tmp"]` for direct execution without shell interpretation
+- **Shell mode**: Use `shell="ls -la /tmp"` for shell commands with pipes, redirects, and wildcards
+- **Environment variables**: Pass `env={"VAR": "value"}` to set environment for command execution
+
 ## Working with Files
 
 You can upload and use files in your commands by specifying local file paths or pre-uploaded file objects:
