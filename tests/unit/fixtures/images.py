@@ -12,7 +12,7 @@ def add_inspect_by_tag_response(
     httpx_mock: HTTPXMock,
     tag: str,
     image_uuid: UUID,
-    created_at: str = "2024-01-01T12:00:00+00:00",
+    created_at: str = "2024-01-01T12:00:00Z",
 ):
     httpx_mock.add_response(
         method="GET",
