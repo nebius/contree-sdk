@@ -1,6 +1,6 @@
 # About ConTree
 
-**ConTree** is a code execution runtime, purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state**
+**ConTree** is a code execution runtime, providing **reproducible, versioned filesystem state**
 
 ## Key Features
 
@@ -9,8 +9,6 @@
 - 🚀 **Thousands of pre-built SWE images** - Ready-to-use images for SWE-bench and SWE-rebench
 
 ## Use Cases
-
-While ConTree is purpose-built to support research on SWE agents, it's just as usable as a general code execution sandbox.
 
 **Primary use case:**
 
