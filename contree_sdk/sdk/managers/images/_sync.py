@@ -16,6 +16,9 @@ class ImagesManagerSync(_ImagesBaseManager[ContreeImageSync]):
     def __iter__(self):
         yield from coro_iter_sync(self._iter())
 
+    def use(self, tag_or_uuid: str | UUID) -> ContreeImageSync:
+        return self._use_image(tag_or_uuid)
+
     def pull(
         self,
         url_or_tag_or_uuid: str | UUID,

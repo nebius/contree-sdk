@@ -2,8 +2,8 @@ from contree_sdk import ContreeSync
 
 
 def main(client: ContreeSync):
-    image = client.images.pull("busybox:latest")
-    print(f"Pulled {image=}")
+    image = client.images.use("busybox:latest")
+    print(f"Using {image=}")
 
     result = image.run(shell="echo 'Hello World'").wait()
     print(f"Simple echo: {result.stdout=}, {result.stderr=}, {result.exit_code=}")

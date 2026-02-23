@@ -2,7 +2,7 @@ from contree_sdk import ContreeSync
 
 
 def main(client: ContreeSync):
-    base = client.images.pull("alpine:latest")
+    base = client.images.use("alpine:latest")
 
     child = base.run(shell='echo "$RANDOM" > /tmp/random.txt', disposable=False).wait()
     print(f"Child created from base, UUID: {child.uuid}\n")

@@ -57,7 +57,7 @@ class _ImageLikeBase:
     tag: str | None
     """Optional tag associated with the image."""
 
-    def __init__(self, client: _ContreeBase, uuid: UUID | str, tag: str | None):
+    def __init__(self, client: _ContreeBase, uuid: UUID | str | None, tag: str | None):
         """Initialize image-like object.
 
         Args:
@@ -124,7 +124,7 @@ class _ImageLikeBase:
             ValueError: If neither command nor shell is provided.
 
         """
-        if not self.uuid:
+        if not self.uuid and not self.tag:
             raise DisposableImageRunError
         new_self = self._copy_self()
         new_self._transition_state(ImageState.PREPARED)
@@ -257,7 +257,7 @@ class _ImageLikeBase:
             operation_uuid = await self._client._api.spawn_instance(
                 InstanceSpawnRequest(
                     command=req.command,
-                    image=str(self.uuid),
+                    image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
                     hostname=req.hostname or "localhost",
                     args=req.args or [],
                     env=req.env,

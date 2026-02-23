@@ -32,8 +32,8 @@ async def main():
     # Get client
     contree = Contree(token="fake-token")
 
-    # Get image
-    image = await contree.images.pull("ubuntu:latest")
+    # Use image by tag
+    image = contree.images.use("ubuntu:latest")
 
     # Run command
     result = await image.run(shell='echo "Hello from Contree!"')
@@ -58,8 +58,8 @@ def main():
     # Get client
     contree = ContreeSync(token="fake-token")
 
-    # Get image
-    image = contree.images.pull("ubuntu:latest")
+    # Use image by tag
+    image = contree.images.use("ubuntu:latest")
 
     # Run command
     result = image.run(shell='echo "Hello from Contree!"').wait()
@@ -179,8 +179,8 @@ async def amain():
     # list images
     images = await contree.images()
 
-    # pulling existing image
-    ubuntu_image = await contree.images.pull("ubuntu:latest")
+    # use image by tag (no API call, resolved at execution time)
+    ubuntu_image = contree.images.use("ubuntu:latest")
 
     # pulling image from a remote registry
     busybox_image = await contree.images.pull("docker://docker.io/busybox:latest")
@@ -256,8 +256,8 @@ def main():
     # list images
     images = contree.images()
 
-    # Pulling existing image
-    ubuntu_image = contree.images.pull("ubuntu:latest")
+    # Use image by tag (no API call, resolved at execution time)
+    ubuntu_image = contree.images.use("ubuntu:latest")
 
     # Pulling image from a remote registry
     busybox_image = contree.images.pull("docker://docker.io/busybox:latest")
@@ -337,7 +337,7 @@ async def amain():
     contree = Contree(token="fake-token")
 
     # Each command creates a new image version
-    image = await contree.images.pull("busybox:latest")  # busybox:latest
+    image = contree.images.use("busybox:latest")  # busybox:latest
     result1 = await image.run(shell="apt update")  # some-uuid
     result2 = await result1.run(shell="apt install python3")  # another-uuid
 
@@ -462,7 +462,7 @@ from contree_sdk import Contree
 
 async def amain():
     contree = Contree(token="fake-token")
-    image = await contree.images.pull("busybox:latest")
+    image = contree.images.use("busybox:latest")
 
     # preconfigure a run that generates random string and writes to file
     preconfigured_run = image.run(shell="echo $RANDOM > /tmp/random.txt")

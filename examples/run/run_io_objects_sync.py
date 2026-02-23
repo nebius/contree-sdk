@@ -6,8 +6,8 @@ from contree_sdk import ContreeSync
 
 
 def main(client: ContreeSync):
-    image = client.images.pull("busybox:latest")
-    print(f"Pulled {image=}")
+    image = client.images.use("busybox:latest")
+    print(f"Using {image=}")
 
     print("\nExample 1: StringIO for stdin and stdout")
     stdin_io = StringIO("apple\nbanana\ncherry\ndate\n")
