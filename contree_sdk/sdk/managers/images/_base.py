@@ -93,6 +93,9 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None and current_offset >= number:
                 break  # returned all requested images
 
+    def _use_image(self, tag: str) -> _ImageT:
+        return self._ImageType(client=self._client, uuid=None, tag=tag)
+
     def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
         return self._ImageType(
             client=self._client,
