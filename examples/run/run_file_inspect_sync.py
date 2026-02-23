@@ -4,8 +4,8 @@ from contree_sdk import ContreeSync
 
 
 def main(client: ContreeSync):
-    image = client.images.pull("busybox:latest")
-    print(f"Pulled {image=}")
+    image = client.images.use("busybox:latest")
+    print(f"Using {image=}")
 
     print("\nExample 1: Create file and download it")
     result = image.run(

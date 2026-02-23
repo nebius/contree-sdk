@@ -4,7 +4,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    base = await client.images.pull("alpine:latest")
+    base = client.images.use("alpine:latest")
 
     child = await base.run(shell='echo "$RANDOM" > /tmp/random.txt', disposable=False)
     print(f"Child created from base, UUID: {child.uuid}\n")

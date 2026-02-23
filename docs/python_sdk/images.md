@@ -1,11 +1,26 @@
 # Working with Images
 
-ConTree SDK allows you to pull and import container images. You can use images from public registries, your own private registries, or import Docker Hub images.
+ConTree SDK provides several ways to reference and import container images. The simplest way is `images.use()`, which creates an image reference by tag without making an API call — the tag is resolved by the server at execution time. For importing images from external registries, use `images.pull()`.
 
 For detailed API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
 
+## Using Images by Tag
+
+The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
+
+```python
+# Async
+image = contree.images.use("ubuntu:latest")
+result = await image.run(shell="echo hello")
+
+# Sync
+image = contree.images.use("ubuntu:latest")
+result = image.run(shell="echo hello").wait()
+```
+
 ## Pulling Images
 
+For importing images from external registries or resolving a tag/UUID to an image upfront, use `images.pull()`.
 You can pull images by UUID, tag, or import them from external registries:
 
 ````{tab} Async
@@ -32,10 +47,11 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull` for all paramete
 See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all parameters.
 ````
 
-### Import Methods
+### Image Access Methods
 
+- **By tag (lazy)**: `client.images.use("ubuntu:latest")` - Reference by tag, resolved at execution time (no API call)
+- **By tag (eager)**: `client.images.pull("ubuntu:latest")` - Resolve tag to UUID immediately via API call
 - **By UUID**: `client.images.pull(uuid)` - Pull existing image by UUID
-- **By tag**: `client.images.pull("ubuntu:latest")` - Pull by tag name
 - **From registry**: `client.images.pull("docker://ghcr.io/owner/image:tag")` - Import from external registry
 - **From private registry**: `client.images.pull("docker://ghcr.io/owner/image:tag", username="user", password="token")` - Import from private registry with authentication
 

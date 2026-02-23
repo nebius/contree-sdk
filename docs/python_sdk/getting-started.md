@@ -34,10 +34,21 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 
 ## Working with Images
 
-Images are the foundation of ConTree. You can pull existing images from registries or work with images that are already available in your Contree environment.
+Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
+
+```python
+# Async
+image = contree.images.use("ubuntu:latest")
+result = await image.run(shell="echo hello")
+
+# Sync
+image = contree.images.use("ubuntu:latest")
+result = image.run(shell="echo hello").wait()
+```
 
 ### Pulling Images
 
+For importing images from external registries or resolving a tag/UUID upfront, use `images.pull()`.
 You can pull images in several ways - by UUID, by tag, and from external registries:
 
 ````{tab} Async

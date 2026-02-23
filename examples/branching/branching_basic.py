@@ -4,8 +4,8 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = await client.images.pull("alpine:latest")
-    print(f"Pulled {image=}")
+    image = client.images.use("alpine:latest")
+    print(f"Using {image=}")
 
     print("\nExample 1: Different commands from same image")
     result1 = await image.run(shell="echo 'First branch'", disposable=False)
