@@ -41,7 +41,7 @@ class ApiEndpointInfo:
     file_params: list[str]
 
     # how to parse
-    json_path: list | None
+    json_path: list[str] | None
     func: Callable[..., Any]
     return_type: ReturnType | _Empty
 

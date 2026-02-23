@@ -276,14 +276,6 @@
         ],
         "./contree_sdk/_internals/lib/types.py": [
             {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 19,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportGeneralTypeIssues",
                 "range": {
                     "startColumn": 17,
@@ -874,24 +866,6 @@
                 "range": {
                     "startColumn": 27,
                     "endColumn": 31,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./tests/utils/marker.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 67,
-                    "endColumn": 75,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 77,
-                    "endColumn": 85,
                     "lineCount": 1
                 }
             }
