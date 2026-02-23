@@ -77,12 +77,13 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all imag
 
 ### Image Sources
 
-You can pull images from several sources:
+You can access images in several ways:
 
-- **By tag**: `"ubuntu:latest"` - Pull from your ConTree registry
-- **By UUID**: `"550e8400-e29b-41d4-a716-446655440000"` - Pull a specific image version
-- **Docker Hub**: `"docker://docker.io/busybox:latest"` - Import from Docker Hub
-- **Other registries**: `"docker://ghcr.io/user/image:tag"` - Import from other Docker registries
+- **By tag (lazy)**: `images.use("ubuntu:latest")` - Reference by tag, resolved at execution time (no API call)
+- **By tag (eager)**: `images.pull("ubuntu:latest")` - Resolve tag via API call
+- **By UUID**: `images.pull("550e8400-e29b-41d4-a716-446655440000")` - Pull a specific image version
+- **Docker Hub**: `images.pull("docker://docker.io/busybox:latest")` - Import from Docker Hub
+- **Other registries**: `images.pull("docker://ghcr.io/user/image:tag")` - Import from other Docker registries
 
 ## Running Commands
 
