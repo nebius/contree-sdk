@@ -108,3 +108,27 @@ async def test_use_image_await_passes_tag_spec(fake_contree: Contree):
         spawn_mock.assert_called_once()
         request = spawn_mock.call_args[0][0]
         assert request.image == "tag:my-tag:latest"
+
+
+async def test_use_with_uuid_string(fake_contree: Contree):
+    test_uuid = uuid4()
+    image = fake_contree.images.use(str(test_uuid))
+    assert isinstance(image, ContreeImage)
+    assert image.uuid == test_uuid
+    assert image.tag is None
+
+
+async def test_use_with_uuid_object(fake_contree: Contree):
+    test_uuid = uuid4()
+    image = fake_contree.images.use(test_uuid)
+    assert isinstance(image, ContreeImage)
+    assert image.uuid == test_uuid
+    assert image.tag is None
+
+
+def test_use_sync_with_uuid_string(fake_contree_s: ContreeSync):
+    test_uuid = uuid4()
+    image = fake_contree_s.images.use(str(test_uuid))
+    assert isinstance(image, ContreeImageSync)
+    assert image.uuid == test_uuid
+    assert image.tag is None

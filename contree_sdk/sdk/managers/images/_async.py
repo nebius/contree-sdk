@@ -16,8 +16,8 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
         async for image in self._iter():
             yield image
 
-    def use(self, tag: str) -> ContreeImage:
-        return self._use_image(tag)
+    def use(self, tag_or_uuid: str | UUID) -> ContreeImage:
+        return self._use_image(tag_or_uuid)
 
     async def pull(
         self,
