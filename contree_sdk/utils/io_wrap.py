@@ -2,7 +2,7 @@ from io import BytesIO, IOBase, StringIO
 from os import fdopen, pipe
 from pathlib import Path
 from subprocess import PIPE
-from typing import IO, AnyStr, Literal
+from typing import IO, Literal, TypeAlias
 
 from strenum import StrEnum
 
@@ -52,7 +52,7 @@ class IOMode(StrEnum):
 
 
 PipeLiteral = Literal[-1]  # subprocess.PIPE
-IO_TYPES = str | bytes | Path | IO[AnyStr] | PipeLiteral
+IO_TYPES: TypeAlias = str | bytes | Path | IO[str] | IO[bytes] | PipeLiteral
 
 
 def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:
