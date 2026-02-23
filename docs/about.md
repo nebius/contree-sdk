@@ -10,16 +10,26 @@
 
 ## Use Cases
 
-**Primary use case:**
+ConTree's reproducible container execution environment serves various applications:
 
-- SWE-bench and SWE-rebench evaluations
-- Software engineering agent research and development
+**Development Workflows:**
 
-**Also, suitable for:**
+- Automated testing and CI/CD pipelines
+- Development environment sandboxing
+- Cross-platform compatibility testing
 
-- General LLM agents requiring code execution
+**Research & Analysis:**
+
+- Scientific computing reproducibility
+- Software engineering research and development
+- Educational programming environments
 - AI-powered development tools
-- Any scenario requiring isolated, reproducible code execution
+
+**System Operations:**
+
+- Infrastructure testing and validation
+- Security sandboxing for untrusted code
+- Configuration management testing
 
 ## Python SDK
 
