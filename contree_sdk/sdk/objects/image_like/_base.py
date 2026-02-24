@@ -183,7 +183,7 @@ class _ImageLikeBase:
             args=list(args or []),
             shell=shell is not None,
             env=dict(env or {}),
-            cwd=cwd or "/",
+            cwd=cwd,
             timeout=timeout,
             tag=tag or None,  # todo use tag later
             hostname=hostname or "hostname",
@@ -304,7 +304,7 @@ class _ImageLikeBase:
                     args=req.args or [],
                     env=req.env,
                     shell=bool(req.shell),
-                    cwd=req.cwd,
+                    cwd=req.cwd or "/root",
                     disposable=req.disposable,
                     timeout=round(timeout or self._client.config.operation_timeout),
                     stdin=stdin,

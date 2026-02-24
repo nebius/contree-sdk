@@ -78,11 +78,11 @@ class InstanceFileSpec:
 class InstanceSpawnRequest:
     command: str
     image: str
-    hostname: str = "linuxkit"
+    hostname: str
     args: list[str] = field(default_factory=list)
     shell: bool = False
     env: dict[str, str] = field(default_factory=dict)
-    cwd: str = "/root"
+    cwd: str
     disposable: bool = False
     stdin: StreamDescription
     timeout: int = 60
