@@ -86,5 +86,5 @@ class InstanceSpawnRequest:
     disposable: bool = False
     stdin: StreamDescription
     timeout: int = 60
-    truncate_output_at: int = 65535
+    truncate_output_at: int
     files: dict[str, InstanceFileSpec]

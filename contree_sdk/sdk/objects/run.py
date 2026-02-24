@@ -25,3 +25,5 @@ class RunRequest:
 
     stderr: REQUEST_IO_TYPES = None
     stdout: REQUEST_IO_TYPES = None
+
+    truncate_output_at: int | None = None

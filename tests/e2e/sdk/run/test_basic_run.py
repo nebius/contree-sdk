@@ -90,6 +90,15 @@ def test_run_file_io_s(image_s, tmp_file, test_txt_path):
     assert result.exit_code == 0
 
 
+_truncate_at = 50
+_long_output_command = "dd if=/dev/urandom bs=100 count=1 2>/dev/null | base64"
+
+
+async def test_run_truncated_output(image):
+    result = await image.run(shell=_long_output_command, truncate_output_at=_truncate_at)
+    assert len(result.stdout) == _truncate_at
+
+
 RANDOM_INT_COMMAND = "od -An -N2 -tu2 /dev/urandom"
 
 

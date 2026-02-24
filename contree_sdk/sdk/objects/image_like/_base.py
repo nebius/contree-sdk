@@ -99,6 +99,7 @@ class _ImageLikeBase:
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
+        truncate_output_at: int | None = None,
     ) -> _T: ...
 
     @overload
@@ -117,6 +118,7 @@ class _ImageLikeBase:
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
+        truncate_output_at: int | None = None,
     ) -> _T: ...
 
     def run(  # noqa: PLR0913
@@ -135,6 +137,7 @@ class _ImageLikeBase:
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
+        truncate_output_at: int | None = None,
     ) -> _T:
         """Prepare image for command execution.
 
@@ -152,6 +155,7 @@ class _ImageLikeBase:
             files: Files to upload into the image.
             timeout: Execution timeout in seconds or as timedelta.
             disposable: If True, image is discarded after execution.
+            truncate_output_at: number of bytes to truncate stdout and stderr. Defaults to default_truncate_output_at
 
         Returns:
             New image instance configured for execution.
@@ -188,6 +192,7 @@ class _ImageLikeBase:
             stdout=stdout,
             stderr=stderr,
             disposable=disposable,
+            truncate_output_at=truncate_output_at,
         )
         new_self._prepare_stdin(stdin)
         return new_self
@@ -304,6 +309,7 @@ class _ImageLikeBase:
                     timeout=round(timeout or self._client.config.operation_timeout),
                     stdin=stdin,
                     files=files,
+                    truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
                 )
             )
         image_metadata, result = await self._client._wait_operation(
