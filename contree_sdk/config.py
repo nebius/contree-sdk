@@ -42,6 +42,9 @@ class ContreeConfig:
     operation_poll_not_found_limit: int = 10
     """Maximum number of not found responses when awaiting operation"""
 
+    default_truncate_output_at: int = 65535
+    """Default truncate output at which to truncate stdout and stderr."""
+
     images_list_batch_size: int = 100
     """Batch size for listing images."""
 

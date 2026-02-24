@@ -13,7 +13,7 @@ class RunRequest:
     args: list[str] | None = None
     shell: bool | None = None
     env: dict[str, str] = field(default_factory=dict)
-    cwd: str
+    cwd: str | None = None
     hostname: str | None = None
 
     files: list[UploadFileSpec] = field(default_factory=list)
@@ -25,3 +25,5 @@ class RunRequest:
 
     stderr: REQUEST_IO_TYPES = None
     stdout: REQUEST_IO_TYPES = None
+
+    truncate_output_at: int | None = None

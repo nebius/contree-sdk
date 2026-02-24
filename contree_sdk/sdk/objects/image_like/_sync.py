@@ -65,7 +65,7 @@ class _ImageLikeSync(_ImageLikeBase):
     # todo move to base, when will implement popen for async
     def popen(
         self,
-        args: list[str] | None = None,
+        args: list[str] | str | None = None,
         *,
         stdin: IO_TYPES | None = None,
         input: IO_TYPES | None = None,  # noqa: A002
