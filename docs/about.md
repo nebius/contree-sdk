@@ -1,6 +1,6 @@
 # About ConTree
 
-**ConTree** is a code execution runtime, purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state**
+**ConTree** is a code execution runtime, providing **reproducible, versioned filesystem state**
 
 ## Key Features
 
@@ -10,18 +10,25 @@
 
 ## Use Cases
 
-While ConTree is purpose-built to support research on SWE agents, it's just as usable as a general code execution sandbox.
+ConTree's reproducible container execution environment serves various applications:
 
-**Primary use case:**
+**AI Agents:**
 
-- SWE-bench and SWE-rebench evaluations
-- Software engineering agent research and development
+- SWE-bench type agent evaluation
+- AI agent code execution
+- Coding assistant sandboxing
 
-**Also, suitable for:**
+**CI/CD:**
 
-- General LLM agents requiring code execution
-- AI-powered development tools
-- Any scenario requiring isolated, reproducible code execution
+- Per-PR environment snapshots
+- Flaky test reruns from same state
+- Local CI failure reproduction
+
+**Security:**
+
+- User-submitted code sandboxing
+- Untrusted dependency isolation
+- Malware sample analysis
 
 ## Python SDK
 

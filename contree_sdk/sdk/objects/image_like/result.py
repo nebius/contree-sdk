@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from contree_sdk._internals.models.instance import InstanceOperationMetadata
@@ -16,9 +16,9 @@ class ContreeResult:
     stdout: IO_TYPES | None
     exit_code: int
     elapsed_time: timedelta
-    cost: float
+    cost: float = field(repr=False)
 
-    _raw: InstanceOperationMetadata | None = None
+    _raw: InstanceOperationMetadata | None = field(repr=False)
 
     @classmethod
     def from_result(cls, raw_result: InstanceOperationMetadata, request: RunRequest) -> ContreeResult:

@@ -42,7 +42,7 @@ class _ContreeBase:
     """Manager for image operations."""
 
     def __init__(self, config: ContreeConfig | None = None, *, base_url: str | None = None, token: str | None = None):
-        """Initialize the Contree client.
+        """Initialize the ConTree client.
 
         Args:
             config: Full configuration object. If provided, base_url and token

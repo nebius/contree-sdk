@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ContreeConfig:
-    """Configuration for the Contree SDK client.
+    """Configuration for the ConTree SDK client.
 
     Fields ``base_url`` and ``token`` support env var lookup: if the value
     matches an existing environment variable name, the value is loaded from it.
@@ -31,7 +31,7 @@ class ContreeConfig:
     """Import operation timeout, falls back to operation_timeout."""
     operation_run_timeout: float | None = None
     """Run operation timeout, falls back to operation_timeout."""
-    operation_timeout: float = 600.0
+    operation_timeout: float = 1000.0
     """Default timeout for operations."""
     operation_poll_secs_min: float = 0.1
     """Min polling interval for operation status checks."""

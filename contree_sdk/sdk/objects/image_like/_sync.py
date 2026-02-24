@@ -106,7 +106,7 @@ class _ImageLikeSync(_ImageLikeBase):
         output_type = str if text else text
 
         return ContreeProcessSync(
-            self.run(
+            self.run(  # type: ignore[call-overload]
                 stdin=input or stdin,
                 cwd=cwd,
                 env=env,

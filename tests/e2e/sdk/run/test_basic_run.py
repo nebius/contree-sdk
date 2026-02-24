@@ -13,6 +13,9 @@ _stderr = "this is stderr\n"
 
 
 async def test_basic_run(image):
+    image_repr = repr(image)
+    assert repr(_stdout[:10])[:-1] not in image_repr
+
     result = await image.run(shell=_shell_command, stdin=_stdin)
     assert isinstance(result, ContreeImage)
 
@@ -20,18 +23,31 @@ async def test_basic_run(image):
     assert result.stderr == _stderr
     assert result.exit_code == 0
 
+    image_repr = repr(result)
+    assert "0" in image_repr
+    assert repr(_stdout[:10])[:-1] in image_repr
+    assert repr(_stderr[:10])[:-1] in image_repr
+
     elapsed = result.elapsed
     assert isinstance(elapsed, timedelta)
     assert elapsed.total_seconds() > 0
 
 
 def test_basic_run_s(image_s):
+    image_repr = repr(image_s)
+    assert repr(_stdout[:10])[:-1] not in image_repr
+
     result = image_s.run(shell=_shell_command, stdin=_stdin).wait()
     assert isinstance(result, ContreeImageSync)
 
     assert result.stdout == _stdout
     assert result.stderr == _stderr
     assert result.exit_code == 0
+
+    image_repr = repr(result)
+    assert "0" in image_repr
+    assert repr(_stdout[:10])[:-1] in image_repr
+    assert repr(_stderr[:10])[:-1] in image_repr
 
     elapsed = result.elapsed
     assert isinstance(elapsed, timedelta)

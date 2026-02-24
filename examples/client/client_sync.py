@@ -3,9 +3,9 @@ import os
 from contree_sdk import ContreeSync
 
 
-def main(token: str):
+def main():
     # Get client
-    client = ContreeSync(token=token)
+    client = ContreeSync()
 
     # Get images (to verify that connection works)
     client.images()
@@ -14,5 +14,5 @@ def main(token: str):
 if __name__ == "__main__":
     token = os.getenv("CONTREE_TOKEN")
     if not token:
-        token = input("Please enter contree token: ")
-    main(token=token)
+        os.environ["CONTREE_TOKEN"] = input("Please enter contree token: ")
+    main()

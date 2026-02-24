@@ -5,7 +5,7 @@ from contree_sdk.sdk.managers.images._sync import ImagesManagerSync
 
 
 class ContreeSync(_ContreeBase):
-    """Synchronous Contree SDK client."""
+    """Synchronous ConTree SDK client."""
 
     images: ImagesManagerSync
     files: FilesManagerSync

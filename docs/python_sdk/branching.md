@@ -4,7 +4,7 @@ One of ConTree's most powerful features is the ability to branch execution flows
 
 ## Why Branching Matters
 
-Without ConTree, running the same operations twice (like installing packages, creating files, or compiling code) requires rebuilding the entire filesystem state from scratch each time. Contree captures the exact filesystem state after each command, making it reproducible and allowing you to branch from that exact state.
+Without ConTree, running the same operations twice (like installing packages, creating files, or compiling code) requires rebuilding the entire filesystem state from scratch each time. ConTree captures the exact filesystem state after each command, making it reproducible and allowing you to branch from that exact state.
 
 ## Simple Branching Example
 

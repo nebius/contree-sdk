@@ -276,14 +276,6 @@
         ],
         "./contree_sdk/_internals/lib/types.py": [
             {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 19,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportGeneralTypeIssues",
                 "range": {
                     "startColumn": 17,
@@ -338,32 +330,6 @@
                 "range": {
                     "startColumn": 47,
                     "endColumn": 51,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./contree_sdk/_internals/utils/typing.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 23,
-                    "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 34,
-                    "endColumn": 42,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportReturnType",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 22,
                     "lineCount": 1
                 }
             }
@@ -462,46 +428,6 @@
         ],
         "./contree_sdk/sdk/objects/image_like/_base.py": [
             {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 23,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 36,
-                    "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 62,
-                    "endColumn": 71,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportCallIssue",
                 "range": {
                     "startColumn": 20,
@@ -540,22 +466,6 @@
                     "endColumn": 26,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 24,
-                    "endColumn": 32,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 24,
-                    "endColumn": 32,
-                    "lineCount": 1
-                }
             }
         ],
         "./contree_sdk/sdk/objects/image_like/_sync.py": [
@@ -564,38 +474,6 @@
                 "range": {
                     "startColumn": 41,
                     "endColumn": 51,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 23,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 23,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 24,
                     "lineCount": 1
                 }
             },
@@ -618,30 +496,6 @@
         ],
         "./contree_sdk/sdk/objects/image_like/result.py": [
             {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 12,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 12,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 81,
-                    "endColumn": 89,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportArgumentType",
                 "range": {
                     "startColumn": 31,
@@ -654,24 +508,6 @@
                 "range": {
                     "startColumn": 15,
                     "endColumn": 21,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./contree_sdk/sdk/objects/run.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 19,
-                    "endColumn": 27,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 11,
-                    "endColumn": 19,
                     "lineCount": 1
                 }
             }
@@ -694,26 +530,10 @@
                 }
             },
             {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 24,
-                    "endColumn": 32,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportReturnType",
                 "range": {
                     "startColumn": 15,
                     "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 24,
-                    "endColumn": 32,
                     "lineCount": 1
                 }
             },
@@ -743,14 +563,6 @@
             }
         ],
         "./contree_sdk/utils/io_wrap.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 23,
-                    "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportMissingTypeArgument",
                 "range": {
@@ -1006,24 +818,6 @@
                 }
             }
         ],
-        "./tests/unit/fixtures/utils.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 27,
-                    "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 48,
-                    "endColumn": 58,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./tests/unit/images/test_inspect.py": [
             {
                 "code": "reportMissingTypeArgument",
@@ -1072,24 +866,6 @@
                 "range": {
                     "startColumn": 27,
                     "endColumn": 31,
-                    "lineCount": 1
-                }
-            }
-        ],
-        "./tests/utils/marker.py": [
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 67,
-                    "endColumn": 75,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingTypeArgument",
-                "range": {
-                    "startColumn": 77,
-                    "endColumn": 85,
                     "lineCount": 1
                 }
             }
