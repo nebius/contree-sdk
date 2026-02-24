@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from contree_sdk._internals.utils.deprecation import deprecated
 from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImage
@@ -19,6 +20,7 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
     def use(self, tag_or_uuid: str | UUID) -> ContreeImage:
         return self._use_image(tag_or_uuid)
 
+    @deprecated("Use use() or oci() instead")
     async def pull(
         self,
         url_or_tag_or_uuid: str | UUID,

@@ -21,6 +21,7 @@ dependencies = [
     "cattrs",
     "aiofiles",
     "httpx", # todo move to httpx when transport will be supported
+    "typing-extensions; python_version < '3.13'"
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,7 @@ dev = [
     "pytest-examples",
     "basedpyright",
     "ruff",
+    "typing-extensions",
 ]
 
 dev-security = [

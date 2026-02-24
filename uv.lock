@@ -480,6 +480,7 @@ dependencies = [
     { name = "cattrs" },
     { name = "httpx" },
     { name = "strenum" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 
 [package.optional-dependencies]
@@ -499,6 +500,7 @@ dev = [
     { name = "rich" },
     { name = "ruff" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 dev-security = [
     { name = "semgrep" },
@@ -530,6 +532,8 @@ requires-dist = [
     { name = "semgrep", marker = "extra == 'dev-security'" },
     { name = "strenum" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev", "dev-security", "httpx", "shell", "docs"]
 
