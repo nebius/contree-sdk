@@ -12,24 +12,23 @@
 
 ConTree's reproducible container execution environment serves various applications:
 
-**Development Workflows:**
+**AI Agents:**
 
-- Automated testing and CI/CD pipelines
-- Development environment sandboxing
-- Cross-platform compatibility testing
+- SWE-bench type agent evaluation
+- AI agent code execution
+- Coding assistant sandboxing
 
-**Research & Analysis:**
+**CI/CD:**
 
-- Scientific computing reproducibility
-- Software engineering research and development
-- Educational programming environments
-- AI-powered development tools
+- Per-PR environment snapshots
+- Flaky test reruns from same state
+- Local CI failure reproduction
 
-**System Operations:**
+**Security:**
 
-- Infrastructure testing and validation
-- Security sandboxing for untrusted code
-- Configuration management testing
+- User-submitted code sandboxing
+- Untrusted dependency isolation
+- Malware sample analysis
 
 ## Python SDK
 
