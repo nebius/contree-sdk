@@ -34,23 +34,25 @@ def test_exception():
 
 
 def test_multiple_threads():
-    data = {2, 3, 4, 5, 6}
+    data = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
     threads = []
 
     def run_task(a, b):
         result = fake_task_sync(a, b)
         data.discard(result)
 
-    started = datetime.now()
-    for i in range(5):
+    for i in range(10):
         thread = Thread(target=run_task, args=(i, 1))
         threads.append(thread)
+
+    started = datetime.now()
+    for thread in threads:
         thread.start()
 
     for thread in threads:
         thread.join()
     spent = datetime.now() - started
-    assert spent.total_seconds() < _wait_time * 5
+    assert spent.total_seconds() < _wait_time * 10
 
     assert data == set()
 
