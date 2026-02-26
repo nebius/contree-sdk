@@ -304,7 +304,7 @@ class _ImageLikeBase:
                     args=req.args or [],
                     env=req.env,
                     shell=bool(req.shell),
-                    cwd=req.cwd or "/root",
+                    cwd=req.cwd or "",
                     disposable=req.disposable,
                     timeout=round(timeout or self._client.config.operation_timeout),
                     stdin=stdin,
