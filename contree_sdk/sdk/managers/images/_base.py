@@ -17,6 +17,7 @@ from contree_sdk.sdk.exceptions import FailedOperationError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
+from contree_sdk.utils.oci import OCIReference
 
 
 _ImageT = TypeVar("_ImageT", bound=_ContreeImageBase)
@@ -93,13 +94,29 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None and current_offset >= number:
                 break  # returned all requested images
 
-    async def _use_image(self, tag_or_uuid: str | UUID, strict: bool = False) -> _ImageT:
-        if isinstance(tag_or_uuid, UUID):
-            return self._ImageType(client=self._client, uuid=tag_or_uuid, tag=None)
-        try:
-            return self._ImageType(client=self._client, uuid=UUID(tag_or_uuid), tag=None)
-        except ValueError:
-            return self._ImageType(client=self._client, uuid=None, tag=tag_or_uuid)
+    @classmethod
+    def _parse_ref(cls, ref: str | UUID | OCIReference) -> UUID | OCIReference:
+        if isinstance(ref, OCIReference):
+            return ref
+
+        if isinstance(ref, UUID):
+            return ref
+
+        with suppress(ValueError):
+            return UUID(ref)
+
+        return OCIReference.from_oci(ref)
+
+    async def _use_image(self, ref: str | UUID | OCIReference, strict: bool = False) -> _ImageT:
+        ref = self._parse_ref(ref)
+        if isinstance(ref, UUID):
+            if strict:
+                return await self._get_image_by_uuid(ref)
+            return self._ImageType(client=self._client, uuid=ref, tag=None)
+        tag = ref.tag
+        if strict:
+            return await self._get_image_by_tag(tag)
+        return self._ImageType(client=self._client, uuid=None, tag=tag)
 
     def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
         return self._ImageType(

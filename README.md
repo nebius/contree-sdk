@@ -462,7 +462,7 @@ from contree_sdk import Contree
 
 async def amain():
     contree = Contree(token="fake-token")
-    image = contree.images.use("busybox:latest")
+    image = await contree.images.use("busybox:latest")
 
     # preconfigure a run that generates random string and writes to file
     preconfigured_run = image.run(shell="echo $RANDOM > /tmp/random.txt")

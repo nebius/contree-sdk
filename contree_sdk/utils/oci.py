@@ -20,8 +20,8 @@ class OCIReference:
     tag: str
 
     @classmethod
-    def from_oci(cls, reference: str | URL) -> OCIReference:
-        reference = str(reference)
+    def from_oci(cls, ref: str | URL) -> OCIReference:
+        reference = str(ref)
 
         if reference.startswith(":") or not reference:
             raise ValueError(f"{reference!r} is not a valid OCI reference")
