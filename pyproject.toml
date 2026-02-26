@@ -1,6 +1,6 @@
 [project]
 name = "contree-sdk"
-version = "0.1.3.dev1"
+version = "0.2.0.dev1"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10, <3.15"
@@ -223,6 +223,7 @@ extend-ignore = [
     "DOC",     # pydoclint
     "RUF029",  # unused-async
     "PLR2004", # magic-value-comparison
+    "PT011",   # pytest-raises-too-broad
 ]
 
 "tests/**/test_*.py" = [

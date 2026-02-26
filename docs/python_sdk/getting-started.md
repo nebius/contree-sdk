@@ -52,7 +52,7 @@ Images are the foundation of ConTree. The simplest way to reference an image is 
 
 ```python
 # Async
-image = contree.images.use("ubuntu:latest")
+image = await contree.images.use("ubuntu:latest")
 result = await image.run(shell="echo hello")
 
 # Sync

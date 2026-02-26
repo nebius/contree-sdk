@@ -8,15 +8,19 @@ For detailed API documentation, see {class}`~contree_sdk.sdk.managers.images.Ima
 
 The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
 
+````{tab} Async
 ```python
-# Async
-image = contree.images.use("ubuntu:latest")
+image = await contree.images.use("ubuntu:latest")
 result = await image.run(shell="echo hello")
+```
+````
 
-# Sync
+````{tab} Sync
+```python
 image = contree.images.use("ubuntu:latest")
 result = image.run(shell="echo hello").wait()
 ```
+````
 
 ## Pulling Images
 

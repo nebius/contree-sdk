@@ -12,7 +12,7 @@ from tests.unit.fixtures.operations import create_operation_model
 
 
 async def test_use_returns_image_with_none_uuid(fake_contree: Contree):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     assert isinstance(image, ContreeImage)
     assert image.uuid is None
     assert image.tag == "my-tag:latest"
@@ -26,7 +26,7 @@ def test_use_sync_returns_image_with_none_uuid(fake_contree_s: ContreeSync):
 
 
 async def test_use_image_run_does_not_raise(fake_contree: Contree):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     running = image.run(command="echo hello")
     assert running.uuid is None
     assert running.tag == "my-tag:latest"
@@ -43,7 +43,7 @@ async def test_use_image_await_passes_tag_spec(
     process_state: ProcessState,
     resource_usage: ProcessResources,
 ):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     running = image.run(shell="echo hello")
 
     result_uuid = uuid4()
