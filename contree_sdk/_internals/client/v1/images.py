@@ -1,6 +1,6 @@
 from typing import Annotated, Literal, overload
 
-from contree_sdk._internals.lib.api_decorator import get, post
+from contree_sdk._internals.lib.api_decorator import delete, get, patch, post
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import Body
 from contree_sdk._internals.models.image import ContreeImageModel
@@ -47,6 +47,20 @@ class ImagesMixin:
     def start_import_image(self: SyncClientMixin, request: Annotated[ImageImportRequest, Body]) -> str: ...
     @post("/v1/images/import", json=["uuid"])
     def start_import_image(self, request: Annotated[ImageImportRequest, Body]) -> str: ...
+
+    @overload
+    async def tag_image(self: AsyncClientMixin, image_uuid: str, tag: Annotated[str, Body]) -> ContreeImageModel: ...
+    @overload
+    def tag_image(self: SyncClientMixin, image_uuid: str, tag: Annotated[str, Body]) -> ContreeImageModel: ...
+    @patch("/v1/images/{image_uuid}/tag", json=True)
+    def tag_image(self, image_uuid: str, tag: Annotated[str, Body]) -> ContreeImageModel: ...
+
+    @overload
+    async def untag_image(self: AsyncClientMixin, image_uuid: str) -> ContreeImageModel: ...
+    @overload
+    def untag_image(self: SyncClientMixin, image_uuid: str) -> ContreeImageModel: ...
+    @delete("/v1/images/{image_uuid}/tag", json=True)
+    def untag_image(self, image_uuid: str) -> ContreeImageModel: ...
 
 
 # todo later use like this MainV1Client(ImagesMixin['/images'], OtherMixin, ContreeClientBase) and have all in one

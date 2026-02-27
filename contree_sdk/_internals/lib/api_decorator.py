@@ -62,6 +62,7 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
 
 get = partial(apied, "get")
 post = partial(apied, "post")
+patch = partial(apied, "patch")
 put = partial(apied, "put")
 head = partial(apied, "head")
 delete = partial(apied, "delete")
