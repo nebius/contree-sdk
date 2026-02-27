@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from posixpath import join
 from urllib.parse import urlparse, urlunparse
 
-from httpcore import URL
-
 
 DOCKER_IO = "docker.io"
 DOCKER_SCHEMA = "docker"
@@ -20,7 +18,7 @@ class OCIReference:
     tag: str
 
     @classmethod
-    def from_oci(cls, ref: str | URL) -> OCIReference:
+    def from_oci(cls, ref: str) -> OCIReference:
         reference = str(ref)
 
         if reference.startswith(":") or not reference:

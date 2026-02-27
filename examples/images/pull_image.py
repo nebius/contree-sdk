@@ -8,7 +8,7 @@ async def main(client: Contree, image_uuid: UUID, image_tag: str):
     print(f"Selected {image_uuid=}")
     print(f"Selected {image_tag=}")
 
-    print("\nPullin by UUID (strict):")
+    print("\nPulling by UUID (strict):")
     result = await client.images.use(image_uuid, strict=True)
     print(f"Pulled by UUID: {result.uuid=}, {result.tag=}, {result.state=}")
 

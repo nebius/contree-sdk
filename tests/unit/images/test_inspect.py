@@ -77,7 +77,7 @@ def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMo
 
 @pytest.fixture
 def api_fake_inspect_download(
-    image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock, image_tag: str
+    image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock
 ) -> HTTPXMock:
     add_tag_responses(api_fake_run, result_image_uuid)
 
