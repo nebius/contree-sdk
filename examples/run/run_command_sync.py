@@ -2,7 +2,7 @@ from contree_sdk import ContreeSync
 
 
 def main(client: ContreeSync):
-    image = client.images.pull("alpine:3.20")
+    image = client.images.use("alpine:3.20", strict=True)
     print(f"Pulled {image=}")
 
     print("\nExample 1: Simple command execution")

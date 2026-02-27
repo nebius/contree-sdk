@@ -4,7 +4,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = await client.images.pull("alpine:3.20")
+    image = await client.images.use("alpine:3.20", strict=True)
     print(f"Pulled {image=}")
 
     print("\nExample 1: Simple command execution")

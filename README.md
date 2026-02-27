@@ -183,7 +183,7 @@ async def amain():
     ubuntu_image = await contree.images.use("ubuntu:latest")
 
     # pulling image from a remote registry
-    busybox_image = await contree.images.pull("docker://docker.io/busybox:latest")
+    busybox_image = await contree.images.oci("docker://docker.io/busybox:latest")
 
     # running command
     result0 = await ubuntu_image.run(
@@ -260,7 +260,7 @@ def main():
     ubuntu_image = contree.images.use("ubuntu:latest")
 
     # Pulling image from a remote registry
-    busybox_image = contree.images.pull("docker://docker.io/busybox:latest")
+    busybox_image = contree.images.oci("docker://docker.io/busybox:latest")
 
     # running command
     result0 = ubuntu_image.run(
