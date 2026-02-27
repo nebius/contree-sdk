@@ -185,7 +185,7 @@ class _ImageLikeBase:
             env=dict(env or {}),
             cwd=cwd,
             timeout=timeout,
-            tag=tag or None,  # todo use tag later
+            tag=tag or None,
             hostname=hostname or "hostname",
             stdin=stdin,
             files=self._prepare_files(files or []),
