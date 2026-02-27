@@ -1,7 +1,6 @@
 from typing import NamedTuple
 
 import pytest
-from httpcore import URL
 
 from contree_sdk.utils.oci import OCIReference
 
@@ -52,7 +51,7 @@ class DockerImageTestCase(NamedTuple):
 )
 def test_docker_url_canonize_and_decanonize(test_case):
     ref = OCIReference.from_oci(test_case.input)
-    assert ref.url == URL(test_case.url)
+    assert ref.url == test_case.url
 
     assert ref.tag == test_case.tag
 

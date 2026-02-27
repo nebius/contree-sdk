@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import urlparse
 from uuid import UUID
 
 from contree_sdk._internals.models.image import ContreeImageModel
@@ -13,7 +13,7 @@ from contree_sdk._internals.models.image_import import (
     RegistryCredentials,
 )
 from contree_sdk._internals.utils.exception import wrap_api_call
-from contree_sdk.sdk.exceptions import FailedOperationError
+from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
@@ -150,7 +150,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         if parsed.netloc or username or password:
             return await self._import_image(
                 url_or_tag_or_uuid,
-                new_tag=new_tag,
+                tag=new_tag,
                 username=username,
                 password=password,
                 timeout=timeout,
@@ -172,18 +172,19 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
 
     async def _import_image(
         self,
-        image_url: str | ParseResult,
+        image: str | OCIReference,
         *,
-        new_tag: str | None = None,
+        tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
         timeout: float | None = None,
     ) -> _ImageT:
-        if isinstance(image_url, str):
-            image_url = urlparse(image_url)
+        ref = self._parse_ref(image)
+        if isinstance(ref, UUID):
+            raise ValueError(f"Cannot import image by UUID {ref}")  # noqa: TRY004
 
-        new_tag = new_tag or image_url.path.removeprefix("/")
-        image_url = image_url.geturl()
+        new_tag = tag or ref.tag
+        image_url = ref.url
 
         if username or password:
             if not (username and password):
@@ -220,3 +221,25 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 tag=image_info.tag,
             )
         )
+
+    async def _pull_image_by_oci(
+        self,
+        ref: str | OCIReference | UUID,
+        *,
+        tag: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        timeout: float | None = None,
+    ) -> _ImageT:
+        ref = self._parse_ref(ref)
+        if tag and isinstance(ref, OCIReference):
+            ref = OCIReference(
+                url=ref.url,
+                tag=tag,
+            )
+        try:
+            return await self._use_image(ref, strict=True)
+        except NotFoundError:
+            if isinstance(ref, UUID):
+                raise
+            return await self._import_image(ref, tag=tag, username=username, password=password, timeout=timeout)

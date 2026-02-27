@@ -16,7 +16,7 @@ __all__ = ["OCIReference"]
 
 @dataclass(frozen=True)
 class OCIReference:
-    url: URL
+    url: str
     tag: str
 
     @classmethod
@@ -48,4 +48,4 @@ class OCIReference:
             tag = path.removeprefix(DOCKER_NAMESPACE)
         else:
             tag = join(host, path)
-        return cls(url=URL(urlunparse((parsed.scheme, host, path, "", "", ""))), tag=tag.lstrip("/"))
+        return cls(url=urlunparse((parsed.scheme, host, path, "", "", "")), tag=tag.lstrip("/"))
