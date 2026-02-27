@@ -45,11 +45,21 @@ def test_pull_image_by_tag_s(contree_s: ContreeSync, image_tag):
     assert image.tag == image_tag
 
 
-def test_import_public_image_s(contree_s: ContreeSync):
+def test_pull_public_image_s(contree_s: ContreeSync):
     url = "docker://ghcr.io/linuxserver/code-server:latest"
     image = contree_s.images.pull(url, timeout=250)
     assert isinstance(image, ContreeImageSync)
     assert isinstance(image.uuid, UUID)
+    assert image.state == ImageState.PULLED
+    assert "code-server:latest" in image.tag
+
+
+def test_import_public_image_s(contree_s: ContreeSync):
+    url = "docker://ghcr.io/linuxserver/code-server:latest"
+    image = contree_s.images.import_from(url, timeout=250)
+    assert isinstance(image, ContreeImageSync)
+    assert isinstance(image.uuid, UUID)
+    assert image.tag == "ghcr.io/linuxserver/code-server:latest"
     assert image.state == ImageState.PULLED
     assert "code-server:latest" in image.tag
 
@@ -64,10 +74,10 @@ def test_pull_nonexistent_tag_image_s(contree_s: ContreeSync):
         contree_s.images.pull("totally-random-tag-" + str(uuid4())[:4])
 
 
-def test_pull_import_not_real_image_s(contree_s: ContreeSync):
+def test_import_not_real_image_s(contree_s: ContreeSync):
     url = f"docker://ghcr.io/linuxserver/random-image-{uuid4()}:latest"
     with pytest.raises(FailedOperationError):
-        contree_s.images.pull(url)
+        contree_s.images.import_from(url)
 
 
 # todo add test for private import
