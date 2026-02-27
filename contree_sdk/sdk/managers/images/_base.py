@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -21,6 +22,8 @@ from contree_sdk.utils.oci import OCIReference
 
 
 _ImageT = TypeVar("_ImageT", bound=_ContreeImageBase)
+
+logger = logging.getLogger(__name__)
 
 
 def _process_time_param(value: datetime | timedelta | None, offset: timedelta) -> str | None:
@@ -318,8 +321,10 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 tag=tag,
             )
         try:
+            logger.debug(f"Attempting to use existing image: {ref}")
             return await self._use_image(ref, strict=True)
         except NotFoundError:
             if isinstance(ref, UUID):
                 raise
+            logger.debug(f"Falling back to import: {ref}")
             return await self._import_image(ref, tag=tag, username=username, password=password, timeout=timeout)
