@@ -75,6 +75,50 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~c
 - OCI full URL — full reference including registry host, e.g. `"docker://ghcr.io/owner/image:tag"`
 - {class}`~contree_sdk.utils.oci.OCIReference` — programmatic OCI reference object
 
+## Tagging Images
+
+You can assign or remove a tag on any image using `tag_as()` and `untag()`. Tags are unique across all images — assigning an existing tag to a new image moves it automatically.
+
+````{tab} Async
+```{literalinclude} ../../examples/images/tag_image.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
+```
+
+See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImage.untag` for details.
+````
+
+````{tab} Sync
+```{literalinclude} ../../examples/images/tag_image_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
+```
+
+See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.untag` for details.
+````
+
+You can also tag the result of a `run()` directly by passing `tag=` to the call — the resulting image will be tagged after execution completes:
+
+````{tab} Async
+```python
+result = await image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False)
+print(result.tag)  # "myapp:ready"
+```
+````
+
+````{tab} Sync
+```python
+result = image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False).wait()
+print(result.tag)  # "myapp:ready"
+```
+````
+
 ## Listing Images
 
 View all available images in your ConTree instance:

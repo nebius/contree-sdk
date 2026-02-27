@@ -174,6 +174,7 @@ See {class}`~contree_sdk.sdk.objects.subprocess.ContreeProcessSync` for the full
 
 - **`cwd`**: Working directory inside container
 - **`disposable`**: Whether to persist changes (default: True for runs, False for sessions)
+- **`tag`**: Tag to assign to the resulting image after execution (e.g. `tag="myapp:v2"`)
 
 ## Result Objects
 
