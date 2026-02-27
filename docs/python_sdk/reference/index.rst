@@ -17,3 +17,4 @@ Core Components
     image_fs
     subprocess
     config
+    oci

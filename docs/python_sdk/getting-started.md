@@ -62,8 +62,7 @@ result = image.run(shell="echo hello").wait()
 
 ### Pulling Images
 
-For importing images from external registries or resolving a tag/UUID upfront, use `images.pull()`.
-You can pull images in several ways - by UUID, by tag, and from external registries:
+For resolving a tag/UUID upfront, use `images.use(strict=True)`. For importing images from external registries, use `images.oci()`:
 
 ````{tab} Async
 ```{literalinclude} ../../examples/images/pull_image.py
@@ -74,7 +73,7 @@ You can pull images in several ways - by UUID, by tag, and from external registr
 :start-after: def main(
 ```
 
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull` for all image pulling options.
+See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci` for all image pulling options.
 ````
 
 ````{tab} Sync
@@ -86,18 +85,26 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull` for all image pu
 :start-after: def main(
 ```
 
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all image pulling options.
+See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci` for all image pulling options.
 ````
 
-### Image Sources
+### Methods
 
-You can access images in several ways:
+- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref) — no API call; tag or UUID is resolved at execution time
+- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref, strict=True) — verifies the image exists via an API call
+- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManager.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
+- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.import_from`(ref) — always imports from an external registry
 
-- **By tag (lazy)**: `images.use("ubuntu:latest")` - Reference by tag, resolved at execution time (no API call)
-- **By tag (eager)**: `images.pull("ubuntu:latest")` - Resolve tag via API call
-- **By UUID**: `images.pull("550e8400-e29b-41d4-a716-446655440000")` - Pull a specific image version
-- **Docker Hub**: `images.pull("docker://docker.io/busybox:latest")` - Import from Docker Hub
-- **Other registries**: `images.pull("docker://ghcr.io/user/image:tag")` - Import from other Docker registries
+:::{danger}
+`import_from` always triggers a new import operation and should only be used when you explicitly need to re-import. In most cases, prefer `images.oci()`, which returns an existing image if already imported. If no import is needed at all, use `images.use()`.
+:::
+
+### What `ref` can be
+
+- UUID — e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
+- OCI tag — e.g. `"ubuntu:latest"`
+- OCI full URL — e.g. `"docker://ghcr.io/user/image:tag"`
+- {class}`~contree_sdk.utils.oci.OCIReference` object
 
 ## Running Commands
 
