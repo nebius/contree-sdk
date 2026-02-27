@@ -1,22 +1,6 @@
 # Working with Images
 
-ConTree SDK provides several ways to reference and import container images.
-
-**Methods:**
-
-- `images.use(ref)` — creates an image reference without any API call; the tag or UUID is resolved by the server at execution time
-- `images.use(ref, strict=True)` — verifies the image exists via an API call before returning it
-- `images.oci(ref)` (aliases: `docker`, `podman`, `pull_by_oci`) — like `use(strict=True)`, but falls back to importing from the external registry if not found
-- `images.import_from(ref)` — explicitly imports an image from an external registry, always triggering an import operation
-
-**What you can pass as `ref`:**
-
-- UUID — reference an existing image by its UUID
-- OCI tag (e.g. `"ubuntu:latest"`) — reference by tag
-- OCI full URL (e.g. `"docker://ghcr.io/owner/image:tag"`) — full reference including registry
-- {class}`~contree_sdk.utils.oci.OCIReference` object — programmatic OCI reference
-
-For detailed API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
+ConTree SDK provides several ways to reference and import container images. For full API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
 
 ## Using Images by Tag
 
@@ -86,12 +70,10 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~c
 
 ### What `ref` can be
 
-- UUID — e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
-- OCI tag — e.g. `"ubuntu:latest"`
-- OCI full URL — e.g. `"docker://ghcr.io/owner/image:tag"`
-- {class}`~contree_sdk.utils.oci.OCIReference` object
-
-The `docker://` prefix allows you to import any publicly accessible Docker image directly into ConTree.
+- UUID — reference an existing image by its UUID, e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
+- OCI tag — reference by image tag, e.g. `"ubuntu:latest"`
+- OCI full URL — full reference including registry host, e.g. `"docker://ghcr.io/owner/image:tag"`
+- {class}`~contree_sdk.utils.oci.OCIReference` — programmatic OCI reference object
 
 ## Listing Images
 

@@ -50,61 +50,23 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 
 Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
 
+````{tab} Async
 ```python
-# Async
 image = await contree.images.use("ubuntu:latest")
 result = await image.run(shell="echo hello")
-
-# Sync
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
 ```
-
-### Pulling Images
-
-For resolving a tag/UUID upfront, use `images.use(strict=True)`. For importing images from external registries, use `images.oci()`:
-
-````{tab} Async
-```{literalinclude} ../../examples/images/pull_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci` for all image pulling options.
 ````
 
 ````{tab} Sync
-```{literalinclude} ../../examples/images/pull_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+```python
+image = contree.images.use("ubuntu:latest")
+result = image.run(shell="echo hello").wait()
 ```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci` for all image pulling options.
 ````
 
-### Methods
+To resolve a tag or UUID upfront via an API call, use `images.use(strict=True)`. To import from an external registry (or return an existing image if already imported), use `images.oci()`.
 
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManager.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.import_from`(ref) — always imports from an external registry
-
-:::{danger}
-`import_from` always triggers a new import operation and should only be used when you explicitly need to re-import. In most cases, prefer `images.oci()`, which returns an existing image if already imported. If no import is needed at all, use `images.use()`.
-:::
-
-### What `ref` can be
-
-- UUID — e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
-- OCI tag — e.g. `"ubuntu:latest"`
-- OCI full URL — e.g. `"docker://ghcr.io/user/image:tag"`
-- {class}`~contree_sdk.utils.oci.OCIReference` object
+See {doc}`images` for a full overview of available methods, examples, and what you can pass as a reference.
 
 ## Running Commands
 
