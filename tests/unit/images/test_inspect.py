@@ -12,6 +12,7 @@ from tests.e2e.sdk.images.test_inspect import test_image_ls as _test_image_ls
 from tests.e2e.sdk.images.test_inspect import test_image_ls_s as _test_image_ls_s
 from tests.e2e.sdk.images.test_inspect import test_read_file as _test_read_file
 from tests.e2e.sdk.images.test_inspect import test_read_file_s as _test_read_file_s
+from tests.unit.fixtures.images import add_tag_responses
 from tests.unit.fixtures.utils import url
 
 
@@ -76,8 +77,10 @@ def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMo
 
 @pytest.fixture
 def api_fake_inspect_download(
-    image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock
+    image_uuid: UUID, result_image_uuid: UUID, random_data: bytes, api_fake_run: HTTPXMock, image_tag: str
 ) -> HTTPXMock:
+    add_tag_responses(api_fake_run, result_image_uuid)
+
     download_url = url(f"/v1/inspect/{result_image_uuid}/download", params={"path": "/output.txt"})
 
     for _ in range(2):
