@@ -56,7 +56,9 @@ class ApiEndpointInfo:
             return None
         res = {name: to_dict(data[name]) for name in self.body_params if name in data}
         if len(self.body_params) == 1:
-            return res[self.body_params[0]]
+            value = res[self.body_params[0]]
+            if isinstance(value, dict):
+                return value
         return res
 
     def get_file_upload_kwargs(self, data: dict) -> dict:

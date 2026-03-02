@@ -1,4 +1,5 @@
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_fs import ImageDirectory, ImageDirectorySync, ImageFile, ImageFileSync
@@ -70,7 +71,9 @@ def test_download_file_s(image_s: ContreeImageSync, tmp_file, random_data):
 
 
 def test_read_file_s(image_s: ContreeImageSync, random_data):
-    res = image_s.run(shell="cat > /output.txt", stdin=random_data, disposable=False).wait()
+    test_tag = f"test-e2e-{uuid4().hex[:8]}"
+    res = image_s.run(shell="cat > /output.txt", stdin=random_data, tag=test_tag, disposable=False).wait()
+    assert res.tag == test_tag
     assert res.read("/output.txt") == random_data
 
     res_file = None

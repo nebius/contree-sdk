@@ -50,54 +50,23 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 
 Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
 
-```python
-# Async
-image = contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
-
-# Sync
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
-```
-
-### Pulling Images
-
-For importing images from external registries or resolving a tag/UUID upfront, use `images.pull()`.
-You can pull images in several ways - by UUID, by tag, and from external registries:
-
 ````{tab} Async
-```{literalinclude} ../../examples/images/pull_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+```python
+image = await contree.images.use("ubuntu:latest")
+result = await image.run(shell="echo hello")
 ```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull` for all image pulling options.
 ````
 
 ````{tab} Sync
-```{literalinclude} ../../examples/images/pull_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+```python
+image = contree.images.use("ubuntu:latest")
+result = image.run(shell="echo hello").wait()
 ```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull` for all image pulling options.
 ````
 
-### Image Sources
+To resolve a tag or UUID upfront via an API call, use `images.use(strict=True)`. To import from an external registry (or return an existing image if already imported), use `images.oci()`.
 
-You can access images in several ways:
-
-- **By tag (lazy)**: `images.use("ubuntu:latest")` - Reference by tag, resolved at execution time (no API call)
-- **By tag (eager)**: `images.pull("ubuntu:latest")` - Resolve tag via API call
-- **By UUID**: `images.pull("550e8400-e29b-41d4-a716-446655440000")` - Pull a specific image version
-- **Docker Hub**: `images.pull("docker://docker.io/busybox:latest")` - Import from Docker Hub
-- **Other registries**: `images.pull("docker://ghcr.io/user/image:tag")` - Import from other Docker registries
+See {doc}`images` for a full overview of available methods, examples, and what you can pass as a reference.
 
 ## Running Commands
 

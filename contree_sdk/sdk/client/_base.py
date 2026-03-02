@@ -144,7 +144,7 @@ class _ContreeBase:
                     get_wait_interval(self.config, spent / timeout),
                     timeout - spent + self.config.operation_poll_secs_min,
                 )
-                logger.info(f"Sleeping for {interval:0.2f} seconds for {kind_str}operation {operation_uuid}")
+                logger.debug(f"Sleeping for {interval:0.2f} seconds for {kind_str}operation {operation_uuid}")
                 await sleep(interval)
 
         if resp is None:

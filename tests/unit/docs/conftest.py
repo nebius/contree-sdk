@@ -25,7 +25,7 @@ from tests.unit.fixtures.runs import (
     resource_usage,
     result_image_uuid,
 )
-from tests.unit.fixtures.utils import r
+from tests.unit.fixtures.utils import r, url
 
 from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from contree_sdk.sdk.managers.files._async import FilesManager
@@ -208,6 +208,14 @@ def api_fake_quick_start(
     )
 
     add_inspect_by_tag_response(api_fake_session_multiple_runs, "ubuntu:latest", ubuntu_uuid)
+
+    api_fake_session_multiple_runs.add_response(
+        method="GET",
+        url=url("/inspect", params={"tag": "busybox:latest"}),
+        status_code=404,
+        json={"error": "Image not found", "status": 404},
+        is_optional=True,
+    )
 
     import_op_id = str(uuid4())
     api_fake_session_multiple_runs.add_response(

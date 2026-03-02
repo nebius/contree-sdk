@@ -12,7 +12,7 @@ from tests.unit.fixtures.operations import create_operation_model
 
 
 async def test_use_returns_image_with_none_uuid(fake_contree: Contree):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     assert isinstance(image, ContreeImage)
     assert image.uuid is None
     assert image.tag == "my-tag:latest"
@@ -26,7 +26,7 @@ def test_use_sync_returns_image_with_none_uuid(fake_contree_s: ContreeSync):
 
 
 async def test_use_image_run_does_not_raise(fake_contree: Contree):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     running = image.run(command="echo hello")
     assert running.uuid is None
     assert running.tag == "my-tag:latest"
@@ -43,7 +43,7 @@ async def test_use_image_await_passes_tag_spec(
     process_state: ProcessState,
     resource_usage: ProcessResources,
 ):
-    image = fake_contree.images.use("my-tag:latest")
+    image = await fake_contree.images.use("my-tag:latest")
     running = image.run(shell="echo hello")
 
     result_uuid = uuid4()
@@ -63,7 +63,7 @@ async def test_use_image_await_passes_tag_spec(
 
 async def test_use_with_uuid_string(fake_contree: Contree):
     test_uuid = uuid4()
-    image = fake_contree.images.use(str(test_uuid))
+    image = await fake_contree.images.use(str(test_uuid))
     assert isinstance(image, ContreeImage)
     assert image.uuid == test_uuid
     assert image.tag is None
@@ -71,7 +71,7 @@ async def test_use_with_uuid_string(fake_contree: Contree):
 
 async def test_use_with_uuid_object(fake_contree: Contree):
     test_uuid = uuid4()
-    image = fake_contree.images.use(test_uuid)
+    image = await fake_contree.images.use(test_uuid)
     assert isinstance(image, ContreeImage)
     assert image.uuid == test_uuid
     assert image.tag is None

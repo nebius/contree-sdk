@@ -29,7 +29,7 @@ def create_import_operation_model(
         status=status,
         duration=duration,
         metadata=metadata,
-        result=InstanceOperationResult(image=str(result_image_uuid), tag="code-server:latest"),
+        result=InstanceOperationResult(image=str(result_image_uuid), tag="ghcr.io/linuxserver/code-server:latest"),
     )
 
 

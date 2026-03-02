@@ -10,19 +10,21 @@ from tests.utils.marker import create_directory_marker
 
 pytest_collection_modifyitems, should_be_marked_e2e = create_directory_marker(pytest.mark.e2e)
 
+CONTREE_TOKEN_TESTS_ENV_VAR = "CONTREE_SDK_TOKEN_E2E_TESTS"  # noqa: S105
+
 
 @pytest.fixture
 def _contree_token() -> str:
-    value = getenv("CONTREE_SDK_TOKEN_E2E_TESTS")
+    value = getenv(CONTREE_TOKEN_TESTS_ENV_VAR)
     if not value:
-        raise RuntimeError("Environment variable CONTREE_SDK_TOKEN_E2E_TESTS is required for E2E tests")
+        raise RuntimeError(f"Environment variable {CONTREE_TOKEN_TESTS_ENV_VAR} is required for E2E tests")
     return value
 
 
 @pytest.fixture
-def contree_config(_contree_token: str) -> ContreeConfig:
+def contree_config() -> ContreeConfig:
     return ContreeConfig(
-        token=_contree_token,
+        token=CONTREE_TOKEN_TESTS_ENV_VAR,
         base_url=ContreeEndpoint.PROD_NORTH,
     )
 

@@ -9,10 +9,17 @@ from tests.e2e.sdk.images.test_images import test_get_all_images as _test_get_al
 from tests.e2e.sdk.images.test_images import test_get_images_with_parameters_s as _test_get_images_with_parameters_s
 from tests.e2e.sdk.images.test_images import test_iter_images as _test_iter_images
 from tests.e2e.sdk.images.test_images import test_iter_images_s as _test_iter_images_s
+from tests.e2e.sdk.images.test_images import test_oci_image_by_tag_s as _test_oci_image_by_tag_s
+from tests.e2e.sdk.images.test_images import test_oci_nonexistent_uuid_s as _test_oci_nonexistent_uuid_s
+from tests.e2e.sdk.images.test_images import test_oci_public_image_s as _test_oci_public_image_s
 from tests.e2e.sdk.images.test_images import test_pull_image_by_tag_s as _test_pull_image_by_tag_s
 from tests.e2e.sdk.images.test_images import test_pull_image_by_uuid_s as _test_pull_image_by_uuid_s
 from tests.e2e.sdk.images.test_images import test_pull_nonexistent_tag_image_s as _test_pull_nonexistent_tag_image_s
 from tests.e2e.sdk.images.test_images import test_pull_nonexistent_uuid_image_s as _test_pull_nonexistent_uuid_image_s
+from tests.e2e.sdk.images.test_images import test_use_strict_by_tag_s as _test_use_strict_by_tag_s
+from tests.e2e.sdk.images.test_images import test_use_strict_by_uuid_s as _test_use_strict_by_uuid_s
+from tests.e2e.sdk.images.test_images import test_use_strict_nonexistent_tag_s as _test_use_strict_nonexistent_tag_s
+from tests.e2e.sdk.images.test_images import test_use_strict_nonexistent_uuid_s as _test_use_strict_nonexistent_uuid_s
 from tests.unit.fixtures.utils import r
 
 
@@ -85,3 +92,33 @@ def test_iter_images_s(fake_contree_s: ContreeSync, api_fake_images: HTTPXMock):
 
 def test_get_images_with_parameters_s(fake_contree_s: ContreeSync, api_fake_images_with_params: HTTPXMock):
     _test_get_images_with_parameters_s(fake_contree_s)
+
+
+def test_oci_image_by_tag_s(fake_contree_s: ContreeSync, image_tag, api_fake_images: HTTPXMock):
+    _test_oci_image_by_tag_s(fake_contree_s, image_tag)
+
+
+def test_oci_public_image_s(
+    fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock, api_fake_import: HTTPXMock
+):
+    _test_oci_public_image_s(fake_contree_s)
+
+
+def test_oci_nonexistent_uuid_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
+    _test_oci_nonexistent_uuid_s(fake_contree_s)
+
+
+def test_use_strict_by_uuid_s(fake_contree_s: ContreeSync, image_uuid, api_fake_images: HTTPXMock):
+    _test_use_strict_by_uuid_s(fake_contree_s, image_uuid)
+
+
+def test_use_strict_by_tag_s(fake_contree_s: ContreeSync, image_tag, api_fake_images: HTTPXMock):
+    _test_use_strict_by_tag_s(fake_contree_s, image_tag)
+
+
+def test_use_strict_nonexistent_uuid_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
+    _test_use_strict_nonexistent_uuid_s(fake_contree_s)
+
+
+def test_use_strict_nonexistent_tag_s(fake_contree_s: ContreeSync, api_fake_images_with_404: HTTPXMock):
+    _test_use_strict_nonexistent_tag_s(fake_contree_s)

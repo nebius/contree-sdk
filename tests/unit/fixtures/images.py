@@ -69,6 +69,26 @@ def fake_image_s(
     return ContreeImageSync(client=fake_contree_s, uuid=image_uuid, tag=image_tag)
 
 
+def add_tag_responses(httpx_mock: HTTPXMock, image_uuid: UUID, count: int = 1):
+    for _ in range(count):
+        httpx_mock.add_response(
+            method="PATCH",
+            url=r(f".*/images/{image_uuid}/tag"),
+            json={"uuid": str(image_uuid), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
+            is_optional=True,
+        )
+
+
+def add_untag_responses(httpx_mock: HTTPXMock, image_uuid: UUID, count: int = 1):
+    for _ in range(count):
+        httpx_mock.add_response(
+            method="DELETE",
+            url=r(f".*/images/{image_uuid}/tag"),
+            json={"uuid": str(image_uuid), "tag": None, "created_at": "2024-01-01T12:00:00+00:00"},
+            is_optional=True,
+        )
+
+
 @pytest.fixture
 def api_fake_forbidden(strict_httpx: HTTPXMock) -> HTTPXMock:
     strict_httpx.add_response(

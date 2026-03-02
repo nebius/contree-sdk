@@ -1,7 +1,12 @@
 from pathlib import Path, PurePosixPath
+from typing import TypeVar
 
+from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk.sdk.objects.image_fs._async import ImageDirectory, ImageFile
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
+
+
+_T = TypeVar("_T", bound="_ImageLike")
 
 
 class _ImageLike(_ImageLikeBase):
@@ -46,3 +51,11 @@ class _ImageLike(_ImageLikeBase):
 
         """
         return await self._read_file(image_path)
+
+    @keep_signature(_ImageLikeBase._tag_as)
+    async def tag_as(self: _T, tag: str | None) -> _T:
+        return await self._tag_as(tag)
+
+    @keep_signature(_ImageLikeBase._untag)
+    async def untag(self: _T) -> _T:
+        return await self._untag()

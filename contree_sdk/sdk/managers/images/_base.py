@@ -1,8 +1,9 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import urlparse
 from uuid import UUID
 
 from contree_sdk._internals.models.image import ContreeImageModel
@@ -13,13 +14,16 @@ from contree_sdk._internals.models.image_import import (
     RegistryCredentials,
 )
 from contree_sdk._internals.utils.exception import wrap_api_call
-from contree_sdk.sdk.exceptions import FailedOperationError
+from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
+from contree_sdk.utils.oci import OCIReference
 
 
 _ImageT = TypeVar("_ImageT", bound=_ContreeImageBase)
+
+logger = logging.getLogger(__name__)
 
 
 def _process_time_param(value: datetime | timedelta | None, offset: timedelta) -> str | None:
@@ -43,6 +47,19 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         since: datetime | timedelta | None = None,
         until: datetime | timedelta | None = None,
     ) -> list[_ImageT]:
+        """Fetch a list of images with optional filters.
+
+        Args:
+            number: Maximum number of images to return. None returns all.
+            kind: Filter by image kind.
+            tagged: If True, return only tagged images.
+            since: Return images created after this time. Accepts datetime or timedelta relative to now.
+            until: Return images created before this time. Accepts datetime or timedelta relative to now.
+
+        Returns:
+            List of images matching the given filters.
+
+        """
         return [
             image
             async for image in self._iter(
@@ -93,13 +110,39 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None and current_offset >= number:
                 break  # returned all requested images
 
-    def _use_image(self, tag_or_uuid: str | UUID) -> _ImageT:
-        if isinstance(tag_or_uuid, UUID):
-            return self._ImageType(client=self._client, uuid=tag_or_uuid, tag=None)
-        try:
-            return self._ImageType(client=self._client, uuid=UUID(tag_or_uuid), tag=None)
-        except ValueError:
-            return self._ImageType(client=self._client, uuid=None, tag=tag_or_uuid)
+    @classmethod
+    def _parse_ref(cls, ref: str | UUID | OCIReference) -> UUID | OCIReference:
+        if isinstance(ref, OCIReference):
+            return ref
+
+        if isinstance(ref, UUID):
+            return ref
+
+        with suppress(ValueError):
+            return UUID(ref)
+
+        return OCIReference.from_oci(ref)
+
+    async def _use_image(self, ref: str | UUID | OCIReference, strict: bool = False) -> _ImageT:
+        """Resolve a reference to an image object without importing.
+
+        Args:
+            ref: Image identifier — UUID, OCI reference string, or OCIReference object.
+            strict: If True, verify the image exists by fetching it from the API.
+
+        Returns:
+            Image object corresponding to the given reference.
+
+        """
+        ref = self._parse_ref(ref)
+        if isinstance(ref, UUID):
+            if strict:
+                return await self._get_image_by_uuid(ref)
+            return self._ImageType(client=self._client, uuid=ref, tag=None)
+        tag = ref.tag
+        if strict:
+            return await self._get_image_by_tag(tag)
+        return self._ImageType(client=self._client, uuid=None, tag=tag)
 
     def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
         return self._ImageType(
@@ -117,6 +160,26 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         password: str | None = None,
         timeout: float | None = None,
     ) -> _ImageT:
+        """Outdated method for pulling images. Use ``use()`` or ``oci()`` instead.
+
+        .. deprecated::
+            Use :meth:`use` to reference an image by tag or UUID,
+            or :meth:`oci` / :meth:`import_from` to import from an external source.
+
+        Args:
+            url_or_tag_or_uuid: UUID, local tag, or external registry URL of the image.
+            new_tag: Tag to assign to the imported image.
+            username: Registry username for authenticated imports.
+            password: Registry password for authenticated imports.
+            timeout: Maximum seconds to wait for the import operation.
+
+        Returns:
+            Resolved or imported image object.
+
+        Raises:
+            TypeError: If url_or_tag_or_uuid is not a str or UUID.
+
+        """
         uuid = url_or_tag_or_uuid if isinstance(url_or_tag_or_uuid, UUID) else None
 
         with suppress(ValueError):
@@ -133,7 +196,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         if parsed.netloc or username or password:
             return await self._import_image(
                 url_or_tag_or_uuid,
-                new_tag=new_tag,
+                tag=new_tag,
                 username=username,
                 password=password,
                 timeout=timeout,
@@ -155,18 +218,36 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
 
     async def _import_image(
         self,
-        image_url: str | ParseResult,
+        image: str | OCIReference,
         *,
-        new_tag: str | None = None,
+        tag: str | None = None,
         username: str | None = None,
         password: str | None = None,
         timeout: float | None = None,
     ) -> _ImageT:
-        if isinstance(image_url, str):
-            image_url = urlparse(image_url)
+        """Import an image from an external registry into Contree.
 
-        new_tag = new_tag or image_url.path.removeprefix("/")
-        image_url = image_url.geturl()
+        Args:
+            image: OCI reference string or OCIReference pointing to the source image.
+            tag: Tag to assign to the imported image. Defaults to the tag in the reference.
+            username: Registry username for private registries.
+            password: Registry password for private registries.
+            timeout: Maximum seconds to wait for the import operation.
+
+        Returns:
+            Imported image object.
+
+        Raises:
+            ValueError: If image is a UUID or credentials are incomplete.
+            FailedOperationError: If the import operation completes without returning an image.
+
+        """
+        ref = self._parse_ref(image)
+        if isinstance(ref, UUID):
+            raise ValueError(f"Cannot import image by UUID {ref}")  # noqa: TRY004
+
+        new_tag = tag or ref.tag
+        image_url = ref.url
 
         if username or password:
             if not (username and password):
@@ -203,3 +284,47 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 tag=image_info.tag,
             )
         )
+
+    async def _pull_image_by_oci(
+        self,
+        ref: str | OCIReference | UUID,
+        *,
+        tag: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        timeout: float | None = None,
+    ) -> _ImageT:
+        """Resolve an image by tag, falling back to import if not found.
+
+        Derives the target tag from the ``tag`` parameter or from the reference itself,
+        then tries to find an existing image with that tag. If the image does not exist,
+        triggers an import and returns the result.
+
+        Args:
+            ref: UUID, OCI reference string, or OCIReference of the image.
+            tag: Tag override; if provided, replaces the tag from the reference.
+            username: Registry username for authenticated imports.
+            password: Registry password for authenticated imports.
+            timeout: Maximum seconds to wait for the import operation.
+
+        Returns:
+            Resolved or imported image object.
+
+        Raises:
+            NotFoundError: If ref is a UUID and the image does not exist.
+
+        """
+        ref = self._parse_ref(ref)
+        if tag and isinstance(ref, OCIReference):
+            ref = OCIReference(
+                url=ref.url,
+                tag=tag,
+            )
+        try:
+            logger.debug(f"Attempting to use existing image: {ref}")
+            return await self._use_image(ref, strict=True)
+        except NotFoundError:
+            if isinstance(ref, UUID):
+                raise
+            logger.debug(f"Falling back to import: {ref}")
+            return await self._import_image(ref, tag=tag, username=username, password=password, timeout=timeout)

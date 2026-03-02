@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from contree_sdk._internals.utils.deprecation import deprecated
 from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImage
@@ -16,9 +17,11 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
         async for image in self._iter():
             yield image
 
-    def use(self, tag_or_uuid: str | UUID) -> ContreeImage:
-        return self._use_image(tag_or_uuid)
+    @keep_signature(_ImagesBaseManager[ContreeImage]._use_image)
+    async def use(self, *args, **kwargs) -> ContreeImage:
+        return await self._use_image(*args, **kwargs)
 
+    @deprecated("You can migrate to use() or oci() methods instead")
     async def pull(
         self,
         url_or_tag_or_uuid: str | UUID,
@@ -31,3 +34,13 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
         return await self._pull_image(
             url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password, timeout=timeout
         )
+
+    @keep_signature(_ImagesBaseManager[ContreeImage]._pull_image_by_oci)
+    async def oci(self, *args, **kwargs) -> ContreeImage:
+        return await self._pull_image_by_oci(*args, **kwargs)
+
+    docker = podman = pull_by_oci = oci
+
+    @keep_signature(_ImagesBaseManager[ContreeImage]._import_image)
+    async def import_from(self, *args, **kwargs) -> ContreeImage:
+        return await self._import_image(*args, **kwargs)

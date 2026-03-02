@@ -185,7 +185,7 @@ class _ImageLikeBase:
             env=dict(env or {}),
             cwd=cwd,
             timeout=timeout,
-            tag=tag or None,  # todo use tag later
+            tag=tag or None,
             hostname=hostname or "hostname",
             stdin=stdin,
             files=self._prepare_files(files or []),
@@ -304,7 +304,7 @@ class _ImageLikeBase:
                     args=req.args or [],
                     env=req.env,
                     shell=bool(req.shell),
-                    cwd=req.cwd or "/root",
+                    cwd=req.cwd or "",
                     disposable=req.disposable,
                     timeout=round(timeout or self._client.config.operation_timeout),
                     stdin=stdin,
@@ -321,6 +321,8 @@ class _ImageLikeBase:
         new_self.uuid = new_uuid and UUID(new_uuid)  # type: ignore[reportAttributeAccessIssue]
         new_self.tag = result.tag  # type: ignore[reportAttributeAccessIssue]
         new_self._result = ContreeResult.from_result(image_metadata, request=req)
+        if req.tag:
+            new_self = await new_self._tag_as(req.tag)
         return new_self
 
     # inspect methods
@@ -404,3 +406,34 @@ class _ImageLikeBase:
     def elapsed(self) -> timedelta:
         """Time elapsed during execution."""
         return self.result.elapsed_time
+
+    async def _tag_as(self: _T, tag: str | None) -> _T:
+        """Tag this image with the specified tag, or remove the tag if None.
+
+        Args:
+            tag: Tag name to apply to the image, or None to remove the tag.
+
+        Returns:
+            New instance with updated tag.
+
+        """
+        if tag is None:
+            return await self._untag()
+        with wrap_api_call():
+            await self._client._api.tag_image(str(self.uuid), tag)
+        new_self = self._copy_self(clear=False)
+        new_self.tag = tag
+        return new_self
+
+    async def _untag(self: _T) -> _T:
+        """Remove the tag from this image.
+
+        Returns:
+            New instance with tag set to None.
+
+        """
+        with wrap_api_call():
+            await self._client._api.untag_image(str(self.uuid))
+        new_self = self._copy_self(clear=False)
+        new_self.tag = None
+        return new_self
