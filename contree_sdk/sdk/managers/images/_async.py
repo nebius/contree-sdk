@@ -21,7 +21,7 @@ class ImagesManager(_ImagesBaseManager[ContreeImage]):
     async def use(self, *args, **kwargs) -> ContreeImage:
         return await self._use_image(*args, **kwargs)
 
-    @deprecated("Use use() or oci() instead")
+    @deprecated("You can migrate to use() or oci() methods instead")
     async def pull(
         self,
         url_or_tag_or_uuid: str | UUID,
