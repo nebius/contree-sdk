@@ -4,7 +4,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = client.images.use("busybox:latest")
+    image = await client.images.use("busybox:latest")
     print(f"Using {image=}")
 
     result = await image.run(shell="echo 'Hello World'")

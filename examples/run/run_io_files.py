@@ -6,7 +6,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = client.images.use("busybox:latest")
+    image = await client.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: File as stdin input")
