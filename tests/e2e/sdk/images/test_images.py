@@ -32,7 +32,8 @@ async def test_get_all_images(client_type, contree: Contree, contree_s: ContreeS
 
 
 def test_oci_image_by_tag_s(contree_s: ContreeSync, image_tag):
-    image = contree_s.images.oci(image_tag)
+    image = contree_s.images.oci(image_tag, tag="")
+
     assert isinstance(image.uuid, UUID)
     assert isinstance(image, ContreeImageSync)
     assert image.tag == image_tag

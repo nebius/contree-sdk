@@ -11,7 +11,8 @@ from uuid import UUID
 from typing_extensions import TypeVar
 
 from contree_sdk._internals.client.client import ContreeClient
-from contree_sdk._internals.models.instance import InstanceOperationResult
+from contree_sdk._internals.models.image_import import ImageImportRequest
+from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
 from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.config import ContreeConfig
@@ -71,6 +72,10 @@ class _ContreeBase:
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
+        self._operations = {
+            ImageImportRequest: (self._api.start_import_image,),
+            InstanceSpawnRequest: (self._api.spawn_instance,),
+        }
 
     @property
     def config(self) -> ContreeConfig:
@@ -84,6 +89,13 @@ class _ContreeBase:
             base_url=config.base_url,
             transport_timeout=config.transport_timeout,
         )
+
+    # operations management
+
+    async def _start_operation(self, request: ImageImportRequest | InstanceSpawnRequest) -> UUID:
+        start_method, *_ = self._operations[type(request)]
+        operation_id = await start_method(request)
+        return UUID(operation_id)
 
     @asynccontextmanager
     async def _operation_canceller(self, operation_uuid: UUID):

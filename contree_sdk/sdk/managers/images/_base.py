@@ -260,14 +260,14 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             registry = PublicRegistryInfo(url=image_url)
 
         timeout = timeout or self._client.config.operation_import_timeout or self._client.config.operation_timeout
-        with wrap_api_call():
-            operation_uuid = await self._client._api.start_import_image(
-                ImageImportRequest(
-                    registry=registry,
-                    tag=new_tag,
-                    timeout=round(timeout),
-                )
+
+        operation_uuid = await self._client._start_operation(
+            ImageImportRequest(
+                registry=registry,
+                tag=new_tag,
+                timeout=round(timeout),
             )
+        )
         _, image_info = await self._client._wait_operation(
             operation_uuid=operation_uuid,
             result_type=ImageImportRequest,
@@ -275,7 +275,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         )
         if image_info.image is None:
             raise FailedOperationError(
-                operation_uuid=operation_uuid if isinstance(operation_uuid, UUID) else UUID(operation_uuid),
+                operation_uuid=operation_uuid,
                 error="Image import returned no image uuid",
             )
         return self._image_by_data(
