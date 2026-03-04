@@ -13,7 +13,6 @@ from uuid import UUID
 import cattrs
 
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
-from contree_sdk._internals.utils.exception import wrap_api_call
 from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
@@ -327,8 +326,8 @@ class _ImageLikeBase:
     async def _ls(
         self, path: str | PurePosixPath, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
-        with wrap_api_call():
-            ls_res = await self._client._api.list_image_files(str(self.uuid), path)
+        uuid = self.uuid if self.uuid is not None else (await self._client._api.get_image_by_tag(self.tag or "")).uuid
+        ls_res = await self._client._api.list_image_files(uuid, path)
         result = []
         for obj in ls_res:
             type_ = dir_type if obj.is_dir else file_type
@@ -342,8 +341,8 @@ class _ImageLikeBase:
         return result
 
     async def _read_file(self, path: str | PurePosixPath) -> bytes:
-        with wrap_api_call():
-            return await self._client._api.download_image_file(self.uuid, path)
+        uuid = self.uuid if self.uuid is not None else (await self._client._api.get_image_by_tag(self.tag or "")).uuid
+        return await self._client._api.download_image_file(uuid, path)
 
     async def _download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path:
         image_path = PurePosixPath(image_path)
@@ -416,8 +415,7 @@ class _ImageLikeBase:
         """
         if tag is None:
             return await self._untag()
-        with wrap_api_call():
-            await self._client._api.tag_image(str(self.uuid), tag)
+        await self._client._api.tag_image(str(self.uuid), tag)
         new_self = self._copy_self(clear=False)
         new_self.tag = tag
         return new_self
@@ -429,8 +427,7 @@ class _ImageLikeBase:
             New instance with tag set to None.
 
         """
-        with wrap_api_call():
-            await self._client._api.untag_image(str(self.uuid))
+        await self._client._api.untag_image(str(self.uuid))
         new_self = self._copy_self(clear=False)
         new_self.tag = None
         return new_self
