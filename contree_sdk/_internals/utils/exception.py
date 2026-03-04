@@ -14,7 +14,7 @@ from contree_sdk.sdk.exceptions import (
     NotFoundError,
     UnknownContreeError,
 )
-from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo
+from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo, TooManyRequestsError
 
 
 # for now, it works with httpx errors
@@ -52,6 +52,8 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeErr
             class_ = NotFoundError
         elif response.status_code == 403:
             class_ = ForbiddenError
+        elif response.status_code == 429:
+            class_ = TooManyRequestsError
         return class_(**data, request=request_info, response=response_info)
 
     return UnknownContreeError(exception=exc)
