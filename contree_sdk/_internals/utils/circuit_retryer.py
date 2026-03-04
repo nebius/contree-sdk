@@ -1,6 +1,6 @@
 import logging
 from asyncio import FIRST_COMPLETED, Event, Lock, Semaphore, create_task, sleep, wait
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import datetime, timedelta
 from enum import auto
@@ -23,7 +23,7 @@ class CircuitState(StrEnum):
 class CircuitRetryer:
     def __init__(
         self,
-        exceptions: list[type[Exception]] | None = None,
+        exceptions: Sequence[type[Exception]] | None = None,
         recovery_timeout: timedelta = timedelta(seconds=20),
         recovery_threshold: int = 10,
         external_contexts: list[AbstractAsyncContextManager] | None = None,
