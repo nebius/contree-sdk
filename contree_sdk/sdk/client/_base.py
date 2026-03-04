@@ -5,6 +5,7 @@ from asyncio import Event, shield, sleep
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
+from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from typing_extensions import TypeVar
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
-from contree_sdk._internals.utils.exception import wrap_api_call
+from contree_sdk._internals.utils.circuit_retryer import CircuitRetryer
 from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
@@ -23,6 +24,7 @@ from contree_sdk.sdk.exceptions import (
     OperationTimedOutError,
     WrongOperationTypeError,
 )
+from contree_sdk.sdk.exceptions.api import TooManyRequestsError
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.operation import OperationStatus
 
@@ -72,9 +74,10 @@ class _ContreeBase:
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
+        exceptions = [TooManyRequestsError]
         self._operations = {
-            ImageImportRequest: (self._api.start_import_image,),
-            InstanceSpawnRequest: (self._api.spawn_instance,),
+            ImageImportRequest: (self._api.start_import_image, CircuitRetryer(exceptions=exceptions)),
+            InstanceSpawnRequest: (self._api.spawn_instance, CircuitRetryer(exceptions=exceptions)),
         }
 
     @property
@@ -93,9 +96,8 @@ class _ContreeBase:
     # operations management
 
     async def _start_operation(self, request: ImageImportRequest | InstanceSpawnRequest) -> UUID:
-        start_method, *_ = self._operations[type(request)]
-        operation_id = await start_method(request)
-        return UUID(operation_id)
+        start_method, circuit_retryer = self._operations[type(request)]
+        return UUID(await circuit_retryer(partial(start_method, request)))
 
     @asynccontextmanager
     async def _operation_canceller(self, operation_uuid: UUID):
@@ -107,8 +109,7 @@ class _ContreeBase:
                 await shield(self._cancel_operation(operation_uuid=operation_uuid))
 
     async def _cancel_operation(self, operation_uuid: UUID):
-        with wrap_api_call():
-            await self._api.cancel_operation(operation_uuid)
+        await self._api.cancel_operation(operation_uuid)
 
     async def _wait_operation(
         self,
@@ -131,8 +132,7 @@ class _ContreeBase:
                     raise OperationTimedOutError(operation_uuid=operation_uuid)
                 spent = (datetime.now() - started).total_seconds()
                 try:
-                    with wrap_api_call():
-                        resp = await self._api.get_operation_status(operation_uuid)
+                    resp = await self._api.get_operation_status(operation_uuid)
                 except NotFoundError:
                     if not_founds_num >= self.config.operation_poll_not_found_limit:
                         raise

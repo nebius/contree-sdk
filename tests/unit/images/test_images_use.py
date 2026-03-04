@@ -50,15 +50,15 @@ async def test_use_image_await_passes_tag_spec(
     op = create_operation_model(result_uuid, result_uuid, process_state, resource_usage, "", OperationStatus.SUCCESS)
 
     with (
-        patch.object(fake_contree._api, "spawn_instance", new_callable=AsyncMock) as spawn_mock,
+        patch.object(fake_contree, "_start_operation", new_callable=AsyncMock) as start_mock,
         patch.object(fake_contree, "_wait_operation", new_callable=AsyncMock) as wait_mock,
     ):
-        spawn_mock.return_value = str(uuid4())
+        start_mock.return_value = result_uuid
         wait_mock.return_value = (op.metadata, op.result)
         await running
 
-    spawn_mock.assert_called_once()
-    assert spawn_mock.call_args[0][0].image == "tag:my-tag:latest"
+    start_mock.assert_called_once()
+    assert start_mock.call_args[0][0].image == "tag:my-tag:latest"
 
 
 async def test_use_with_uuid_string(fake_contree: Contree):
