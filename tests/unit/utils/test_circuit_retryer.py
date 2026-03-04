@@ -475,6 +475,58 @@ async def test_healthy_circuit_opens_on_failures():
     assert all(g >= 0.04 for g in gaps)
 
 
+async def test_retry_max_amount_raises_after_limit():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=10),
+        retry_interval=timedelta(seconds=0),
+        retry_max_amount=2,
+    )
+    calls = 0
+
+    async def always_fails():
+        nonlocal calls
+        calls += 1
+        raise ValueError("fail")
+
+    with pytest.raises(ValueError):
+        await circuit(always_fails)
+
+    assert calls == 3
+
+
+async def test_retry_timeout_raises_after_deadline():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=10),
+        retry_interval=timedelta(seconds=0.01),
+        retry_timeout=timedelta(seconds=0.05),
+    )
+
+    async def always_fails():
+        raise ValueError("fail")
+
+    with pytest.raises(ValueError):
+        await circuit(always_fails)
+
+
+async def test_max_failures_cuts_off_all_parallel_callers():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=10),
+        retry_interval=timedelta(seconds=0),
+        retry_max_amount=100,
+        max_failures=3,
+    )
+
+    async def always_fails():
+        raise ValueError("parallel fail")
+
+    results = await asyncio.gather(*[circuit(always_fails) for _ in range(5)], return_exceptions=True)
+
+    assert all(isinstance(r, ValueError) for r in results)
+
+
 async def test_many_parallel_calls_under_load(circuit):
     processed = []
     lock = asyncio.Lock()
