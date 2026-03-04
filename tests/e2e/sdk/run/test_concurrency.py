@@ -10,7 +10,7 @@ _PARALLEL_IMPORTS = 2
 _PARALLEL_RUNS = 3
 
 
-async def test_parallel_imports_succeed_under_low_limits(low_limits_contree: Contree):
+async def test_parallel_imports_succeed_under_low_limits(low_limits_contree: Contree, *, check_timing: bool = True):
     completion_times = []
 
     async def import_and_record():
@@ -22,10 +22,11 @@ async def test_parallel_imports_succeed_under_low_limits(low_limits_contree: Con
 
     assert len(results) == _PARALLEL_IMPORTS
     assert all(isinstance(r, ContreeImage) for r in results)
-    assert max(completion_times) - min(completion_times) > 1.0
+    if check_timing:
+        assert max(completion_times) - min(completion_times) > 1.0
 
 
-async def test_parallel_runs_succeed_under_low_limits(low_limits_contree: Contree):
+async def test_parallel_runs_succeed_under_low_limits(low_limits_contree: Contree, *, check_timing: bool = True):
     images = await low_limits_contree.images()
     image = images[0]
 
@@ -42,4 +43,5 @@ async def test_parallel_runs_succeed_under_low_limits(low_limits_contree: Contre
     assert all(isinstance(r, ContreeImage) for r in results)
     assert all(r.stdout == "hello\n" for r in results)
     assert all(r.exit_code == 0 for r in results)
-    assert max(completion_times) - min(completion_times) > 1.0
+    if check_timing:
+        assert max(completion_times) - min(completion_times) > 1.0
