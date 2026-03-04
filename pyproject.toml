@@ -226,6 +226,7 @@ extend-ignore = [
     "PLR2004", # magic-value-comparison
     "PT011",   # pytest-raises-too-broad
     "PERF",    # perflint
+    "PT028",   # pytest-parameter-with-default-argument
 ]
 
 "tests/**/test_*.py" = [
