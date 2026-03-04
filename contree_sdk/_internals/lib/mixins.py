@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from httpx import AsyncClient, Client, Request, Response
 
 from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
+from contree_sdk._internals.utils.exception import wrap_api_call
 
 
 if TYPE_CHECKING:
@@ -19,9 +20,10 @@ class SyncClientMixin:
         return self._client.send(request, follow_redirects=True)
 
     def _handle_api_call(self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict) -> ReturnType | dict | Response:
-        request = self._build_request(endpoint_info=endpoint_info, data=data)
-        resp = self._send_request(request)
-        return self._parse_response(response=resp, endpoint_info=endpoint_info)
+        with wrap_api_call():
+            request = self._build_request(endpoint_info=endpoint_info, data=data)
+            resp = self._send_request(request)
+            return self._parse_response(response=resp, endpoint_info=endpoint_info)
 
 
 class AsyncClientMixin:
@@ -42,7 +44,8 @@ class AsyncClientMixin:
     async def _handle_api_call(
         self: ClientBase, endpoint_info: ApiEndpointInfo, data: dict
     ) -> ReturnType | dict | Response:
-        request = self._build_request(endpoint_info=endpoint_info, data=data)
+        with wrap_api_call():
+            request = self._build_request(endpoint_info=endpoint_info, data=data)
 
-        resp = await self._send_request(request)
-        return self._parse_response(response=resp, endpoint_info=endpoint_info)
+            resp = await self._send_request(request)
+            return self._parse_response(response=resp, endpoint_info=endpoint_info)
