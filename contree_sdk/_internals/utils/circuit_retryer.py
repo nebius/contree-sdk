@@ -23,12 +23,14 @@ class CircuitState(StrEnum):
 class CircuitRetryer:
     def __init__(
         self,
-        exceptions: list[type[Exception]],
+        exceptions: list[type[Exception]] | None = None,
         recovery_timeout: timedelta = timedelta(seconds=20),
+        recovery_threshold: int = 10,
         external_contexts: list[AbstractAsyncContextManager] | None = None,
+        retry_interval: timedelta = timedelta(seconds=1),
     ):
         self.exceptions = exceptions or [Exception]
-        self.recovery_threshold = 10
+        self.recovery_threshold = recovery_threshold
         self.recovery_timeout = recovery_timeout
         self.external_contexts = external_contexts or []
 
@@ -47,8 +49,7 @@ class CircuitRetryer:
 
         # retries
         self._retry_lock = Lock()
-        self.retry_timeout = timedelta(seconds=60)
-        self.retry_interval = timedelta(seconds=1)
+        self.retry_interval = retry_interval
 
         # claim
         self._claim_lock = Lock()
@@ -75,9 +76,9 @@ class CircuitRetryer:
                 create_task(self._closed_event.wait()),  # if circuit is fully closed
                 create_task(self._wait_recovery()),  # if circuit is recovered by time
                 create_task(self._middle_semaphore.acquire()),  # if circuit is in middle state, wait for more succeeds
-                create_task(
+                create_task(  # acquire retry lock to pass only one retry
                     exit_stack.enter_async_context(self._with_retry_lock())
-                ),  # acquire retry lock to pass only one retry
+                ),
             ]
             _, pending = await wait(coros, return_when=FIRST_COMPLETED)
             for coro in pending:
