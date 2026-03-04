@@ -16,7 +16,6 @@ def circuit():
     )
 
 
-@pytest.mark.asyncio
 async def test_successful_calls_work_normally(circuit):
     async def success_func():
         return "ok"
@@ -25,13 +24,12 @@ async def test_successful_calls_work_normally(circuit):
     assert result == "ok"
 
 
-@pytest.mark.asyncio
 async def test_temporary_failure_retries_and_succeeds():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=1),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     attempts = []
 
@@ -47,13 +45,12 @@ async def test_temporary_failure_retries_and_succeeds():
     assert len(attempts) >= 3
 
 
-@pytest.mark.asyncio
 async def test_circuit_keeps_retrying_on_persistent_failures():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     call_count = []
 
@@ -71,37 +68,12 @@ async def test_circuit_keeps_retrying_on_persistent_failures():
     assert len(call_count) > 3
 
 
-@pytest.mark.asyncio
-async def test_circuit_recovers_after_timeout():
-    circuit = CircuitRetryer(
-        exceptions=[ValueError],
-        recovery_timeout=timedelta(seconds=0.05),
-    )
-    circuit.retry_interval = timedelta(seconds=0.01)
-
-    call_phases = []
-
-    async def phased_api():
-        phase = len(call_phases)
-        call_phases.append(phase)
-
-        if phase < 2:
-            raise ValueError("initial failure")
-        return "recovered"
-
-    result = await circuit(phased_api)
-
-    assert result == "recovered"
-    assert len(call_phases) >= 2
-
-
-@pytest.mark.asyncio
 async def test_parallel_calls_with_mixed_success_failure():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     call_index = {"i": 0}
     lock = asyncio.Lock()
@@ -117,20 +89,19 @@ async def test_parallel_calls_with_mixed_success_failure():
             raise ValueError("occasional failure")
         return f"result_{idx}"
 
-    results = await asyncio.gather(*[circuit(mixed_api) for _ in range(10)], return_exceptions=False)
+    results = await asyncio.gather(*[circuit(mixed_api) for _ in range(10)])
 
     assert len(results) == 10
     assert all(isinstance(r, str) for r in results)
 
 
-@pytest.mark.asyncio
 async def test_parallel_calls_during_recovery():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
+        recovery_threshold=3,
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
-    circuit.recovery_threshold = 3
 
     call_count = {"total": 0}
     lock = asyncio.Lock()
@@ -152,45 +123,46 @@ async def test_parallel_calls_during_recovery():
     assert all("success" in r for r in results)
 
 
-@pytest.mark.asyncio
-async def test_parallel_failures_only_one_retries():
+async def test_open_state_serializes_retries():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
-        recovery_timeout=timedelta(seconds=0.1),
+        recovery_timeout=timedelta(seconds=10),
+        retry_interval=timedelta(seconds=0.02),
     )
-    circuit.retry_interval = timedelta(seconds=0.05)
 
-    retry_starts = []
+    await circuit._fail()
+
+    current = 0
+    max_concurrent = 0
     lock = asyncio.Lock()
 
-    async def failing_api():
+    async def always_fails():
+        nonlocal current, max_concurrent
         async with lock:
-            if not retry_starts or asyncio.get_event_loop().time() - retry_starts[-1] > 0.04:
-                retry_starts.append(asyncio.get_event_loop().time())
-
+            current += 1
+            max_concurrent = max(max_concurrent, current)
+        await asyncio.sleep(0.01)
+        async with lock:
+            current -= 1
         raise ValueError("fail")
 
-    tasks = [asyncio.create_task(circuit(failing_api)) for _ in range(5)]
-
+    tasks = [asyncio.create_task(circuit(always_fails)) for _ in range(5)]
     await asyncio.sleep(0.2)
-
     for task in tasks:
         task.cancel()
-
         with suppress(asyncio.CancelledError):
             await task
 
-    assert len(retry_starts) >= 2
+    assert max_concurrent == 1
 
 
-@pytest.mark.asyncio
 async def test_parallel_calls_with_gradual_recovery():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
+        recovery_threshold=5,
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
-    circuit.recovery_threshold = 5
 
     success_count = {"count": 0}
     lock = asyncio.Lock()
@@ -209,17 +181,15 @@ async def test_parallel_calls_with_gradual_recovery():
     results = await asyncio.gather(*[circuit(gradually_recovering_api) for _ in range(8)])
 
     assert len(results) == 8
-    successful_results = [r for r in results if "success" in r]
-    assert len(successful_results) >= 5
+    assert all("success" in r for r in results)
 
 
-@pytest.mark.asyncio
 async def test_parallel_calls_handle_different_exception_types():
     circuit = CircuitRetryer(
         exceptions=[ValueError, ConnectionError],
         recovery_timeout=timedelta(seconds=0.1),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     call_index = {"i": 0}
     lock = asyncio.Lock()
@@ -251,7 +221,6 @@ async def test_parallel_calls_handle_different_exception_types():
     assert len(exceptions) == 1
 
 
-@pytest.mark.asyncio
 async def test_external_context_manager_wraps_calls():
     events = []
 
@@ -275,7 +244,6 @@ async def test_external_context_manager_wraps_calls():
     assert events == ["enter", "call", "exit"]
 
 
-@pytest.mark.asyncio
 async def test_non_retriable_exceptions_propagate_immediately(circuit):
     async def wrong_exception_func():
         raise RuntimeError("not a ValueError")
@@ -284,21 +252,21 @@ async def test_non_retriable_exceptions_propagate_immediately(circuit):
         await circuit(wrong_exception_func)
 
 
-@pytest.mark.asyncio
 async def test_multiple_failures_then_success():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     results = []
-    fail_count = [0]
+    fail_count = 0
 
     async def intermittent_api():
-        fail_count[0] += 1
-        if fail_count[0] % 3 == 0:
-            return f"success_{fail_count[0]}"
+        nonlocal fail_count
+        fail_count += 1
+        if fail_count % 3 == 0:
+            return f"success_{fail_count}"
         raise ValueError("intermittent")
 
     for _ in range(3):
@@ -309,54 +277,12 @@ async def test_multiple_failures_then_success():
     assert all("success" in r for r in results)
 
 
-@pytest.mark.asyncio
-async def test_race_concurrent_state_transitions():
-    circuit = CircuitRetryer(
-        exceptions=[ValueError],
-        recovery_timeout=timedelta(seconds=0.05),
-    )
-
-    tasks = []
-    for i in range(20):
-        if i % 2 == 0:
-            tasks.append(asyncio.create_task(circuit._fail()))
-        else:
-            tasks.append(asyncio.create_task(circuit._success()))
-
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    final_state = await circuit._refresh_state()
-    assert final_state in {CircuitState.OPEN, CircuitState.MIDDLE, CircuitState.CLOSED}
-
-
-@pytest.mark.asyncio
-async def test_race_fail_during_success():
-    circuit = CircuitRetryer(
-        exceptions=[ValueError],
-        recovery_timeout=timedelta(seconds=0.1),
-    )
-
-    async def alternating_operation(should_fail):
-        await asyncio.sleep(0.001)
-        if should_fail:
-            await circuit._fail()
-        else:
-            await circuit._success()
-
-    tasks = [asyncio.create_task(alternating_operation(i % 2 == 0)) for i in range(20)]
-
-    await asyncio.gather(*tasks)
-
-    assert circuit._middle_semaphore._value >= 0
-
-
-@pytest.mark.asyncio
 async def test_no_deadlock_all_waiters_get_through():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
+        retry_interval=timedelta(seconds=0.01),
     )
-    circuit.retry_interval = timedelta(seconds=0.01)
 
     completed = []
 
@@ -370,31 +296,30 @@ async def test_no_deadlock_all_waiters_get_through():
     assert len(completed) == 20
 
 
-@pytest.mark.asyncio
 async def test_no_deadlock_retry_lock_released_on_success():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
+        retry_interval=timedelta(seconds=0.02),
     )
-    circuit.retry_interval = timedelta(seconds=0.02)
 
-    call_count = [0]
+    call_count = 0
 
     async def flaky_then_success():
-        call_count[0] += 1
-        if call_count[0] < 2:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 2:
             raise ValueError("first fails")
         return "ok"
 
     result1 = await circuit(flaky_then_success)
     assert result1 == "ok"
 
-    call_count[0] = 0
+    call_count = 0
     result2 = await circuit(flaky_then_success)
     assert result2 == "ok"
 
 
-@pytest.mark.asyncio
 async def test_no_deadlock_high_contention_on_state_lock():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
@@ -413,7 +338,6 @@ async def test_no_deadlock_high_contention_on_state_lock():
     assert len(results) == 50
 
 
-@pytest.mark.asyncio
 async def test_race_gate_cancel_during_entry():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
@@ -436,13 +360,22 @@ async def test_race_gate_cancel_during_entry():
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test_no_deadlock_external_context_blocks():
     slow_sem = asyncio.Semaphore(1)
     circuit = CircuitRetryer(exceptions=[ValueError], external_contexts=[slow_sem])
 
+    active = 0
+    max_active = 0
+    lock = asyncio.Lock()
+
     async def slow_call(idx):
+        nonlocal active, max_active
+        async with lock:
+            active += 1
+            max_active = max(max_active, active)
         await asyncio.sleep(0.02)
+        async with lock:
+            active -= 1
         return idx
 
     async def make_call(idx):
@@ -451,23 +384,9 @@ async def test_no_deadlock_external_context_blocks():
     results = await asyncio.wait_for(asyncio.gather(*[make_call(i) for i in range(5)]), timeout=1.0)
 
     assert len(results) == 5
+    assert max_active <= 1
 
 
-@pytest.mark.asyncio
-async def test_multiple_concurrent_calls_succeed(circuit):
-    async def api_call(value):
-        await asyncio.sleep(0.01)
-        return value
-
-    async def make_call(value):
-        return await circuit(lambda: api_call(value))
-
-    results = await asyncio.gather(*[make_call(i) for i in range(10)])
-
-    assert results == list(range(10))
-
-
-@pytest.mark.asyncio
 async def test_parallel_calls_respect_external_semaphore():
     rate_limiter = asyncio.Semaphore(3)
     circuit = CircuitRetryer(exceptions=[ValueError], external_contexts=[rate_limiter])
@@ -496,7 +415,66 @@ async def test_parallel_calls_respect_external_semaphore():
     assert active["max"] <= 3
 
 
-@pytest.mark.asyncio
+async def test_recovery_threshold_exact_boundary():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=10),
+        recovery_threshold=3,
+    )
+
+    await circuit._fail()
+
+    for _ in range(3):
+        await circuit._success()
+    assert await circuit._refresh_state() != CircuitState.CLOSED
+
+    await circuit._success()
+    assert await circuit._refresh_state() == CircuitState.CLOSED
+
+
+async def test_recovery_via_timeout_not_retry_lock():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=0.05),
+        retry_interval=timedelta(seconds=10),
+    )
+
+    await circuit._fail()
+    assert await circuit._refresh_state() == CircuitState.OPEN
+
+    result = await asyncio.wait_for(circuit(lambda: asyncio.sleep(0)), timeout=0.5)
+    assert result is None
+    assert await circuit._refresh_state() == CircuitState.CLOSED
+
+
+async def test_healthy_circuit_opens_on_failures():
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        recovery_timeout=timedelta(seconds=10),
+        retry_interval=timedelta(seconds=0.05),
+    )
+
+    assert await circuit._refresh_state() == CircuitState.CLOSED
+
+    await circuit._fail()
+    assert await circuit._refresh_state() == CircuitState.OPEN
+
+    call_times = []
+
+    async def always_fails():
+        call_times.append(asyncio.get_event_loop().time())
+        raise ValueError("still down")
+
+    task = asyncio.create_task(circuit(always_fails))
+    await asyncio.sleep(0.18)
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+    gaps = [call_times[i + 1] - call_times[i] for i in range(len(call_times) - 1)]
+    assert all(g >= 0.04 for g in gaps)
+
+
 async def test_many_parallel_calls_under_load(circuit):
     processed = []
     lock = asyncio.Lock()
