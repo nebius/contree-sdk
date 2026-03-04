@@ -4,10 +4,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import datetime, timedelta
 from enum import auto
-from math import e, log1p
 from typing import TypeVar
 
 from strenum import StrEnum
+
+from contree_sdk._internals.utils.other import get_interval
 
 
 R = TypeVar("R")
@@ -107,9 +108,11 @@ class CircuitRetryer:
     async def _with_retry_lock(self):
         async with self._retry_lock:
             failures_ratio = min(self._failures / self.max_failures, 1.0) if self.max_failures else 0.0
-            interval_min = self.retry_interval_min.total_seconds()
-            interval_max = self.retry_interval_max.total_seconds()
-            interval = interval_min + (interval_max - interval_min) * log1p(failures_ratio * (e - 1))
+            interval = get_interval(
+                self.retry_interval_min.total_seconds(),
+                self.retry_interval_max.total_seconds(),
+                failures_ratio,
+            )
             interval = min(interval, self.retry_timeout.total_seconds())
             await sleep(interval)
             yield
