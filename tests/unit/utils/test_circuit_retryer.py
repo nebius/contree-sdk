@@ -28,7 +28,7 @@ async def test_temporary_failure_retries_and_succeeds():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=1),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     attempts = []
@@ -49,7 +49,8 @@ async def test_circuit_keeps_retrying_on_persistent_failures():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
+        retry_interval_max=timedelta(seconds=0.01),
     )
 
     call_count = []
@@ -72,7 +73,7 @@ async def test_parallel_calls_with_mixed_success_failure():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     call_index = {"i": 0}
@@ -100,7 +101,7 @@ async def test_parallel_calls_during_recovery():
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
         recovery_threshold=3,
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     call_count = {"total": 0}
@@ -127,7 +128,7 @@ async def test_open_state_serializes_retries():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=10),
-        retry_interval=timedelta(seconds=0.02),
+        retry_interval_min=timedelta(seconds=0.02),
     )
 
     await circuit._fail()
@@ -161,7 +162,7 @@ async def test_parallel_calls_with_gradual_recovery():
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
         recovery_threshold=5,
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     success_count = {"count": 0}
@@ -188,7 +189,7 @@ async def test_parallel_calls_handle_different_exception_types():
     circuit = CircuitRetryer(
         exceptions=[ValueError, ConnectionError],
         recovery_timeout=timedelta(seconds=0.1),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     call_index = {"i": 0}
@@ -256,7 +257,7 @@ async def test_multiple_failures_then_success():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     results = []
@@ -281,7 +282,7 @@ async def test_no_deadlock_all_waiters_get_through():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
     )
 
     completed = []
@@ -300,7 +301,7 @@ async def test_no_deadlock_retry_lock_released_on_success():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.1),
-        retry_interval=timedelta(seconds=0.02),
+        retry_interval_min=timedelta(seconds=0.02),
     )
 
     call_count = 0
@@ -436,7 +437,7 @@ async def test_recovery_via_timeout_not_retry_lock():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=0.05),
-        retry_interval=timedelta(seconds=10),
+        retry_interval_min=timedelta(seconds=10),
     )
 
     await circuit._fail()
@@ -451,7 +452,7 @@ async def test_healthy_circuit_opens_on_failures():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=10),
-        retry_interval=timedelta(seconds=0.05),
+        retry_interval_min=timedelta(seconds=0.05),
     )
 
     assert await circuit._refresh_state() == CircuitState.CLOSED
@@ -479,7 +480,7 @@ async def test_retry_max_amount_raises_after_limit():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=10),
-        retry_interval=timedelta(seconds=0),
+        retry_interval_min=timedelta(seconds=0),
         retry_max_amount=2,
     )
     calls = 0
@@ -499,7 +500,7 @@ async def test_retry_timeout_raises_after_deadline():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=10),
-        retry_interval=timedelta(seconds=0.01),
+        retry_interval_min=timedelta(seconds=0.01),
         retry_timeout=timedelta(seconds=0.05),
     )
 
@@ -514,7 +515,7 @@ async def test_max_failures_cuts_off_all_parallel_callers():
     circuit = CircuitRetryer(
         exceptions=[ValueError],
         recovery_timeout=timedelta(seconds=10),
-        retry_interval=timedelta(seconds=0),
+        retry_interval_min=timedelta(seconds=0),
         retry_max_amount=100,
         max_failures=3,
     )

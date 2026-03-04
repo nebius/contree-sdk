@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from datetime import datetime, timedelta
 from enum import auto
+from math import e, log1p
 from typing import TypeVar
 
 from strenum import StrEnum
@@ -42,7 +43,10 @@ class CircuitRetryer:
             the circuit from MIDDLE state.
         external_contexts: Async context managers entered on every call before
             the circuit gate (e.g. rate-limit semaphores).
-        retry_interval: Minimum pause between consecutive retries in OPEN state.
+        retry_interval_min: Minimum pause between consecutive retries in OPEN state
+            (used when failures are low).
+        retry_interval_max: Maximum pause between retries, reached when failures
+            approach max_failures. Interval grows logarithmically between min and max.
         retry_timeout: Maximum total time a single __call__ invocation may spend
             retrying before the exception is re-raised.
         retry_max_amount: Maximum number of retry attempts per __call__ invocation.
@@ -57,7 +61,8 @@ class CircuitRetryer:
         recovery_timeout: timedelta = timedelta(seconds=20),
         recovery_threshold: int = 10,
         external_contexts: list[AbstractAsyncContextManager] | None = None,
-        retry_interval: timedelta = timedelta(seconds=1),
+        retry_interval_min: timedelta = timedelta(seconds=1),
+        retry_interval_max: timedelta = timedelta(seconds=30),
         retry_timeout: timedelta = timedelta(minutes=60),
         retry_max_amount: int = 100,
         max_failures: int = 1000,
@@ -83,7 +88,8 @@ class CircuitRetryer:
 
         # retries
         self._retry_lock = Lock()
-        self.retry_interval = retry_interval
+        self.retry_interval_min = retry_interval_min
+        self.retry_interval_max = retry_interval_max
         self.retry_max_amount = retry_max_amount
         self.retry_timeout = retry_timeout
 
@@ -100,7 +106,12 @@ class CircuitRetryer:
     @asynccontextmanager
     async def _with_retry_lock(self):
         async with self._retry_lock:
-            await sleep(self.retry_interval.total_seconds())
+            failures_ratio = min(self._failures / self.max_failures, 1.0) if self.max_failures else 0.0
+            interval_min = self.retry_interval_min.total_seconds()
+            interval_max = self.retry_interval_max.total_seconds()
+            interval = interval_min + (interval_max - interval_min) * log1p(failures_ratio * (e - 1))
+            interval = min(interval, self.retry_timeout.total_seconds())
+            await sleep(interval)
             yield
 
     @asynccontextmanager
@@ -109,7 +120,7 @@ class CircuitRetryer:
 
         Waits for the first of: circuit CLOSED, recovery timeout elapsed,
         MIDDLE-state semaphore slot available, or serializing retry lock
-        acquired (OPEN state, one request at a time with retry_interval delay).
+        acquired (OPEN state, one at a time with logarithmically growing delay).
         External contexts are entered before the wait and released on exit.
 
         """
