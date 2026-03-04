@@ -224,6 +224,7 @@ extend-ignore = [
     "RUF029",  # unused-async
     "PLR2004", # magic-value-comparison
     "PT011",   # pytest-raises-too-broad
+    "PERF",    # perflint
 ]
 
 "tests/**/test_*.py" = [
