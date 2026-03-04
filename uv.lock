@@ -473,7 +473,7 @@ requires-dist = [
 
 [[package]]
 name = "contree-sdk"
-version = "0.2.0.dev1"
+version = "0.3.0.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
