@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field, replace
+from datetime import timedelta
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ class ContreeConfig:
 
     default_truncate_output_at: int = 65535
     """Default truncate output at which to truncate stdout and stderr."""
+
+    token_expiration_warning_threshold: timedelta = field(default_factory=lambda: timedelta(hours=24))
+    """Warn if token expires within this duration."""
 
     images_list_batch_size: int = 100
     """Batch size for listing images."""

@@ -292,6 +292,8 @@ class _ImageLikeBase:
         if timeout is None:
             timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
 
+        self._client._warn_if_timeout_exceeds_limit(timeout, "instance_max_timeout")
+
         operation_uuid = await self._client._start_operation(
             InstanceSpawnRequest(
                 command=req.command,
