@@ -4,8 +4,9 @@ import logging
 from asyncio import Event, shield, sleep
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
+from time import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -90,7 +91,23 @@ class _ContreeBase:
     async def _get_token_info(self, refresh: bool = False) -> WhoAmI:
         if refresh or self._token_info is None:
             self._token_info = await self._api.whoami()
+            self._warn_token_expiration(self._token_info)
         return self._token_info
+
+    def _warn_token_expiration(self, token_info: WhoAmI) -> None:
+        if token_info.token_expiration is None:
+            return
+        remaining = timedelta(seconds=token_info.token_expiration - time())
+        if remaining < self._config.token_expiration_warning_threshold:
+            hours = remaining.total_seconds() / 3600
+            logger.warning(f"Token expires in {hours:.0f} hours")
+
+    def _warn_if_timeout_exceeds_limit(self, timeout: float, limit_key: str) -> None:
+        if self._token_info is None:
+            return
+        limit = self._token_info.limits.get(limit_key)
+        if limit is not None and timeout > limit:
+            logger.warning(f"Timeout {timeout:.0f}s exceeds {limit_key}={limit}")
 
     @staticmethod
     def _create_api_client(config: ContreeConfig) -> ContreeClient:
