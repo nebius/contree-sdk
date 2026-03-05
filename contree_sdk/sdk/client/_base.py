@@ -26,6 +26,7 @@ from contree_sdk.sdk.exceptions import (
 )
 from contree_sdk.sdk.exceptions.api import TooManyRequestsError
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
+from contree_sdk.utils.models.auth import WhoAmI
 from contree_sdk.utils.models.operation import OperationStatus
 
 
@@ -74,6 +75,7 @@ class _ContreeBase:
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
+        self._token_info: WhoAmI | None = None
         exceptions = [TooManyRequestsError]
         self._operations = {
             ImageImportRequest: (self._api.start_import_image, CircuitRetryer(exceptions=exceptions)),
@@ -84,6 +86,11 @@ class _ContreeBase:
     def config(self) -> ContreeConfig:
         """Current client configuration."""
         return self._config
+
+    async def _get_token_info(self, refresh: bool = False) -> WhoAmI:
+        if refresh or self._token_info is None:
+            self._token_info = await self._api.whoami()
+        return self._token_info
 
     @staticmethod
     def _create_api_client(config: ContreeConfig) -> ContreeClient:

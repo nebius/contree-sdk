@@ -3,6 +3,7 @@ from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk.config import ContreeConfig
+from tests.unit.fixtures.auth import api_fake_whoami, token_uuid
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
 from tests.unit.fixtures.images import (
     api_fake_forbidden,
@@ -61,6 +62,7 @@ __all__ = [
     "api_fake_session_multiple_runs",
     "api_fake_thread_pool",
     "api_fake_upload",
+    "api_fake_whoami",
     "fake_contree",
     "fake_contree_config",
     "fake_contree_s",
@@ -76,6 +78,7 @@ __all__ = [
     "resource_usage",
     "result_image_uuid",
     "strict_httpx",
+    "token_uuid",
 ]
 
 
