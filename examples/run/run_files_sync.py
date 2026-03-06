@@ -26,7 +26,15 @@ def main(client: ContreeSync):
         result = image.run(shell="sh /file.sh", files={"file.sh": uploaded_file}).wait()
         print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 
-    print("\nExample 3: Multiple files working together")
+    print("\nExample 3: Bake files into a new image with apply_files")
+    with NamedTemporaryFile(mode="w", suffix=".txt") as f:
+        f.write("hello from baked file\n")
+        f.flush()
+        baked = image.apply_files({"baked.txt": f.name})
+        result = baked.run(shell="cat /baked.txt").wait()
+        print(f"File is present in new image: {result.stdout=}")
+
+    print("\nExample 4: Multiple files working together")
     with (
         NamedTemporaryFile(mode="w", suffix=".txt") as data_file,
         NamedTemporaryFile(mode="w", suffix=".sh") as script_file,

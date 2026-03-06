@@ -20,6 +20,7 @@ from tests.unit.fixtures.imports import (
 )
 from tests.unit.fixtures.operations import operation_id
 from tests.unit.fixtures.runs import (
+    api_fake_apply_files,
     api_fake_popen,
     api_fake_popen_communicate,
     api_fake_popen_env,
@@ -41,6 +42,7 @@ from tests.unit.fixtures.runs import (
 
 __all__ = [
     "add_file_responses",
+    "api_fake_apply_files",
     "api_fake_forbidden",
     "api_fake_images",
     "api_fake_import",

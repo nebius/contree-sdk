@@ -6,6 +6,20 @@ from subprocess import PIPE
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 
 
+async def test_apply_files(image: ContreeImage, test_txt_path: Path):
+    result = await image.apply_files(test_txt_path)
+    assert isinstance(result, ContreeImage)
+    verified = await result.run(shell=f"cat /{test_txt_path.name} | grep line")
+    assert verified.stdout == "second line\nlast line\n"
+
+
+def test_apply_files_s(image_s: ContreeImageSync, test_txt_path: Path):
+    result = image_s.apply_files(test_txt_path)
+    assert isinstance(result, ContreeImageSync)
+    verified = result.run(shell=f"cat /{test_txt_path.name} | grep line").wait()
+    assert verified.stdout == "second line\nlast line\n"
+
+
 _shell_command = 'cat - ; echo "this is stdout" ; echo "this is stderr" 1>&2'
 _stdin = "my input\n"
 _stdout = _stdin + "this is stdout\n"

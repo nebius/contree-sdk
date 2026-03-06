@@ -5,7 +5,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = client.images.use("busybox:latest")
+    image = await client.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: Local file upload to image")
@@ -27,7 +27,15 @@ async def main(client: Contree):
         result = await image.run(shell="sh /file.sh", files={"file.sh": uploaded_file})
         print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 
-    print("\nExample 3: Multiple files working together")
+    print("\nExample 3: Bake files into a new image with apply_files")
+    with NamedTemporaryFile(mode="w", suffix=".txt") as f:
+        f.write("hello from baked file\n")
+        f.flush()
+        baked = await image.apply_files({"baked.txt": f.name})
+        result = await baked.run(shell="cat /baked.txt")
+        print(f"File is present in new image: {result.stdout=}")
+
+    print("\nExample 4: Multiple files working together")
     with (
         NamedTemporaryFile(mode="w", suffix=".txt") as data_file,
         NamedTemporaryFile(mode="w", suffix=".sh") as script_file,

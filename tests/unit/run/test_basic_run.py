@@ -1,5 +1,7 @@
 from pytest_httpx import HTTPXMock
 
+from tests.e2e.sdk.run.test_basic_run import test_apply_files as _test_apply_files
+from tests.e2e.sdk.run.test_basic_run import test_apply_files_s as _test_apply_files_s
 from tests.e2e.sdk.run.test_basic_run import test_basic_run as _test_basic_run
 from tests.e2e.sdk.run.test_basic_run import test_basic_run_s as _test_basic_run_s
 from tests.e2e.sdk.run.test_basic_run import test_preconfigured_run as _test_preconfigured_run
@@ -44,3 +46,11 @@ async def test_run_truncated_output(fake_image, api_fake_run_truncated: HTTPXMoc
 
 async def test_preconfigured_run(fake_image, api_fake_thread_pool: HTTPXMock):
     await _test_preconfigured_run(fake_image)
+
+
+async def test_apply_files(fake_image, test_txt_path, api_fake_apply_files: HTTPXMock):
+    await _test_apply_files(fake_image, test_txt_path)
+
+
+def test_apply_files_s(fake_image_s, test_txt_path, api_fake_apply_files: HTTPXMock):
+    _test_apply_files_s(fake_image_s, test_txt_path)
