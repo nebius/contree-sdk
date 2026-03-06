@@ -29,20 +29,19 @@ class UploadFileSpec:
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
         default_image_path: str = "/",
     ) -> list[UploadFileSpec]:
-        if isinstance(files, dict):
-            entries = files.items()
-        else:
-            entries = (
-                (f.path if isinstance(f, UploadFileSpec) else PurePosixPath(default_image_path) / Path(f).name, f)
-                for f in files
-            )
+        entries = files.items() if isinstance(files, dict) else ((None, f) for f in files)
         prepared_by_image_paths = {}
         for image_path, source in entries:
-            if image_path is None:
-                raise ValueError(f"UploadFileSpec must have a path when used in a list: {source}")
             if isinstance(source, UploadFileSpec):
+                if image_path is None:
+                    if isinstance(source.source, UploadedFile):
+                        raise ValueError(f"In file item {source} there's no information about path")
+
+                    image_path = PurePosixPath(default_image_path) / Path(source.source).name
                 item = replace(source, path=PurePosixPath(image_path))
             else:
+                if image_path is None:
+                    image_path = PurePosixPath(default_image_path) / Path(source).name
                 if isinstance(source, str):
                     source = Path(source)
                 item = cls(
@@ -50,6 +49,8 @@ class UploadFileSpec:
                     source=source,
                 )
 
+            if item.path is None:
+                raise ValueError(f"File item must have a path: {item}")
             if item.path in prepared_by_image_paths:
                 raise ValueError(
                     f"Duplicate destination path `{item.path}`: {prepared_by_image_paths[item.path]} and {item}"
