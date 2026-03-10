@@ -1,7 +1,8 @@
 [project]
 name = "contree-sdk"
-version = "0.2.0.dev1"
+version = "0.2.1.dev1"
 readme = "README.md"
+description = "SDK for ConTree container runtime with versioned filesystem state"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10, <3.15"
 
