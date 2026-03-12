@@ -1,9 +1,10 @@
 from datetime import timedelta
 from io import IOBase, StringIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from subprocess import PIPE
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
+from contree_sdk.utils.models.file import UploadFileSpec
 
 
 async def test_apply_files(image: ContreeImage, test_txt_path: Path):
@@ -70,6 +71,24 @@ def test_basic_run_s(image_s):
 
 def test_run_with_files_s(image_s, test_txt_path: Path):
     result = image_s.run(shell=f"cat /{test_txt_path.name} | grep line", files=[test_txt_path]).wait()
+    assert isinstance(result, ContreeImageSync)
+    assert result.stdout == "second line\nlast line\n"
+
+
+async def test_run_with_file_spec_path(image: ContreeImage, test_txt_path: Path):
+    result = await image.run(
+        shell="cat /data.txt | grep line",
+        files=[UploadFileSpec(source=test_txt_path, path=PurePosixPath("/data.txt"))],
+    )
+    assert isinstance(result, ContreeImage)
+    assert result.stdout == "second line\nlast line\n"
+
+
+def test_run_with_file_spec_path_s(image_s: ContreeImageSync, test_txt_path: Path):
+    result = image_s.run(
+        shell="cat /data.txt | grep line",
+        files=[UploadFileSpec(source=test_txt_path, path=PurePosixPath("/data.txt"))],
+    ).wait()
     assert isinstance(result, ContreeImageSync)
     assert result.stdout == "second line\nlast line\n"
 

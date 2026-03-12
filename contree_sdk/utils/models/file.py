@@ -33,10 +33,10 @@ class UploadFileSpec:
         prepared_by_image_paths = {}
         for image_path, source in entries:
             if isinstance(source, UploadFileSpec):
+                image_path = image_path or source.path
                 if image_path is None:
                     if isinstance(source.source, UploadedFile):
                         raise ValueError(f"In file item {source} there's no information about path")
-
                     image_path = PurePosixPath(default_image_path) / Path(source.source).name
                 item = replace(source, path=PurePosixPath(image_path))
             else:

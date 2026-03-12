@@ -1,3 +1,5 @@
+import json
+
 from pytest_httpx import HTTPXMock
 
 from tests.e2e.sdk.run.test_basic_run import test_apply_files as _test_apply_files
@@ -9,6 +11,8 @@ from tests.e2e.sdk.run.test_basic_run import test_run_file_io_s as _test_run_fil
 from tests.e2e.sdk.run.test_basic_run import test_run_io_input_s as _test_run_io_input_s
 from tests.e2e.sdk.run.test_basic_run import test_run_io_output_s as _test_run_io_output_s
 from tests.e2e.sdk.run.test_basic_run import test_run_truncated_output as _test_run_truncated_output
+from tests.e2e.sdk.run.test_basic_run import test_run_with_file_spec_path as _test_run_with_file_spec_path
+from tests.e2e.sdk.run.test_basic_run import test_run_with_file_spec_path_s as _test_run_with_file_spec_path_s
 from tests.e2e.sdk.run.test_basic_run import test_run_with_files_s as _test_run_with_files_s
 
 
@@ -26,6 +30,24 @@ def test_basic_run_s(fake_image_s, api_fake_run: HTTPXMock):
 
 def test_run_with_files_s(fake_image_s, test_txt_path, api_fake_run_with_files: HTTPXMock):
     _test_run_with_files_s(fake_image_s, test_txt_path)
+
+
+async def test_run_with_file_spec_path(fake_image, test_txt_path, api_fake_run_with_files: HTTPXMock):
+    await _test_run_with_file_spec_path(fake_image, test_txt_path)
+
+    [request] = [
+        r for r in api_fake_run_with_files.get_requests() if r.method == "POST" and r.url.path.endswith("/instances")
+    ]
+    assert set(json.loads(request.read().decode())["files"]) == {"/data.txt"}
+
+
+def test_run_with_file_spec_path_s(fake_image_s, test_txt_path, api_fake_run_with_files: HTTPXMock):
+    _test_run_with_file_spec_path_s(fake_image_s, test_txt_path)
+
+    [request] = [
+        r for r in api_fake_run_with_files.get_requests() if r.method == "POST" and r.url.path.endswith("/instances")
+    ]
+    assert set(json.loads(request.read().decode())["files"]) == {"/data.txt"}
 
 
 def test_run_io_input_s(fake_image_s, api_fake_run: HTTPXMock):
