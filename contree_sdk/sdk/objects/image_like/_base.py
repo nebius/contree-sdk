@@ -188,7 +188,7 @@ class _ImageLikeBase:
             tag=tag or None,
             hostname=hostname or "hostname",
             stdin=stdin,
-            files=self._prepare_files(files or []),
+            files=UploadFileSpec._prepare_files(files or []),
             stdout=stdout,
             stderr=stderr,
             disposable=disposable,
@@ -197,36 +197,34 @@ class _ImageLikeBase:
         new_self._prepare_stdin(stdin)
         return new_self
 
-    @staticmethod
-    def _prepare_files(
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
-        default_image_path: str = "/",
-    ) -> list[UploadFileSpec]:
-        prepared = []
-        if isinstance(files, dict):
-            for image_path, file in files.items():
-                if isinstance(file, UploadFileSpec):
-                    item = replace(file, path=Path(image_path))
-                else:
-                    item = UploadFileSpec(
-                        path=Path(image_path),
-                        source=file,
-                    )
-                prepared.append(item)
-            return prepared
-        for file in files:
-            if isinstance(file, UploadFileSpec):
-                prepared.append(file)
+    async def _apply_files(
+        self: _T,
+        *args: str | Path | UploadFileSpec | list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+    ) -> _T:
+        """Upload files into a new image derived from this one.
+
+        Args:
+            *args: Files to upload.
+            files: Files as a list or a dict mapping destination paths to sources.
+                When both args and files are provided, they are merged.
+
+        Returns:
+            New image with the uploaded files baked in.
+
+        """
+        prepared_files = []
+        for arg in args:
+            if isinstance(arg, (list, dict)):
+                prepared_files.extend(UploadFileSpec._prepare_files(arg))
             else:
-                local_path = Path(file)
-                image_path = Path(default_image_path) / local_path.name
-                prepared.append(
-                    UploadFileSpec(
-                        path=Path(image_path),
-                        source=local_path,
-                    )
-                )
-        return prepared
+                prepared_files.append(arg)
+
+        return await self.run(
+            shell="true",
+            files=(prepared_files + (UploadFileSpec._prepare_files(files) if files else [])),
+            disposable=False,
+        )._await()
 
     async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, InstanceFileSpec]:
         async def _upload_file(file: UploadFileSpec) -> tuple[str, InstanceFileSpec]:

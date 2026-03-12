@@ -177,6 +177,36 @@ def api_fake_run_with_files(
 
 
 @pytest.fixture
+def api_fake_apply_files(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    api_fake_run_with_files: HTTPXMock,
+) -> HTTPXMock:
+    second_op_id = str(uuid4())
+    second_result_uuid = uuid4()
+    api_fake_run_with_files.add_response(
+        method="POST",
+        url=r(".*/instances"),
+        json={"uuid": second_op_id},
+        is_optional=True,
+    )
+    add_inspect_by_uuid_response(api_fake_run_with_files, second_result_uuid)
+    add_operation_responses(
+        api_fake_run_with_files,
+        second_op_id,
+        result_image_uuid,
+        second_result_uuid,
+        process_state,
+        resource_usage,
+        "second line\nlast line\n",
+    )
+    return api_fake_run_with_files
+
+
+@pytest.fixture
 def api_fake_run_truncated(
     image_uuid: UUID,
     result_image_uuid: UUID,

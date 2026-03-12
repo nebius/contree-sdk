@@ -59,3 +59,7 @@ class _ImageLike(_ImageLikeBase):
     @keep_signature(_ImageLikeBase._untag)
     async def untag(self: _T) -> _T:
         return await self._untag()
+
+    @keep_signature(_ImageLikeBase._apply_files)
+    async def apply_files(self: _T, *args, **kwargs) -> _T:
+        return await self._apply_files(*args, **kwargs)

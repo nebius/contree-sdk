@@ -165,7 +165,7 @@ make rtd-dev
 import asyncio
 import stat
 
-from pathlib import Path
+from pathlib import PurePosixPath
 
 from contree_sdk import Contree
 from contree_sdk.utils.models.file import UploadFileSpec
@@ -193,7 +193,9 @@ async def amain():
         env=dict(http_proxy="http://10.20.30.40:1234"),
         files=[
             UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
-            UploadFileSpec(source="/local/files/data_ver1.csv", path=Path("/data.csv")),
+            UploadFileSpec(
+                source="/local/files/data_ver1.csv", path=PurePosixPath("/data.csv")
+            ),
         ],
     )
     print(result0.stdout)

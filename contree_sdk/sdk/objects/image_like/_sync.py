@@ -126,3 +126,7 @@ class _ImageLikeSync(_ImageLikeBase):
     @keep_signature(_ImageLikeBase._untag)
     def untag(self: _T) -> _T:
         return coro_sync(self._untag())
+
+    @keep_signature(_ImageLikeBase._apply_files)
+    def apply_files(self: _T, *args, **kwargs) -> _T:
+        return coro_sync(self._apply_files(*args, **kwargs))
