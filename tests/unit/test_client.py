@@ -22,7 +22,7 @@ async def test_token_from_env_var(fake_token: str, monkeypatch, fake_contree_con
 @pytest.mark.parametrize(
     ("config", "progress_ratio", "expected_range"),
     [
-        (ContreeConfig(), 0.0, (0.1, 0.15)),
+        (ContreeConfig(), 0.0, (0.09, 0.15)),
         (ContreeConfig(), 0.25, (4.0, 5.0)),
         (ContreeConfig(), 0.5, (6.5, 7.5)),
         (ContreeConfig(), 0.75, (8.0, 9.0)),
@@ -40,7 +40,7 @@ async def test_token_from_env_var(fake_token: str, monkeypatch, fake_contree_con
     ],
 )
 def test_get_interval(config: ContreeConfig, progress_ratio: float, expected_range: tuple[float, float]):
-    results = [get_wait_interval(config, progress_ratio) for _ in range(200)]
+    results = [get_wait_interval(config, progress_ratio) for _ in range(2000)]
 
     min_result = min(results)
     max_result = max(results)

@@ -11,13 +11,15 @@ from contree_sdk._internals.models.image import ContreeImageModel
 class InspectMixin:
     @overload
     async def list_image_files(
-        self: AsyncClientMixin, image_uuid: str, path: str | PurePosixPath
+        self: AsyncClientMixin, image_uuid: str | UUID, path: str | PurePosixPath
     ) -> list[FileItemModel]: ...
     @overload
-    def list_image_files(self: SyncClientMixin, image_uuid: str, path: str | PurePosixPath) -> list[FileItemModel]: ...
+    def list_image_files(
+        self: SyncClientMixin, image_uuid: str | UUID, path: str | PurePosixPath
+    ) -> list[FileItemModel]: ...
 
     @get("/v1/inspect/{image_uuid}/list", json=["files"])
-    def list_image_files(self, image_uuid: str, path: str | PurePosixPath) -> list[FileItemModel]: ...
+    def list_image_files(self, image_uuid: str | UUID, path: str | PurePosixPath) -> list[FileItemModel]: ...
 
     @overload
     async def download_image_file(

@@ -46,6 +46,11 @@ class NotFoundError(ApiStatusCodeError):
 
 
 @dataclass
+class TooManyRequestsError(ApiStatusCodeError):
+    status: int | None = 429
+
+
+@dataclass
 class ForbiddenError(ApiStatusCodeError):
     status: int | None = 403
     _template = "You do not have permission to perform this action"

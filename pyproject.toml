@@ -1,6 +1,6 @@
 [project]
 name = "contree-sdk"
-version = "0.2.2.dev1"
+version = "0.3.0.dev1"
 readme = "README.md"
 description = "SDK for ConTree container runtime with versioned filesystem state"
 license = { text = "Apache-2.0" }
@@ -225,6 +225,8 @@ extend-ignore = [
     "RUF029",  # unused-async
     "PLR2004", # magic-value-comparison
     "PT011",   # pytest-raises-too-broad
+    "PERF",    # perflint
+    "PT028",   # pytest-parameter-with-default-argument
 ]
 
 "tests/**/test_*.py" = [

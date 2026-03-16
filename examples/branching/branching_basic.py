@@ -4,7 +4,7 @@ from contree_sdk import Contree
 
 
 async def main(client: Contree):
-    image = client.images.use("alpine:latest")
+    image = await client.images.use("alpine:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: Different commands from same image")

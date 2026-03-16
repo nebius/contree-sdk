@@ -1,3 +1,4 @@
+from contree_sdk._internals.client.v1.auth import AuthMixin
 from contree_sdk._internals.client.v1.files import FilesMixin
 from contree_sdk._internals.client.v1.images import ImagesMixin
 from contree_sdk._internals.client.v1.inspect import InspectMixin
@@ -6,6 +7,7 @@ from contree_sdk._internals.client.v1.operations import OperationsMixin
 
 
 class V1Mixin(
+    AuthMixin,
     ImagesMixin,
     FilesMixin,
     InstancesMixin,
