@@ -15,7 +15,7 @@ from typing_extensions import TypeVar
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
-from contree_sdk._internals.utils.circuit_retryer import CircuitRetryer
+from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
@@ -79,8 +79,8 @@ class _ContreeBase:
         self._token_info: WhoAmI | None = None
         exceptions = [TooManyRequestsError]
         self._operations = {
-            ImageImportRequest: (self._api.start_import_image, CircuitRetryer(exceptions=exceptions)),
-            InstanceSpawnRequest: (self._api.spawn_instance, CircuitRetryer(exceptions=exceptions)),
+            ImageImportRequest: (self._api.start_import_image, CircuitRetrier(exceptions=exceptions)),
+            InstanceSpawnRequest: (self._api.spawn_instance, CircuitRetrier(exceptions=exceptions)),
         }
 
     @property

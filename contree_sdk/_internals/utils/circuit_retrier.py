@@ -22,7 +22,7 @@ class CircuitState(StrEnum):
     MIDDLE = auto()
 
 
-class CircuitRetryer:
+class CircuitRetrier:
     """Async circuit breaker with built-in retry logic.
 
     Wraps async callables and retries them on configured exceptions while
