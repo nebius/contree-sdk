@@ -42,8 +42,10 @@ class CircuitRetryer:
             recovers automatically regardless of success count.
         recovery_threshold: Number of consecutive successes to exceed to close
             the circuit from MIDDLE state.
-        external_contexts: Async context managers entered on every call before
-            the circuit gate (e.g. rate-limit semaphores).
+        external_contexts: Async context managers or zero-argument callables returning
+            async context managers, entered on every call before the circuit gate.
+            Instances (e.g. semaphores) are reused as-is; callables are invoked
+            on each call to produce a fresh context manager.
         retry_interval_min: Minimum pause between consecutive retries in OPEN state
             (used when failures are low).
         retry_interval_max: Maximum pause between retries, reached when failures
@@ -61,7 +63,7 @@ class CircuitRetryer:
         exceptions: Sequence[type[Exception]] | None = None,
         recovery_timeout: timedelta = timedelta(seconds=20),
         recovery_threshold: int = 10,
-        external_contexts: list[AbstractAsyncContextManager] | None = None,
+        external_contexts: list[AbstractAsyncContextManager | Callable[[], AbstractAsyncContextManager]] | None = None,
         retry_interval_min: timedelta = timedelta(seconds=1),
         retry_interval_max: timedelta = timedelta(seconds=30),
         retry_timeout: timedelta = timedelta(minutes=60),
@@ -125,8 +127,9 @@ class CircuitRetryer:
 
         """
         async with AsyncExitStack() as exit_stack:
-            for sem in self.external_contexts:
-                await exit_stack.enter_async_context(sem)
+            for ctx in self.external_contexts:
+                cm = ctx if isinstance(ctx, AbstractAsyncContextManager) else ctx()
+                await exit_stack.enter_async_context(cm)
             coros = [
                 create_task(self._closed_event.wait()),  # if circuit is fully closed
                 create_task(self._wait_recovery()),  # if circuit is recovered by time

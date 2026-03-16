@@ -545,3 +545,27 @@ async def test_many_parallel_calls_under_load(circuit):
 
     assert len(results) == 50
     assert sorted(results) == list(range(50))
+
+
+async def test_external_async_context_is_recreated_for_each_call():
+    events = []
+
+    @asynccontextmanager
+    async def tracking_context():
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    circuit = CircuitRetryer(
+        exceptions=[ValueError],
+        external_contexts=[tracking_context],
+    )
+
+    async def ok():
+        return "ok"
+
+    assert await circuit(ok) == "ok"
+    assert await circuit(ok) == "ok"
+    assert events == ["enter", "exit", "enter", "exit"]
