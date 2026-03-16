@@ -43,9 +43,9 @@ class CircuitRetrier:
         recovery_threshold: Number of consecutive successes to exceed to close
             the circuit from MIDDLE state.
         external_contexts: Async context managers or zero-argument callables returning
-            async context managers, entered on every call before the circuit gate.
-            Instances (e.g. semaphores) are reused as-is; callables are invoked
-            on each call to produce a fresh context manager.
+            async context managers. Entered on every call before the circuit gate logic
+            (state check, retry wait, func execution). Instances (e.g. semaphores) are
+            reused as-is; callables are invoked on each call to produce a fresh context manager.
         retry_interval_min: Minimum pause between consecutive retries in OPEN state
             (used when failures are low).
         retry_interval_max: Maximum pause between retries, reached when failures
