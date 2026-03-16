@@ -78,9 +78,17 @@ class _ContreeBase:
         self._config = config
         self._token_info: WhoAmI | None = None
         exceptions = [TooManyRequestsError]
+        import_timeout = config.operation_import_timeout or config.operation_timeout
+        spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._operations = {
-            ImageImportRequest: (self._api.start_import_image, CircuitRetrier(exceptions=exceptions)),
-            InstanceSpawnRequest: (self._api.spawn_instance, CircuitRetrier(exceptions=exceptions)),
+            ImageImportRequest: (
+                self._api.start_import_image,
+                CircuitRetrier(exceptions=exceptions, retry_timeout=timedelta(seconds=import_timeout)),
+            ),
+            InstanceSpawnRequest: (
+                self._api.spawn_instance,
+                CircuitRetrier(exceptions=exceptions, retry_timeout=timedelta(seconds=spawn_timeout)),
+            ),
         }
 
     @property
