@@ -94,9 +94,6 @@ class CircuitRetryer:
         self.retry_max_amount = retry_max_amount
         self.retry_timeout = retry_timeout
 
-        # claim
-        self._claim_lock = Lock()
-
     async def _wait_recovery(self):
         while True:
             state = await self._refresh_state()
