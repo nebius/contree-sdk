@@ -40,7 +40,7 @@ class CircuitRetryer:
         exceptions: Exception types that trigger a retry. Defaults to all exceptions.
         recovery_timeout: Time since the last failure after which the circuit
             recovers automatically regardless of success count.
-        recovery_threshold: Number of consecutive successes required to close
+        recovery_threshold: Number of consecutive successes to exceed to close
             the circuit from MIDDLE state.
         external_contexts: Async context managers entered on every call before
             the circuit gate (e.g. rate-limit semaphores).
