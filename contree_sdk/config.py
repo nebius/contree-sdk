@@ -19,7 +19,8 @@ class ContreeConfig:
 
     base_url: str = field(default="CONTREE_BASE_URL")
     """API server URL or env var name to load from."""
-    token: str = field(default="CONTREE_TOKEN", repr=False)
+    token: str = field(default="NEBIUS_API_KEY", repr=False)
+    project_id: str = field(default="CONTREE_PROJECT_ID")
     """Auth token or env var name to load from."""
 
     transport_timeout: float = 10.0

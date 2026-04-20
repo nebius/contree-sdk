@@ -6,11 +6,13 @@ This guide will help you get up and running with ConTree SDK. By the end of this
 
 ConTree SDK uses environment variables for configuration:
 
-- **CONTREE_TOKEN**: Your authentication token
+- **NEBIUS_API_URL**: Your authentication token
+- **CONTREE_PROJECT_ID**: Your ConTree project id
 - **CONTREE_BASE_URL**: Your ConTree instance URL
 
 ```bash
-export CONTREE_TOKEN="your_token_here"
+export NEBIUS_API_URL="your_token_here"
+export CONTREE_PROJECT_ID="your_project_id"
 export CONTREE_BASE_URL="https://your-instance.of.contree"
 ```
 

@@ -22,6 +22,11 @@ def _contree_token() -> str:
 
 
 @pytest.fixture
+def _contree_project_id() -> str:
+    return getenv("CONTREE_PROJECT_ID") or ""
+
+
+@pytest.fixture
 def contree_config() -> ContreeConfig:
     return ContreeConfig(
         token=CONTREE_TOKEN_TESTS_ENV_VAR,

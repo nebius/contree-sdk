@@ -14,11 +14,19 @@ from contree_sdk._internals.utils.config import build_user_agent
 class ClientBase(ABC):
     _client_class: type[httpx._client.BaseClient]
 
-    def __init__(self, token: str, base_url: str, transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect) -> None:
+    def __init__(
+        self,
+        token: str,
+        base_url: str,
+        transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect or 5.0,
+        project: str = "",
+    ) -> None:
         headers = {
             "Authorization": f"Bearer {token}",
             "User-Agent": build_user_agent(),
         }
+        if project:
+            headers["Project"] = project
         self._client = self._client_class(
             headers=headers, base_url=base_url, timeout=Timeout(timeout=transport_timeout)
         )

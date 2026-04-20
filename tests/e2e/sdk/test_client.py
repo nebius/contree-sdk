@@ -26,8 +26,11 @@ async def test_fake_token(contree_config: ContreeConfig):
         await client.images()
 
 
-async def test_token_from_env_var(_contree_token: str, monkeypatch, contree_config: ContreeConfig):
-    monkeypatch.setenv("CONTREE_TOKEN", _contree_token)
+async def test_token_from_env_var(
+    _contree_token: str, monkeypatch, contree_config: ContreeConfig, _contree_project_id: str
+):
+    monkeypatch.setenv("NEBIUS_API_KEY", _contree_token)
+    monkeypatch.setenv("CONTREE_PROJECT_ID", _contree_project_id)
     config = ContreeConfig(base_url=contree_config.base_url)
 
     client = Contree(config=config)

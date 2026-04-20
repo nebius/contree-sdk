@@ -73,6 +73,7 @@ class _ContreeBase:
 
         config = config._load_field_from_env("token")
         config = config._load_field_from_env("base_url")
+        config = config._load_field_from_env("project_id")
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
@@ -123,6 +124,7 @@ class _ContreeBase:
             token=config.token,
             base_url=config.base_url,
             transport_timeout=config.transport_timeout,
+            project=config.project_id,
         )
 
     # operations management

@@ -15,8 +15,10 @@ async def test_fake_token(fake_contree_config: ContreeConfig, api_fake_forbidden
     await _test_fake_token(fake_contree_config)
 
 
-async def test_token_from_env_var(fake_token: str, monkeypatch, fake_contree_config: ContreeConfig, api_fake_images):
-    await _test_token_from_env_var(fake_token, monkeypatch, fake_contree_config)
+async def test_token_from_env_var(
+    fake_token: str, monkeypatch, fake_contree_config: ContreeConfig, api_fake_images, fake_project_id
+):
+    await _test_token_from_env_var(fake_token, monkeypatch, fake_contree_config, fake_project_id)
 
 
 @pytest.mark.parametrize(
