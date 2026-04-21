@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -91,7 +93,7 @@ def fake_token() -> str:
 
 @pytest.fixture
 def fake_project_id() -> str:
-    return "fake-project_id"
+    return "fake-project_id-" + uuid4().hex[:4]
 
 
 @pytest.fixture
