@@ -63,6 +63,8 @@ class ClientBase(ABC):
                 return response.content
             return response
 
+        if not response.text:
+            return response.text
         data = response.json()
         for key in endpoint_info.json_path:
             data = data[key]
