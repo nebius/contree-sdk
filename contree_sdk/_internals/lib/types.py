@@ -49,7 +49,7 @@ class ApiEndpointInfo:
         return self.path.format(**data)
 
     def get_query_data_by_data(self, data: dict):
-        return {name: str(to_dict(data[name])) for name in self.query_params if name in data}
+        return {name: str(to_dict(data[name])) for name in self.query_params if name in data and data[name] is not None}
 
     def get_body_data_by_data(self, data: dict):
         if not self.body_params:
