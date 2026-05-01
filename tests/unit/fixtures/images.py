@@ -16,7 +16,7 @@ def add_inspect_by_tag_response(
 ):
     httpx_mock.add_response(
         method="GET",
-        url=url("/inspect", params={"tag": tag}),
+        url=url("/inspect/", params={"tag": tag}),
         json={"uuid": str(image_uuid), "tag": tag, "created_at": created_at},
         is_optional=True,
     )
@@ -44,13 +44,13 @@ def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -
         )
     strict_httpx.add_response(
         method="GET",
-        url=r(f".*/inspect/{image_uuid}$"),
+        url=r(f".*/inspect/{image_uuid}/$"),
         json=image_dict,
         is_optional=True,
     )
     strict_httpx.add_response(
         method="GET",
-        url=url("/inspect", params={"tag": image_tag}),
+        url=url("/inspect/", params={"tag": image_tag}),
         json=image_dict,
         is_optional=True,
     )

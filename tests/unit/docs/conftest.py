@@ -212,7 +212,7 @@ def api_fake_quick_start(
 
     api_fake_session_multiple_runs.add_response(
         method="GET",
-        url=url("/inspect", params={"tag": "busybox:latest"}),
+        url=url("/inspect/", params={"tag": "busybox:latest"}),
         status_code=404,
         json={"error": "Image not found", "status": 404},
         is_optional=True,

@@ -33,7 +33,7 @@ def _contree_project_id() -> str:
 def contree_config(_contree_project_id: str) -> ContreeConfig:
     return ContreeConfig(
         token=CONTREE_TOKEN_TESTS_ENV_VAR,
-        base_url=ContreeEndpoint.PROD_NORTH,
+        base_url=ContreeEndpoint.TOKEN_FACTORY_SANDBOXES,
         project_id=_contree_project_id,
     )
 
