@@ -233,4 +233,4 @@ def api_fake_quick_start(
 @pytest.fixture(autouse=True)
 def set_contree_base_url_env(monkeypatch: MonkeyPatch, fake_project_id: str):
     monkeypatch.setenv("CONTREE_BASE_URL", "https://fake.contree.endpoint")
-    monkeypatch.setenv("CONTREE_PROJECT_ID", fake_project_id)
+    monkeypatch.setenv("NEBIUS_PROJECT_ID", fake_project_id)

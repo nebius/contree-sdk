@@ -4,6 +4,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from tests.unit.fixtures.auth import api_fake_whoami, token_uuid
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
@@ -98,7 +99,9 @@ def fake_project_id() -> str:
 
 @pytest.fixture
 def fake_contree_config(fake_token: str, fake_project_id: str) -> ContreeConfig:
-    return ContreeConfig(token=fake_token, base_url="https://fake.contree.endpoint", project_id=fake_project_id)
+    return ContreeConfig(
+        auth=IAMAuth(token=fake_token, base_url="https://fake.contree.endpoint", project_id=fake_project_id)
+    )
 
 
 @pytest.fixture

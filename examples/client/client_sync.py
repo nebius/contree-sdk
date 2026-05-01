@@ -12,7 +12,7 @@ def main():
 
 
 if __name__ == "__main__":
-    token = os.getenv("CONTREE_TOKEN")
+    token = os.getenv("NEBIUS_API_KEY")
     if not token:
-        os.environ["CONTREE_TOKEN"] = input("Please enter contree token: ")
+        os.environ["NEBIUS_API_KEY"] = input("Please enter Nebius IAM token: ")
     main()
