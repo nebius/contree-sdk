@@ -17,7 +17,7 @@ from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk._internals.utils.other import get_wait_interval
-from contree_sdk.auth import JWTAuth
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
@@ -53,8 +53,8 @@ class _ContreeBase:
         Args:
             config: Full configuration object. If provided, base_url and token
                 must not be passed separately.
-            base_url: API server URL (JWT shorthand). Ignored if config is provided.
-            token: Authentication token (JWT shorthand). Ignored if config is provided.
+            base_url: API server URL shorthand. Ignored if config is provided.
+            token: Authentication token shorthand. Ignored if config is provided.
 
         Raises:
             ValueError: If config is provided along with base_url or token.
@@ -62,7 +62,7 @@ class _ContreeBase:
         """
         if config is None:
             if token is not None or base_url is not None:
-                auth = JWTAuth()
+                auth = IAMAuth()
                 if token is not None:
                     auth = replace(auth, token=token)
                 if base_url is not None:
