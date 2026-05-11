@@ -2,13 +2,14 @@ from minisweagent.agents.default import DefaultAgent
 from minisweagent.environments.extra.contree import ContreeEnvironment
 from minisweagent.models import get_model
 
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 
 
 def main():
     contree_env = ContreeEnvironment(
         contree_config=ContreeConfig(
-            base_url="https://contree.dev/",
+            auth=IAMAuth(base_url="https://contree.dev/"),
         ),
         image="python:3.13-slim",
         cwd="/workspace",

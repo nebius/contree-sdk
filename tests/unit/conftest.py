@@ -1,7 +1,10 @@
+from uuid import uuid4
+
 import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from tests.unit.fixtures.auth import api_fake_whoami, token_uuid
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
@@ -90,8 +93,15 @@ def fake_token() -> str:
 
 
 @pytest.fixture
-def fake_contree_config(fake_token: str) -> ContreeConfig:
-    return ContreeConfig(token=fake_token, base_url="https://fake.contree.endpoint")
+def fake_project_id() -> str:
+    return "fake-project_id-" + uuid4().hex[:4]
+
+
+@pytest.fixture
+def fake_contree_config(fake_token: str, fake_project_id: str) -> ContreeConfig:
+    return ContreeConfig(
+        auth=IAMAuth(token=fake_token, base_url="https://fake.contree.endpoint", project_id=fake_project_id)
+    )
 
 
 @pytest.fixture
@@ -105,14 +115,17 @@ def fake_contree_s(fake_contree_config: ContreeConfig) -> ContreeSync:
 
 
 @pytest.fixture
-def strict_httpx(httpx_mock: HTTPXMock, fake_token: str) -> HTTPXMock:
+def strict_httpx(httpx_mock: HTTPXMock, fake_token: str, fake_project_id: str) -> HTTPXMock:
     httpx_mock.reset()
     httpx_mock.strict_responses = True
 
     original_add_response = httpx_mock.add_response
 
     def add_response_with_auth(*args, **kwargs):
-        kwargs.setdefault("match_headers", {}).setdefault("Authorization", f"Bearer {fake_token}")
+
+        kwargs.setdefault("match_headers", {})
+        kwargs["match_headers"].setdefault("Authorization", f"Bearer {fake_token}")
+        kwargs["match_headers"].setdefault("Project", f"{fake_project_id}")
         return original_add_response(*args, **kwargs)
 
     httpx_mock.add_response = add_response_with_auth

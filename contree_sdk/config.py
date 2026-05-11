@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import timedelta
+
+from contree_sdk.auth import IAMAuth, JWTAuth
 
 
 logger = logging.getLogger(__name__)
@@ -13,14 +14,13 @@ logger = logging.getLogger(__name__)
 class ContreeConfig:
     """Configuration for the ConTree SDK client.
 
-    Fields ``base_url`` and ``token`` support env var lookup: if the value
-    matches an existing environment variable name, the value is loaded from it.
+    The ``auth`` field controls authentication and the target URL. String fields
+    on auth objects support env var lookup: if the value matches an existing
+    environment variable name, the value is loaded from it.
     """
 
-    base_url: str = field(default="CONTREE_BASE_URL")
-    """API server URL or env var name to load from."""
-    token: str = field(default="CONTREE_TOKEN", repr=False)
-    """Auth token or env var name to load from."""
+    auth: IAMAuth | JWTAuth = field(default_factory=IAMAuth)
+    """Authentication configuration. Use ``IAMAuth`` for Nebius IAM tokens or ``JWTAuth`` for legacy tokens."""
 
     transport_timeout: float = 10.0
     """HTTP timeout in seconds."""
@@ -51,10 +51,3 @@ class ContreeConfig:
 
     images_list_batch_size: int = 100
     """Batch size for listing images."""
-
-    def _load_field_from_env(self, field_name: str) -> ContreeConfig:
-        value = getattr(self, field_name)
-        if value in os.environ:
-            logger.info(f"Loading {field_name} from environment variable {value}")
-            return replace(self, **{field_name: os.environ[value]})
-        return self

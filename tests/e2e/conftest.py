@@ -4,6 +4,7 @@ import pytest
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk._internals.utils.config import ContreeEndpoint
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from tests.utils.marker import create_directory_marker
 
@@ -21,11 +22,22 @@ def _contree_token() -> str:
     return value
 
 
+_CONTREE_PROJECT_ID = getenv("NEBIUS_PROJECT_ID") or ""
+
+
 @pytest.fixture
-def contree_config() -> ContreeConfig:
+def _contree_project_id() -> str:
+    return _CONTREE_PROJECT_ID
+
+
+@pytest.fixture
+def contree_config(_contree_project_id: str) -> ContreeConfig:
     return ContreeConfig(
-        token=CONTREE_TOKEN_TESTS_ENV_VAR,
-        base_url=ContreeEndpoint.PROD_NORTH,
+        auth=IAMAuth(
+            token=CONTREE_TOKEN_TESTS_ENV_VAR,
+            base_url=ContreeEndpoint.TOKEN_FACTORY_SANDBOXES,
+            project_id=_contree_project_id,
+        )
     )
 
 

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 from pytest_httpx import HTTPXMock
-from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_token, strict_httpx
+from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_project_id, fake_token, strict_httpx
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
 from tests.unit.fixtures.images import add_inspect_by_tag_response, api_fake_images, fake_image_s, image_tag, image_uuid
 from tests.unit.fixtures.imports import add_import_operation_responses
@@ -48,6 +48,7 @@ __all__ = [
     "fake_contree_config",
     "fake_contree_s",
     "fake_image_s",
+    "fake_project_id",
     "fake_token",
     "file_sha256",
     "file_uuid",
@@ -211,7 +212,7 @@ def api_fake_quick_start(
 
     api_fake_session_multiple_runs.add_response(
         method="GET",
-        url=url("/inspect", params={"tag": "busybox:latest"}),
+        url=url("/inspect/", params={"tag": "busybox:latest"}),
         status_code=404,
         json={"error": "Image not found", "status": 404},
         is_optional=True,
@@ -230,5 +231,6 @@ def api_fake_quick_start(
 
 
 @pytest.fixture(autouse=True)
-def set_contree_base_url_env(monkeypatch: MonkeyPatch):
+def set_contree_base_url_env(monkeypatch: MonkeyPatch, fake_project_id: str):
     monkeypatch.setenv("CONTREE_BASE_URL", "https://fake.contree.endpoint")
+    monkeypatch.setenv("NEBIUS_PROJECT_ID", fake_project_id)

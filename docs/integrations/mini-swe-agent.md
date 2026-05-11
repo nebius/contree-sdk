@@ -22,10 +22,11 @@ Integration is available via [ContreeEnvironment](https://mini-swe-agent.com/lat
    pip install "mini-swe-agent[contree]"
    ```
 
-2. Set up ConTree token and base_url:
+2. Set up Nebius IAM token and base URL:
 
    ```bash
-   export CONTREE_TOKEN="your-contree-token"
+   export NEBIUS_API_KEY="your-nebius-iam-token"
+   export NEBIUS_PROJECT_ID="your-project-id"
    export CONTREE_BASE_URL="your-given-base-url-for-contree"
    ```
 

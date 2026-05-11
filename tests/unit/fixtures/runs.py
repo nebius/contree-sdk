@@ -24,7 +24,7 @@ def create_process_state(exit_code: int = 0) -> ProcessState:
 def add_inspect_by_uuid_response(httpx_mock: HTTPXMock, image_uuid: UUID, tag: str | None = None):
     httpx_mock.add_response(
         method="GET",
-        url=r(f".*/inspect/{image_uuid}$"),
+        url=r(f".*/inspect/{image_uuid}/$"),
         json={"uuid": str(image_uuid), "tag": tag, "created_at": "2024-01-01T12:00:00+00:00"},
         is_optional=True,
     )

@@ -6,15 +6,17 @@ This guide will help you get up and running with ConTree SDK. By the end of this
 
 ConTree SDK uses environment variables for configuration:
 
-- **CONTREE_TOKEN**: Your authentication token
+- **NEBIUS_API_KEY**: Your Token Factory IAM token
+- **NEBIUS_PROJECT_ID**: Your ConTree project id
 - **CONTREE_BASE_URL**: Your ConTree instance URL
 
 ```bash
-export CONTREE_TOKEN="your_token_here"
+export NEBIUS_API_KEY="your_token_here"
+export NEBIUS_PROJECT_ID="your_project_id"
 export CONTREE_BASE_URL="https://your-instance.of.contree"
 ```
 
-Alternatively, you can pass `token` and `base_url` directly when creating a client.
+Alternatively, you can pass auth directly when creating a client via `ContreeConfig(auth=IAMAuth(...))` or use `JWTAuth` for legacy token-based access.
 
 ## Creating a Client
 

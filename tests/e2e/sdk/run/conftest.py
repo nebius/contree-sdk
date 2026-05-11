@@ -4,6 +4,7 @@ import pytest
 
 from contree_sdk import Contree
 from contree_sdk._internals.utils.config import ContreeEndpoint
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 
 
@@ -15,4 +16,4 @@ def low_limits_contree() -> Contree:
     token = getenv(LOW_LIMITS_TOKEN_ENV_VAR)
     if not token:
         pytest.skip(f"{LOW_LIMITS_TOKEN_ENV_VAR} not set")
-    return Contree(config=ContreeConfig(token=token, base_url=ContreeEndpoint.PROD_NORTH))
+    return Contree(config=ContreeConfig(auth=IAMAuth(token=token, base_url=ContreeEndpoint.PROD_NORTH)))

@@ -51,7 +51,7 @@ def api_fake_images_with_404(api_fake_images: HTTPXMock) -> HTTPXMock:
     )
     api_fake_images.add_response(
         method="GET",
-        url=r(r".*/inspect\?tag=.*"),
+        url=r(r".*/inspect/\?tag=.*"),
         json={"error": "Image not found", "status": 404},
         is_optional=True,
         status_code=404,

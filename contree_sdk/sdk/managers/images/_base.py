@@ -204,7 +204,10 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         return await self._get_image_by_tag(url_or_tag_or_uuid)
 
     async def _get_image_by_tag(self, tag: str) -> _ImageT:
-        return self._image_by_data(await self._client._api.get_image_by_tag(tag))
+        resp = await self._client._api.get_image_by_tag(tag)
+        if resp.tag is None:
+            resp.tag = tag
+        return self._image_by_data(resp)
 
     async def _get_image_by_uuid(self, uuid: UUID | str) -> _ImageT:
         if isinstance(uuid, str):

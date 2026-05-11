@@ -9,18 +9,20 @@ from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.lib.mixins import AsyncClientMixin, SyncClientMixin
 from contree_sdk._internals.lib.types import EMPTY, ApiEndpointInfo, ReturnType
 from contree_sdk._internals.utils.config import build_user_agent
+from contree_sdk.auth import IAMAuth, JWTAuth
 
 
 class ClientBase(ABC):
     _client_class: type[httpx._client.BaseClient]
 
-    def __init__(self, token: str, base_url: str, transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect) -> None:
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "User-Agent": build_user_agent(),
-        }
+    def __init__(
+        self,
+        auth: IAMAuth | JWTAuth,
+        transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect or 5.0,
+    ) -> None:
+        headers = {"User-Agent": build_user_agent(), **auth.get_headers()}
         self._client = self._client_class(
-            headers=headers, base_url=base_url, timeout=Timeout(timeout=transport_timeout)
+            headers=headers, base_url=auth.base_url, timeout=Timeout(timeout=transport_timeout)
         )
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
@@ -55,6 +57,8 @@ class ClientBase(ABC):
                 return response.content
             return response
 
+        if not response.text:
+            return response.text
         data = response.json()
         for key in endpoint_info.json_path:
             data = data[key]

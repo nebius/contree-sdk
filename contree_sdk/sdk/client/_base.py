@@ -17,6 +17,7 @@ from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk._internals.utils.other import get_wait_interval
+from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
@@ -52,27 +53,30 @@ class _ContreeBase:
         Args:
             config: Full configuration object. If provided, base_url and token
                 must not be passed separately.
-            base_url: API server URL. Ignored if config is provided.
-            token: Authentication token. Ignored if config is provided.
+            base_url: API server URL shorthand. Ignored if config is provided.
+            token: Authentication token shorthand. Ignored if config is provided.
 
         Raises:
             ValueError: If config is provided along with base_url or token.
 
         """
         if config is None:
-            config = ContreeConfig()
-            if token is not None:
-                config = replace(config, token=token)
-            if base_url is not None:
-                config = replace(config, base_url=base_url)
+            if token is not None or base_url is not None:
+                auth = IAMAuth()
+                if token is not None:
+                    auth = replace(auth, token=token)
+                if base_url is not None:
+                    auth = replace(auth, base_url=base_url)
+                config = ContreeConfig(auth=auth)
+            else:
+                config = ContreeConfig()
         else:
             if token is not None:
                 raise ValueError("token must be passed via config when config is provided")
             if base_url is not None:
                 raise ValueError("base_url must be passed via config when config is provided")
 
-        config = config._load_field_from_env("token")
-        config = config._load_field_from_env("base_url")
+        config = replace(config, auth=config.auth.resolve())
 
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
@@ -120,8 +124,7 @@ class _ContreeBase:
     @staticmethod
     def _create_api_client(config: ContreeConfig) -> ContreeClient:
         return ContreeClient(
-            token=config.token,
-            base_url=config.base_url,
+            auth=config.auth,
             transport_timeout=config.transport_timeout,
         )
 
