@@ -11,7 +11,7 @@ The SDK resolves credentials in the following priority order:
    - `NEBIUS_API_KEY` — IAM token
    - `NEBIUS_PROJECT_ID` — ConTree project ID
    - `CONTREE_BASE_URL` — ConTree instance URL (for `JWTAuth`)
-3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth login` are read automatically from `~/.config/contree/auth.ini`.
+3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth` are read automatically from `~/.config/contree/auth.ini`.
 
 ```bash
 export NEBIUS_API_KEY="your_token_here"
