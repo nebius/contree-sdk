@@ -27,7 +27,7 @@ def read_ini_profile(profile: str | None = None) -> dict[str, str] | None:
         return None
     cp = configparser.ConfigParser()
     cp.read(path)
-    active = profile or cp.defaults().get("profile", "default")
+    active = profile or os.environ.get("CONTREE_PROFILE") or cp.defaults().get("profile", "default")
     section = f"profile:{active}"
     if not cp.has_section(section):
         logger.debug("Profile %s not found in %s", section, path)

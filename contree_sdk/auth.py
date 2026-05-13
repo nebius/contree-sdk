@@ -51,7 +51,7 @@ class JWTAuth(Auth):
     base_url: str = "CONTREE_BASE_URL"
     """API server URL or env var name to load from."""
 
-    _ini_field_map: ClassVar[dict[str, str]] = {"token": "token", "base_url": "url"}
+    _ini_field_map: ClassVar[dict[str, str]] = {"base_url": "url"}
 
     def get_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"}
@@ -66,7 +66,7 @@ class IAMAuth(Auth):
     base_url: str = ContreeEndpoint.TOKEN_FACTORY_SANDBOXES
     """API server URL. Defaults to the Nebius Token Factory production endpoint."""
 
-    _ini_field_map: ClassVar[dict[str, str]] = {"token": "token", "project_id": "project", "base_url": "url"}
+    _ini_field_map: ClassVar[dict[str, str]] = {"project_id": "project", "base_url": "url"}
 
     def get_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}", "Project": self.project_id}

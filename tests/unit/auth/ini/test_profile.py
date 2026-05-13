@@ -49,6 +49,22 @@ def test_returns_none_for_missing_section(ini_dir: Path) -> None:
     assert read_ini_profile(profile="nonexistent") is None
 
 
+def test_contree_profile_env_var_selects_profile(ini_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_ini(ini_dir, INI_MULTI)
+    monkeypatch.setenv("CONTREE_PROFILE", "first")
+    profile = read_ini_profile()
+    assert profile is not None
+    assert profile["token"] == "token-first"
+
+
+def test_explicit_profile_arg_takes_priority_over_env_var(ini_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_ini(ini_dir, INI_MULTI)
+    monkeypatch.setenv("CONTREE_PROFILE", "first")
+    profile = read_ini_profile(profile="second")
+    assert profile is not None
+    assert profile["token"] == "token-second"
+
+
 def test_respects_xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
     monkeypatch.delenv("CONTREE_HOME", raising=False)
     xdg = tmp_path / "xdg"
