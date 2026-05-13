@@ -4,17 +4,22 @@ This guide will help you get up and running with ConTree SDK. By the end of this
 
 ## Configuration
 
-ConTree SDK uses environment variables for configuration:
+The SDK resolves credentials in the following priority order:
 
-- **NEBIUS_API_KEY**: Your Token Factory IAM token
-- **NEBIUS_PROJECT_ID**: Your ConTree project id
-- **CONTREE_BASE_URL**: Your ConTree instance URL
+1. **Explicit values** passed to `IAMAuth` / `JWTAuth` constructors via `ContreeConfig`.
+2. **Environment variables**:
+   - `NEBIUS_API_KEY` — IAM token
+   - `NEBIUS_PROJECT_ID` — ConTree project ID
+   - `CONTREE_BASE_URL` — ConTree instance URL (for `JWTAuth`)
+3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth login` are read automatically from `~/.config/contree/auth.ini`.
 
 ```bash
 export NEBIUS_API_KEY="your_token_here"
 export NEBIUS_PROJECT_ID="your_project_id"
 export CONTREE_BASE_URL="https://your-instance.of.contree"
 ```
+
+The active `auth.ini` profile defaults to `default` and can be overridden with `CONTREE_PROFILE`. The config directory respects `$CONTREE_HOME` and `$XDG_CONFIG_HOME`.
 
 Alternatively, you can pass auth directly when creating a client via `ContreeConfig(auth=IAMAuth(...))` or use `JWTAuth` for legacy token-based access.
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from contree_sdk.auth import JWTAuth
-from tests.unit.auth.ini.conftest import INI_JWT, write_ini
+from tests.unit.auth.ini.helpers import INI_JWT, write_ini
 
 
 def test_loads_token_and_url_from_ini(ini_dir: Path) -> None:

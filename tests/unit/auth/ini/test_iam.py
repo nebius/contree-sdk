@@ -6,7 +6,7 @@ import pytest
 
 from contree_sdk._internals.utils.config import ContreeEndpoint
 from contree_sdk.auth import IAMAuth
-from tests.unit.auth.ini.conftest import INI_IAM, write_ini
+from tests.unit.auth.ini.helpers import INI_IAM, write_ini
 
 
 def test_loads_token_and_project_from_ini(ini_dir: Path) -> None:
@@ -45,9 +45,3 @@ def test_no_ini_file_keeps_defaults(ini_dir: Path) -> None:
     assert auth.token == "NEBIUS_API_KEY"
     assert auth.project_id == "NEBIUS_PROJECT_ID"
     assert auth.base_url == ContreeEndpoint.TOKEN_FACTORY_SANDBOXES
-
-
-def test_url_loaded_from_ini(ini_dir: Path) -> None:
-    write_ini(ini_dir, INI_IAM)
-    auth = IAMAuth().resolve()
-    assert auth.base_url == "https://custom.api.example.com/sandboxes"

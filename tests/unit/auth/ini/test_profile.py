@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from contree_sdk._internals.utils.auth_ini import read_ini_profile
-from tests.unit.auth.ini.conftest import INI_IAM, INI_JWT, INI_MULTI, write_ini
+from tests.unit.auth.ini.helpers import INI_IAM, INI_JWT, INI_MULTI, write_ini
 
 
 def test_returns_none_when_file_missing(ini_dir: Path) -> None:
