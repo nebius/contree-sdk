@@ -3,10 +3,21 @@ from __future__ import annotations
 import configparser
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
+
+from contree_sdk._internals.lib.helpers import convert_data_to_type
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class IniProfile:
+    token: str | None = None
+    url: str | None = None
+    type: str | None = None
+    project: str | None = None
 
 
 def _config_dir() -> Path:
@@ -21,16 +32,20 @@ def _auth_ini_path() -> Path:
     return _config_dir() / "auth.ini"
 
 
-def read_ini_profile(profile: str | None = None) -> dict[str, str] | None:
+def read_ini_profile(profile: str | None = None) -> IniProfile | None:
     path = _auth_ini_path()
-    if not path.exists():
+    if not path.is_file():
         return None
     cp = configparser.ConfigParser()
-    cp.read(path)
+    try:
+        cp.read(path)
+    except (OSError, configparser.Error):
+        logger.warning("Failed to read %s", path, exc_info=True)
+        return None
     active = profile or os.environ.get("CONTREE_PROFILE") or cp.defaults().get("profile", "default")
     section = f"profile:{active}"
     if not cp.has_section(section):
         logger.debug("Profile %s not found in %s", section, path)
         return None
     logger.debug("Loading auth from %s profile %s", path, active)
-    return dict(cp[section])
+    return convert_data_to_type(dict(cp[section]), IniProfile)

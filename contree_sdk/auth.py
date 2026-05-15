@@ -35,7 +35,7 @@ class Auth:
                 continue
             if value == f.default:
                 ini_key = self._ini_field_map.get(f.name, f.name)
-                if ini_value := ini_profile.get(ini_key):
+                if ini_value := getattr(ini_profile, ini_key, None):
                     logger.info(f"Loading {f.name} from auth.ini")
                     result = replace(result, **{f.name: ini_value})
         return result

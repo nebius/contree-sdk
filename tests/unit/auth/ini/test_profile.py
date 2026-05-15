@@ -16,32 +16,32 @@ def test_reads_default_profile(ini_dir: Path) -> None:
     write_ini(ini_dir, INI_IAM)
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "iam-token-123"
-    assert profile["url"] == "https://custom.api.example.com/sandboxes"
-    assert profile["project"] == "proj-abc"
-    assert profile["type"] == "iam"
+    assert profile.token == "iam-token-123"
+    assert profile.url == "https://custom.api.example.com/sandboxes"
+    assert profile.project == "proj-abc"
+    assert profile.type == "iam"
 
 
 def test_reads_named_profile_from_default_section(ini_dir: Path) -> None:
     write_ini(ini_dir, INI_JWT)
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "jwt-token-456"
+    assert profile.token == "jwt-token-456"
 
 
 def test_reads_explicitly_requested_profile(ini_dir: Path) -> None:
     write_ini(ini_dir, INI_MULTI)
     profile = read_ini_profile(profile="first")
     assert profile is not None
-    assert profile["token"] == "token-first"
-    assert profile["project"] == "proj-first"
+    assert profile.token == "token-first"
+    assert profile.project == "proj-first"
 
 
 def test_reads_active_profile_from_default_section(ini_dir: Path) -> None:
     write_ini(ini_dir, INI_MULTI)
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "token-second"
+    assert profile.token == "token-second"
 
 
 def test_returns_none_for_missing_section(ini_dir: Path) -> None:
@@ -54,7 +54,7 @@ def test_contree_profile_env_var_selects_profile(ini_dir: Path, monkeypatch: pyt
     monkeypatch.setenv("CONTREE_PROFILE", "first")
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "token-first"
+    assert profile.token == "token-first"
 
 
 def test_explicit_profile_arg_takes_priority_over_env_var(ini_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -62,7 +62,7 @@ def test_explicit_profile_arg_takes_priority_over_env_var(ini_dir: Path, monkeyp
     monkeypatch.setenv("CONTREE_PROFILE", "first")
     profile = read_ini_profile(profile="second")
     assert profile is not None
-    assert profile["token"] == "token-second"
+    assert profile.token == "token-second"
 
 
 def test_respects_xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
@@ -74,7 +74,7 @@ def test_respects_xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "iam-token-123"
+    assert profile.token == "iam-token-123"
 
 
 def test_contree_home_takes_priority_over_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
@@ -91,4 +91,4 @@ def test_contree_home_takes_priority_over_xdg(tmp_path: Path, monkeypatch: pytes
 
     profile = read_ini_profile()
     assert profile is not None
-    assert profile["token"] == "iam-token-123"
+    assert profile.token == "iam-token-123"
