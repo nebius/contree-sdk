@@ -12,7 +12,7 @@ from contree_sdk._internals.lib.helpers import convert_data_to_type
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class IniProfile:
     token: str | None = None
     url: str | None = None
