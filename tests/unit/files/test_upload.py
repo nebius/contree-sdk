@@ -1,5 +1,7 @@
+from hashlib import sha256
 from pathlib import Path
 
+import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
@@ -8,17 +10,22 @@ from tests.e2e.sdk.files.test_upload import test_upload_file as _test_upload_fil
 from tests.unit.fixtures.utils import r
 
 
+@pytest.fixture
+def test_txt_sha256(test_txt_path: Path) -> str:
+    return sha256(test_txt_path.read_bytes()).hexdigest()
+
+
 async def test_upload_file(
     fake_contree: Contree,
     test_txt_path: Path,
     api_fake_upload: HTTPXMock,
-    file_sha256: str,
+    test_txt_sha256: str,
 ):
     await _test_upload_file(fake_contree, test_txt_path)
 
     get_request, post_request = api_fake_upload.get_requests()
     assert get_request.method == "GET"
-    assert get_request.url.path == f"/v1/files/{file_sha256}"
+    assert get_request.url.path == f"/v1/files/{test_txt_sha256}"
     assert not get_request.url.query
     assert post_request.method == "POST"
     assert post_request.url.path == "/v1/files"
