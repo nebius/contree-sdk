@@ -19,7 +19,7 @@ def file_sha256() -> str:
 def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
     httpx_mock.add_response(
         method="GET",
-        url=r(".*/files\\?sha256=.*"),
+        url=r(".*/files/[0-9a-f]{64}$"),
         status_code=404,
         json={"error": "File not found", "status": 404},
         is_optional=True,
