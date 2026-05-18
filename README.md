@@ -453,6 +453,16 @@ client_async = Contree(config)
 client = ContreeSync(config)
 ```
 
+#### Authentication
+
+The SDK resolves credentials in the following priority order:
+
+1. **Explicit values** passed to `IAMAuth` / `JWTAuth` constructors.
+2. **Environment variables** — field defaults like `NEBIUS_API_KEY` and `NEBIUS_PROJECT_ID` are substituted automatically if the corresponding variable is set.
+3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth` are read from `~/.config/contree/auth.ini` (or `$CONTREE_HOME` / `$XDG_CONFIG_HOME/contree`).
+
+The active profile is taken from the `[DEFAULT]` section of `auth.ini` and can be overridden with the `CONTREE_PROFILE` environment variable.
+
 ### Objects reusing
 
 You can preconfigure run and then reuse it, for example:

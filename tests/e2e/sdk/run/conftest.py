@@ -8,7 +8,7 @@ from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 
 
-LOW_LIMITS_TOKEN_ENV_VAR = "CONTREE_SDK_TOKEN_E2E_TESTS_LOW_LIMITS"  # noqa: S105
+LOW_LIMITS_TOKEN_ENV_VAR = "CONTREE_SDK_TOKEN_E2E_TESTS_LOW_LIMITS"
 
 
 @pytest.fixture
