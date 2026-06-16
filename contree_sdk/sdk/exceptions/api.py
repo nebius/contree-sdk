@@ -54,3 +54,8 @@ class TooManyRequestsError(ApiStatusCodeError):
 class ForbiddenError(ApiStatusCodeError):
     status: int | None = 403
     _template = "You do not have permission to perform this action"
+
+
+@dataclass
+class UnprocessableEntityError(ApiStatusCodeError):
+    status: int | None = 422
