@@ -14,7 +14,7 @@ from uuid import UUID
 import cattrs
 
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
-from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
+from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import REQUEST_IO_TYPES, RunRequest
@@ -39,7 +39,7 @@ _STATE_MACHINE: dict[ImageState, frozenset[ImageState]] = {
     ImageState.PULLED: _PREPARATION_STATES,
     ImageState.PREPARING: _PREPARATION_STATES,
     ImageState.PREPARED: frozenset({ImageState.EXECUTING}),
-    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED}),
+    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED, ImageState.FAILED}),
     ImageState.SUCCEEDED: _PREPARATION_STATES,
 }
 
@@ -317,9 +317,13 @@ class _ImageLikeBase:
                 preserve_env=req.preserve_env,
             )
         )
-        image_metadata, result = await self._client._wait_operation(
-            operation_uuid, InstanceOperationMetadata, timeout=timeout
-        )
+        try:
+            image_metadata, result = await self._client._wait_operation(
+                operation_uuid, InstanceOperationMetadata, timeout=timeout
+            )
+        except ContreeError:
+            new_self._transition_state(ImageState.FAILED)
+            raise
 
         new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = result.image

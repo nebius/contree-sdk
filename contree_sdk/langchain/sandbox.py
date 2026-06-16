@@ -21,10 +21,15 @@ class ContreeSandbox(BaseSandbox):
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         uploaded_files = await gather(*(self._session.client.files._upload_bytes_file(file[1]) for file in files))
         mapped_files = {}
-        for file, uploaded_file in zip(files, uploaded_files, strict=True):
-            mapped_files[file[0]] = uploaded_file
+        for (path, *_), uploaded_file in zip(files, uploaded_files, strict=True):
+            if not path.startswith("/"):
+                continue
+
+            mapped_files[path] = uploaded_file
         await ContreeSession.apply_files(self._session, mapped_files)
-        return [FileUploadResponse(path=path) for path in mapped_files]
+        return [
+            FileUploadResponse(path=path, error=None if path in mapped_files else "invalid_path") for path, *_ in files
+        ]
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         return coro_sync(self.aupload_files(files))
@@ -55,7 +60,7 @@ class ContreeSandbox(BaseSandbox):
 
         result = (
             await self._session.run(
-                shell=command, timeout=timeout, disposable=False, truncate_output_at=500 * 1024
+                shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024
             )._await()
         ).result
         truncated = False
