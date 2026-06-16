@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 
 class SyncClientMixin:
     _client_class: type[Client] = Client
-    _client: Client
+
+    if TYPE_CHECKING:
+
+        @property
+        def _client(self) -> Client: ...
 
     def _send_request(self, request: Request) -> Response:
         return self._client.send(request, follow_redirects=True)
@@ -30,7 +34,11 @@ class SyncClientMixin:
 
 class AsyncClientMixin:
     _client_class: type[AsyncClient] = AsyncClient
-    _client: AsyncClient
+
+    if TYPE_CHECKING:
+
+        @property
+        def _client(self) -> AsyncClient: ...
 
     async def _send_request(self, request: Request) -> Response:
         resp = await self._client.send(request, follow_redirects=True, stream=True)

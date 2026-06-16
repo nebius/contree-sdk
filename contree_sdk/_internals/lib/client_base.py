@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from asyncio import get_running_loop
 from typing import overload
 
 import httpx
@@ -21,9 +22,19 @@ class ClientBase(ABC):
         transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect or 5.0,
     ) -> None:
         headers = {"User-Agent": build_user_agent(), **auth.get_headers()}
-        self._client = self._client_class(
-            headers=headers, base_url=auth.base_url, timeout=Timeout(timeout=transport_timeout)
-        )
+        self._client_per_loop = {}
+        self._client_kwargs = {
+            "headers": headers,
+            "base_url": auth.base_url,
+            "timeout": Timeout(timeout=transport_timeout),
+        }
+
+    @property
+    def _client(self):
+        loop = get_running_loop()
+        if loop not in self._client_per_loop:
+            self._client_per_loop[loop] = self._client_class(**self._client_kwargs)
+        return self._client_per_loop[loop]
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
         kwargs = endpoint_info.get_file_upload_kwargs(data)

@@ -5,6 +5,7 @@ from .api import (
     ContreeTransportError,
     ForbiddenError,
     NotFoundError,
+    UnprocessableEntityError,
 )
 from .base import ContreeError
 from .image import (
@@ -44,5 +45,6 @@ __all__ = [
     "OperationError",
     "OperationTimedOutError",
     "UnknownContreeError",
+    "UnprocessableEntityError",
     "WrongOperationTypeError",
 ]

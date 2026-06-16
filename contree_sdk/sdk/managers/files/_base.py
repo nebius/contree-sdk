@@ -21,3 +21,11 @@ class _FilesBaseManager(BaseManager):
 
         async with aiofiles.open(local_path, "rb") as file:
             return await self._client._api.upload_file(file)
+
+    async def _upload_bytes_file(self, data: bytes) -> UploadedFile:
+        file_hash = sha256()
+        file_hash.update(data)
+
+        with suppress(NotFoundError):
+            return await self._client._api.get_file_by_sha256(file_hash.hexdigest())
+        return await self._client._api.upload_file(data)

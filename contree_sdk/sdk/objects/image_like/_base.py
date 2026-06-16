@@ -434,3 +434,7 @@ class _ImageLikeBase:
         new_self = self._copy_self(clear=False)
         new_self.tag = None
         return new_self
+
+    @property
+    def client(self):
+        return self._client

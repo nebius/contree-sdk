@@ -38,6 +38,7 @@ dev = [
     "pytest-html",
     "rich",
     "tomli; python_version < '3.11'",
+    "langchain-tests",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -224,6 +225,7 @@ extend-ignore = [
     "DOC",     # pydoclint
     "PERF",    # perflint
     "PLR2004", # magic-value-comparison
+    "PLR6301", # no-self-use
     "PT011",   # pytest-raises-too-broad
     "PT028",   # pytest-parameter-with-default-argument
     "RUF029",  # unused-async
