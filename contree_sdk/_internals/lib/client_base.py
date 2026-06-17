@@ -31,7 +31,10 @@ class ClientBase(ABC):
 
     @property
     def _client(self):
-        loop = get_running_loop()
+        try:
+            loop = get_running_loop()
+        except RuntimeError:
+            loop = None
         if loop not in self._client_per_loop:
             self._client_per_loop[loop] = self._client_class(**self._client_kwargs)
         return self._client_per_loop[loop]
