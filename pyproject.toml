@@ -38,7 +38,7 @@ dev = [
     "pytest-html",
     "rich",
     "tomli; python_version < '3.11'",
-    "langchain-tests",
+    "langchain-tests>=1.1.9",
 
     # for format+checks
     "pytest-markdown-docs",
