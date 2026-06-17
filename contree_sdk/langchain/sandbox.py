@@ -1,4 +1,4 @@
-from asyncio import gather
+from asyncio import Lock, gather
 from uuid import uuid4
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
@@ -13,6 +13,7 @@ class ContreeSandbox(BaseSandbox):
     def __init__(self, session: ContreeSession | ContreeSessionSync):
         self._session = session
         self._id = f"contree-{uuid4()}-from-{self._session.uuid}"
+        self._lock = Lock()
 
     @property
     def id(self) -> str:
@@ -26,7 +27,8 @@ class ContreeSandbox(BaseSandbox):
                 continue
 
             mapped_files[path] = uploaded_file
-        await ContreeSession.apply_files(self._session, mapped_files)
+        async with self._lock:
+            await ContreeSession.apply_files(self._session, mapped_files)
         return [
             FileUploadResponse(path=path, error=None if path in mapped_files else "invalid_path") for path, *_ in files
         ]
@@ -57,12 +59,12 @@ class ContreeSandbox(BaseSandbox):
         *,
         timeout: int | None = None,
     ) -> ExecuteResponse:
-
-        result = (
-            await self._session.run(
-                shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024
-            )._await()
-        ).result
+        async with self._lock:
+            result = (
+                await self._session.run(
+                    shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024
+                )._await()
+            ).result
         truncated = False
         if result._raw is not None and result._raw.result is not None:
             truncated = result._raw.result.stdout.truncated or result._raw.result.stderr.truncated
