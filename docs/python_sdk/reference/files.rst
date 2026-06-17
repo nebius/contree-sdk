@@ -1,3 +1,5 @@
+:icon: folder-open
+
 Files Manager
 ==============
 

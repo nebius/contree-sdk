@@ -1,3 +1,5 @@
+:icon: book-open-cover
+
 API Reference
 =============
 
@@ -7,7 +9,7 @@ Core Components
 ---------------
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 1
 
     client
     images

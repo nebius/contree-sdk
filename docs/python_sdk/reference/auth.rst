@@ -1,3 +1,5 @@
+:icon: key
+
 Auth
 ====
 

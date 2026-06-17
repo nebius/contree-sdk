@@ -1,5 +1,7 @@
+:icon: terminal
+
 subprocess
-=====
+==========
 
 .. automodule:: contree_sdk.sdk.objects.subprocess
    :members: ContreeProcessSync

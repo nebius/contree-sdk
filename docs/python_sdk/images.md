@@ -1,3 +1,7 @@
+---
+icon: layer-group
+---
+
 # Working with Images
 
 ConTree SDK provides several ways to reference and import container images. For full API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.

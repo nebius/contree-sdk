@@ -1,5 +1,7 @@
+:icon: rocket
+
 Clients
-======
+=======
 
 .. automodule:: contree_sdk
    :members: Contree, ContreeSync

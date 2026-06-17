@@ -1,3 +1,7 @@
+---
+icon: terminal
+---
+
 # Running Commands
 
 ConTree SDK provides multiple ways to execute commands in containers, from simple shell commands to complex workflows with file handling and custom I/O.
