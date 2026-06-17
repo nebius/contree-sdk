@@ -39,6 +39,7 @@ dev = [
     "rich",
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9",
+    "contree-sdk[langchain]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -50,12 +51,15 @@ dev = [
 ]
 
 dev-security = [
-    "semgrep",
+    "semgrep>=1.0",
 ]
 
 httpx = [
 ]
 shell = [
+]
+langchain = [
+    "deepagents; python_version >= '3.11'",
 ]
 
 docs = [
