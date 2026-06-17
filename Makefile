@@ -13,7 +13,7 @@ docs-mintlify-build:
 
 docs-mintlify:
 	$(MAKE) docs-mintlify-clean
-	LC_ALL=C.UTF-8 $(MAKE) docs-mintlify-build
+	$(MAKE) docs-mintlify-build
 
 type-check-docs:
 	basedpyright tests/unit/docs/_tmp
