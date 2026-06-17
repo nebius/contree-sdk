@@ -1,5 +1,10 @@
 import pytest
-from langchain_tests.integration_tests import SandboxIntegrationTests
+
+
+try:
+    from langchain_tests.integration_tests import SandboxIntegrationTests
+except ImportError:
+    pytest.skip("deepagents not available (requires Python >= 3.11)", allow_module_level=True)
 
 from contree_sdk import ContreeSync
 from contree_sdk.langchain.sandbox import ContreeSandbox
