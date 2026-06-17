@@ -1,5 +1,7 @@
+:icon: folder-tree
+
 Image files/directories
-=====
+=======================
 
 .. automodule:: contree_sdk.sdk.objects.image_fs
     :members: ImageFile, ImageDirectory

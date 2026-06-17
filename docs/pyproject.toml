@@ -9,10 +9,15 @@ dependencies = [
   "sphinx-autobuild",
   "sphinx-autodoc-typehints",
   "sphinx-copybutton",
+  "sphinx-design",
   "sphinxcontrib-log-cabinet",
   "sphinx-inline-tabs",
   "shibuya",
+  "sphinx-mintlify-output",
 ]
 
 [tool.setuptools]
 py-modules = ["conf"]
+
+[tool.uv.sources]
+sphinx-mintlify-output = { path = "../../sphinx-mintlify-output", editable = true }

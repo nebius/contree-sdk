@@ -1,3 +1,7 @@
+---
+icon: hand-wave
+---
+
 # Getting Started
 
 This guide will help you get up and running with ConTree SDK. By the end of this guide, you'll understand how to create clients, work with images, and run your first commands.
