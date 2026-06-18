@@ -18,6 +18,3 @@ dependencies = [
 
 [tool.setuptools]
 py-modules = ["conf"]
-
-[tool.uv.sources]
-sphinx-mintlify-output = { path = "../../sphinx-mintlify-output", editable = true }
