@@ -1,3 +1,7 @@
+---
+icon: robot
+---
+
 # Mini-SWE-Agent Integration
 
 [Mini-SWE-Agent](https://mini-swe-agent.com/latest/) is a lightweight software engineering agent.

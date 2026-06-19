@@ -1,3 +1,5 @@
+:icon: layer-group
+
 Images Manager
 ==============
 

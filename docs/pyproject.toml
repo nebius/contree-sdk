@@ -9,9 +9,11 @@ dependencies = [
   "sphinx-autobuild",
   "sphinx-autodoc-typehints",
   "sphinx-copybutton",
+  "sphinx-design",
   "sphinxcontrib-log-cabinet",
   "sphinx-inline-tabs",
   "shibuya",
+  "sphinx-mintlify-output",
 ]
 
 [tool.setuptools]

@@ -9,6 +9,7 @@ version = release = get_version("contree-sdk")
 
 extensions = [
     "myst_parser",
+    "sphinx_design",
     "sphinx.ext.autodoc",
     "sphinx.ext.duration",
     "sphinx.ext.napoleon",
@@ -18,6 +19,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_inline_tabs",
     "sphinxcontrib.log_cabinet",
+    "sphinx_mintlify_output",
 ]
 
 autosummary_generate = True
@@ -66,3 +68,11 @@ source_suffix = {
 
 # Master document
 master_doc = "index"
+
+# -- Mintlify output --------------------------------------------------------
+
+mintlify_docs_json = {
+    "name": "ConTree SDK",
+    "theme": "mint",
+    "logo": {"light": "static/logo.svg", "dark": "static/logo.svg"},
+}

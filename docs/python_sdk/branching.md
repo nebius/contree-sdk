@@ -1,3 +1,7 @@
+---
+icon: code-branch
+---
+
 # Branching Workflows
 
 One of ConTree's most powerful features is the ability to branch execution flows from a single base filesystem state (a snapshot of all files and directories in a container at a specific point in time). This is similar to Git branches, but for container execution states.
