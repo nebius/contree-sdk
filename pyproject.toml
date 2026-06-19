@@ -243,6 +243,10 @@ extend-ignore = [
     "PLC2701", # import-private-name
 ]
 
+"!tests/**" = [
+    "PT", # flake8-pytest-style
+]
+
 "!examples/**" = [
     "PLC2701", # import-private-name
 ]

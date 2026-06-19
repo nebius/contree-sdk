@@ -77,11 +77,13 @@ class Improvement:
     now: int
 
 
-def run_ty(*paths: str) -> list[Diagnostic]:
+def run_ty(*paths: str, config_file: str | None = None) -> list[Diagnostic]:
+    config_args = ["--config-file", config_file] if config_file else []
     result = subprocess.run(  # noqa: S603
         [
             find_ty_bin(),
             "check",
+            *config_args,
             "--force-exclude",
             "--no-respect-ignore-files",
             "--output-format",
@@ -101,8 +103,8 @@ def is_under(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(Path(path).is_relative_to(prefix) for prefix in prefixes)
 
 
-def fetch_errors(paths: tuple[str, ...]) -> list[Diagnostic]:
-    diagnostics = run_ty(*paths)
+def fetch_errors(paths: tuple[str, ...], config_file: str | None = None) -> list[Diagnostic]:
+    diagnostics = run_ty(*paths, config_file=config_file)
     errors = [diag for diag in diagnostics if diag.severity == ERROR_SEVERITY]
     if not paths:
         return errors
@@ -135,16 +137,16 @@ def filter_baseline(baseline: Counts, paths: tuple[str, ...]) -> Counts:
     return {path: rule_counts for path, rule_counts in baseline.items() if is_under(path, paths)}
 
 
-def load_baseline() -> Counts:
-    if not BASELINE_PATH.exists():
-        raise click.ClickException(f"Baseline not found: {BASELINE_PATH}. Run `{_UPDATE_CMD}` to create it.")
-    data = yaml.safe_load(BASELINE_PATH.read_text()) or {}
-    return {normalize_path(path): rule_counts for path, rule_counts in data.items()}
+def load_baseline(path: Path = BASELINE_PATH) -> Counts:
+    if not path.exists():
+        raise click.ClickException(f"Baseline not found: {path}. Run `{_UPDATE_CMD}` to create it.")
+    data = yaml.safe_load(path.read_text()) or {}
+    return {normalize_path(p): rule_counts for p, rule_counts in data.items()}
 
 
-def save_baseline(counts: Counts) -> None:
-    BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    BASELINE_PATH.write_text(yaml.safe_dump(counts, default_flow_style=False, allow_unicode=True))
+def save_baseline(counts: Counts, path: Path = BASELINE_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(counts, default_flow_style=False, allow_unicode=True))
 
 
 def diff(scoped: Counts, current: Counts, grouped: Grouped) -> tuple[list[Regression], list[Improvement]]:
@@ -164,21 +166,29 @@ def diff(scoped: Counts, current: Counts, grouped: Grouped) -> tuple[list[Regres
 
 
 @click.group()
-def cli() -> None:
-    pass
+@click.option("--config-file", "config_file", default=None, type=click.Path(), help="ty config file to use")
+@click.option("--baseline-path", "baseline_path", default=None, type=click.Path(), help="path to baseline YAML file")
+@click.pass_context
+def cli(ctx: click.Context, config_file: str | None, baseline_path: str | None) -> None:
+    ctx.ensure_object(dict)
+    ctx.obj["config_file"] = config_file
+    ctx.obj["baseline_path"] = Path(baseline_path) if baseline_path else BASELINE_PATH
 
 
 @cli.command()
 @click.argument("paths", nargs=-1, type=NORM_PATH)
-def check(paths: tuple[str, ...]) -> None:
+@click.pass_context
+def check(ctx: click.Context, paths: tuple[str, ...]) -> None:
     """Run ty and report regressions beyond baseline.
 
     Raises:
         SystemExit: if regressions are found.
 
     """
-    scoped = filter_baseline(load_baseline(), paths)
-    current, grouped = analyze(fetch_errors(paths))
+    config_file = ctx.obj["config_file"]
+    baseline_path = ctx.obj["baseline_path"]
+    scoped = filter_baseline(load_baseline(baseline_path), paths)
+    current, grouped = analyze(fetch_errors(paths, config_file=config_file))
     regressions, improvements = diff(scoped, current, grouped)
 
     if not regressions:
@@ -199,34 +209,40 @@ def check(paths: tuple[str, ...]) -> None:
 
 @cli.command()
 @click.argument("paths", nargs=-1, type=NORM_PATH)
-def update(paths: tuple[str, ...]) -> None:
+@click.pass_context
+def update(ctx: click.Context, paths: tuple[str, ...]) -> None:
     """Regenerate baseline. With PATHS, updates only those entries."""
+    config_file = ctx.obj["config_file"]
+    baseline_path = ctx.obj["baseline_path"]
     click.echo("Running ty check...")
-    current, _ = analyze(fetch_errors(paths))
-    old_baseline = load_baseline() if BASELINE_PATH.exists() else {}
+    current, _ = analyze(fetch_errors(paths, config_file=config_file))
+    old_baseline = load_baseline(baseline_path) if baseline_path.exists() else {}
 
     if paths:
-        retained = {path: rule_counts for path, rule_counts in old_baseline.items() if not is_under(path, paths)}
+        retained = {p: rule_counts for p, rule_counts in old_baseline.items() if not is_under(p, paths)}
         counts = dict(sorted({**retained, **current}.items()))
     else:
         counts = current
 
     old_total = total(filter_baseline(old_baseline, paths))
     new_total = total(current)
-    save_baseline(counts)
+    save_baseline(counts, baseline_path)
     scope = f"{len(paths)} path(s)" if paths else f"{len(counts)} files"
     click.echo(
-        f"Baseline updated: {old_total} → {new_total} ({new_total - old_total:+d}) across {scope} → {BASELINE_PATH}"
+        f"Baseline updated: {old_total} → {new_total} ({new_total - old_total:+d}) across {scope} → {baseline_path}"
     )
 
 
 @cli.command()
 @click.argument("paths", nargs=-1, type=NORM_PATH)
-def stats(paths: tuple[str, ...]) -> None:
+@click.pass_context
+def stats(ctx: click.Context, paths: tuple[str, ...]) -> None:
     """Show error counts per rule vs baseline."""
-    baseline = filter_baseline(load_baseline() if BASELINE_PATH.exists() else {}, paths)
+    config_file = ctx.obj["config_file"]
+    baseline_path = ctx.obj["baseline_path"]
+    baseline = filter_baseline(load_baseline(baseline_path) if baseline_path.exists() else {}, paths)
     click.echo("Running ty check...")
-    current, _ = analyze(fetch_errors(paths))
+    current, _ = analyze(fetch_errors(paths, config_file=config_file))
 
     baseline_total = total(baseline)
     current_total = total(current)
