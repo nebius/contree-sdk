@@ -35,6 +35,8 @@ jobs:
       matrix:
         python-version: ${{ fromJson(needs.build-matrix.outputs.py) }}
         os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYTHONUTF8: "1"
 
     steps:
       - uses: actions/checkout@v4
