@@ -88,4 +88,6 @@ python_sdk/running-commands
 python_sdk/branching
 
 python_sdk/reference/index
+
+integrations/index
 ```
