@@ -14,7 +14,7 @@ def make_diag(path: str, rule: str, line: int = 1, severity: str = "major") -> D
 @pytest.fixture
 def mock_ty(monkeypatch):
     diagnostics: list[Diagnostic] = []
-    monkeypatch.setattr(tb, "run_ty", lambda *_: list(diagnostics))
+    monkeypatch.setattr(tb, "run_ty", lambda *_, **__: list(diagnostics))
     return diagnostics
 
 

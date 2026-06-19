@@ -7,7 +7,7 @@ from re import findall
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    import tomli as tomllib  # type: ignore[unresolved-import]
+    import tomli as tomllib  # ty: ignore[unresolved-import]
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 

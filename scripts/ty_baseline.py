@@ -137,14 +137,18 @@ def filter_baseline(baseline: Counts, paths: tuple[str, ...]) -> Counts:
     return {path: rule_counts for path, rule_counts in baseline.items() if is_under(path, paths)}
 
 
-def load_baseline(path: Path = BASELINE_PATH) -> Counts:
+def load_baseline(path: Path | None = None) -> Counts:
+    if path is None:
+        path = BASELINE_PATH
     if not path.exists():
         raise click.ClickException(f"Baseline not found: {path}. Run `{_UPDATE_CMD}` to create it.")
     data = yaml.safe_load(path.read_text()) or {}
     return {normalize_path(p): rule_counts for p, rule_counts in data.items()}
 
 
-def save_baseline(counts: Counts, path: Path = BASELINE_PATH) -> None:
+def save_baseline(counts: Counts, path: Path | None = None) -> None:
+    if path is None:
+        path = BASELINE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(counts, default_flow_style=False, allow_unicode=True))
 
