@@ -23,6 +23,7 @@ def image_s(contree_s: ContreeSync) -> ContreeImageSync:
 
 @pytest.fixture
 def image_uuid(image: ContreeImage) -> UUID:
+    assert image.uuid is not None  # noqa: S101
     return image.uuid
 
 

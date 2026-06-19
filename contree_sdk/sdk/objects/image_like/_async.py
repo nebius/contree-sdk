@@ -40,7 +40,7 @@ class _ImageLike(_ImageLikeBase):
         """
         return await self._download(image_path, local_path)
 
-    async def read(self, image_path: str | Path) -> bytes:
+    async def read(self, image_path: str | PurePosixPath) -> bytes:
         """Read file contents from the image.
 
         Args:

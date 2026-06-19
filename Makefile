@@ -1,4 +1,4 @@
-.PHONY: rtd-dev type-check-docs type-check-docs-ignore
+.PHONY: rtd-dev type-check type-check-ignore type-check-docs type-check-docs-ignore
 
 DOCS_DIR := docs
 
@@ -15,8 +15,17 @@ docs-mintlify:
 	$(MAKE) docs-mintlify-clean
 	$(MAKE) docs-mintlify-build
 
+type-check:
+	uv run --extra dev python scripts/ty_baseline.py check
+
+type-check-ignore:
+	uv run --extra dev python scripts/ty_baseline.py update
+
+type-check-no-baseline:
+	uv run --extra dev ty check
+
 type-check-docs:
-	basedpyright tests/unit/docs/_tmp
+	uv run --extra dev python scripts/ty_baseline.py check tests/unit/docs/_tmp
 
 type-check-docs-ignore:
-	basedpyright --writebaseline tests/unit/docs/_tmp
+	uv run --extra dev python scripts/ty_baseline.py update tests/unit/docs/_tmp

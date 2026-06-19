@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import IOBase
 from subprocess import CalledProcessError
 from typing import IO
 
@@ -12,7 +13,7 @@ class ContreeProcessBase:
         self._check = check
 
     @property
-    def stdin(self) -> IO:
+    def stdin(self) -> IO | IOBase | None:
         return self._image.stdin
 
     @property

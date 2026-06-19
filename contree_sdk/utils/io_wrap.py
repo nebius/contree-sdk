@@ -52,7 +52,7 @@ class IOMode(StrEnum):
 
 
 PipeLiteral = Literal[-1]  # subprocess.PIPE
-IO_TYPES: TypeAlias = str | bytes | Path | IO[str] | IO[bytes] | PipeLiteral
+IO_TYPES: TypeAlias = str | bytes | Path | IO[str] | IO[bytes] | IOBase | PipeLiteral
 
 
 def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:

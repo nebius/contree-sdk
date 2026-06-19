@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
+from io import IOBase
 from math import ceil
 from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, TypeVar, overload
@@ -316,8 +317,8 @@ class _ImageLikeBase:
 
         new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = result.image
-        new_self.uuid = new_uuid and UUID(new_uuid)  # type: ignore[reportAttributeAccessIssue]
-        new_self.tag = result.tag  # type: ignore[reportAttributeAccessIssue]
+        new_self.uuid = new_uuid and UUID(new_uuid)
+        new_self.tag = result.tag
         new_self._result = ContreeResult.from_result(image_metadata, request=req)
         if req.tag:
             new_self = await new_self._tag_as(req.tag)
@@ -381,17 +382,17 @@ class _ImageLikeBase:
         return self._result
 
     @property
-    def stdin(self) -> IO | None:
+    def stdin(self) -> IO | IOBase | None:
         """Configured stdin source."""
         return self._stdin
 
     @property
-    def stdout(self) -> IO_TYPES | None:
+    def stdout(self) -> IO_TYPES:
         """Stdout output from the execution."""
         return self.result.stdout
 
     @property
-    def stderr(self) -> IO_TYPES | None:
+    def stderr(self) -> IO_TYPES:
         """Stderr output from the execution."""
         return self.result.stderr
 

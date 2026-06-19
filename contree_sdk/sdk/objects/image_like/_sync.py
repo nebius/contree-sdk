@@ -51,7 +51,7 @@ class _ImageLikeSync(_ImageLikeBase):
         """
         return coro_sync(self._download(image_path, local_path))
 
-    def read(self, image_path: str | Path) -> bytes:
+    def read(self, image_path: str | PurePosixPath) -> bytes:
         """Read file contents from the image.
 
         Args:
@@ -107,7 +107,7 @@ class _ImageLikeSync(_ImageLikeBase):
         output_type = str if text else text
 
         return ContreeProcessSync(
-            self.run(  # type: ignore[call-overload]
+            self.run(  # ty: ignore[no-matching-overload]
                 stdin=input or stdin,
                 cwd=cwd,
                 env=env,

@@ -24,7 +24,7 @@ def keep_signature(original_func: Callable[..., Any]) -> Any:
         wrapped = wraps(original_func)(func)
         wrapped.__name__ = func.__name__
         wrapped.__qualname__ = func.__qualname__
-        wrapped.__signature__ = signature(original_func)  # type: ignore[reportAttributeAccessIssue]
+        wrapped.__signature__ = signature(original_func)
         return wrapped
 
     return decorator
