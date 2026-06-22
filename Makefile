@@ -16,16 +16,16 @@ docs-mintlify:
 	$(MAKE) docs-mintlify-build
 
 type-check:
-	uv run --extra dev python scripts/ty_baseline.py check
+	uv run --all-extras python scripts/ty_baseline.py check
 
 type-check-ignore:
-	uv run --extra dev python scripts/ty_baseline.py update
+	uv run --all-extras python scripts/ty_baseline.py update
 
 type-check-no-baseline:
-	uv run --extra dev ty check
+	uv run --all-extras ty check
 
 type-check-docs:
-	uv run --extra dev python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml check tests/unit/docs/_tmp
+	uv run --all-extras python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml check tests/unit/docs/_tmp
 
 type-check-docs-ignore:
-	uv run --extra dev python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml update tests/unit/docs/_tmp
+	uv run --all-extras python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml update tests/unit/docs/_tmp

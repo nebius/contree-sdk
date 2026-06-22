@@ -7,6 +7,7 @@ include = [
     "contree_sdk/**/*.py",
     "tests/**/*.py",
     "scripts/**/*.py",
+    "examples/**/*.py",
 ]
 exclude = [
     "tests/unit/docs/_tmp/**",
