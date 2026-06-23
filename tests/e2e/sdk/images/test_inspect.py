@@ -37,6 +37,7 @@ def test_image_ls_s(image_s: ContreeImageSync):
         if isinstance(item, ImageDirectorySync):
             directory = item
 
+    assert directory is not None
     subitems = directory.ls()
     assert subitems
     for item in subitems:
@@ -80,4 +81,5 @@ def test_read_file_s(image_s: ContreeImageSync, random_data):
     for file in res.ls():
         if file.full_path == PurePosixPath("/output.txt"):
             res_file = file
+    assert res_file is not None
     assert res_file.read() == random_data

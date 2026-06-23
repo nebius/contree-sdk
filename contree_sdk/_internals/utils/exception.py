@@ -55,7 +55,9 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeErr
         elif response.status_code == 429:
             class_ = TooManyRequestsError
         return class_(
-            **{k: data[k] for k in ["status", "error"] if k in data}, request=request_info, response=response_info
+            **{k: data[k] for k in ["status", "error"] if k in data},  # ty: ignore[invalid-argument-type]
+            request=request_info,
+            response=response_info,
         )
 
     return UnknownContreeError(exception=exc)

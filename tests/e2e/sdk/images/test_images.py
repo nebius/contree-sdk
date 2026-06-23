@@ -45,6 +45,7 @@ def test_oci_public_image_s(contree_s: ContreeSync):
     assert isinstance(image, ContreeImageSync)
     assert isinstance(image.uuid, UUID)
     assert image.state == ImageState.PULLED
+    assert image.tag
     assert "code-server:latest" in image.tag
 
 

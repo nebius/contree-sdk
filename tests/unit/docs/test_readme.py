@@ -2,17 +2,18 @@ import logging
 from hashlib import sha256
 from pathlib import Path
 
-import basedpyright
 import pytest
 from pytest_examples import CodeExample, find_examples
+from scripts.ty_baseline import cli
 
 
 DOCS_TESTS_PATH = Path(__file__).parent
 PROJECT_ROOT = DOCS_TESTS_PATH.parent.parent.parent
 
 README_MD_PATH = PROJECT_ROOT / "README.md"
-
 TMP_FILES_PATH = DOCS_TESTS_PATH / "_tmp"
+DOCS_CONFIG = DOCS_TESTS_PATH / "ty.docs.toml"
+DOCS_BASELINE = DOCS_TESTS_PATH / "baseline.yaml"
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +40,20 @@ def test_docstrings(example: CodeExample):
 
 
 def run_check(path: Path):
-    from nodejs_wheel.executable import node
-
-    result = node(
-        [
-            str(Path(basedpyright.__file__).parent / "index.js"),
-            "--project",
-            str(DOCS_TESTS_PATH / "pyproject.docs.toml"),
-            "--baselinemode=discard",
-            str(path),
-        ],
-        return_completed_process=True,
-        capture_output=True,
-        text=True,
-    )
-    logger.info(result.stdout)
-    logger.info(result.stderr)
-    assert result.returncode == 0, str(result.stdout) + str(result.stderr)
+    try:
+        cli.main(
+            [
+                "--config-file",
+                str(DOCS_CONFIG),
+                "--baseline-path",
+                str(DOCS_BASELINE),
+                "check",
+                str(path.relative_to(PROJECT_ROOT)),
+            ],
+            standalone_mode=False,
+        )
+    except SystemExit as e:
+        assert e.code == 0  # noqa: PT017
 
 
 def test_check_can_fail():

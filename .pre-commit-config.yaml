@@ -37,12 +37,12 @@ repos:
         pass_filenames: false
   - repo: local
     hooks:
-      - id: basedpyright
-        name: basedpyright
-        entry: bash -lc 'exec uv run basedpyright' --
+      - id: ty
+        name: ty
+        entry: bash -lc 'exec uv run python scripts/ty_baseline.py check' --
         language: system
         pass_filenames: false
-        files: (?x)^(.*\.py|\.basedpyright/.*|(?:.*/)?pyproject\.toml)$
+        files: (?x)^(.*\.py|\.ty/.*|(?:.*/)?pyproject\.toml)$
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.24.2
     hooks:

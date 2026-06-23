@@ -36,7 +36,7 @@ else:
         """
 
         def decorator(func: Callable[P, T]) -> Callable[P, T]:
-            typed_func: Callable[P, T] = _typing_deprecated(message)(func)  # type: ignore[arg-type]
+            typed_func: Callable[P, T] = _typing_deprecated(message)(func)  # ty: ignore[invalid-argument-type]
             warn_msg = f"{func.__qualname__} is deprecated. {message}"
 
             if asyncio.iscoroutinefunction(func):
@@ -46,7 +46,7 @@ else:
                     warnings.warn(warn_msg, category=category, stacklevel=stacklevel + 1)
                     return await func(*args, **kwargs)
 
-                return async_wrapper  # type: ignore[return-value]
+                return async_wrapper  # ty: ignore[invalid-return-type]
 
             @wraps(typed_func)
             def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:

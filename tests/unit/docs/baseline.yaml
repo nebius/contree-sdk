@@ -1,0 +1,6 @@
+tests/unit/docs/_tmp/README.md_test_popen_communicate.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_popen_shell.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_stable_image_uuid.py:
+  unresolved-reference: 1

@@ -43,7 +43,7 @@ dev = [
     "pytest-markdown-docs",
     "dprint-py",
     "pytest-examples",
-    "basedpyright",
+    "ty~=0.0.51",
     "ruff",
     "typing-extensions",
 ]
@@ -243,6 +243,10 @@ extend-ignore = [
     "PLC2701", # import-private-name
 ]
 
+"!tests/**" = [
+    "PT", # flake8-pytest-style
+]
+
 "!examples/**" = [
     "PLC2701", # import-private-name
 ]
@@ -277,21 +281,3 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.pylint]
 max-args = 12
-
-[tool.pyright]
-include = ["contree_sdk", "tests"]
-
-exclude = [
-    "tests/unit/docs/_tmp/**"
-]
-
-pythonVersion = "3.10"
-pythonPlatform = "Linux"
-
-typeCheckingMode = "standard"
-
-baselineFile = "./.basedpyright/baseline.json"
-
-# ignores
-reportGeneralTypeIssues = "warning"
-reportMissingTypeArgument = "warning"

@@ -1,0 +1,39 @@
+[environment]
+python-version = "3.10"
+python-platform = "linux"
+
+[src]
+include = [
+    "contree_sdk/**/*.py",
+    "tests/**/*.py",
+    "scripts/**/*.py",
+    "examples/**/*.py",
+]
+exclude = [
+    "tests/unit/docs/_tmp/**",
+    ".venv/**",
+    "dist/**",
+]
+
+[analysis]
+respect-type-ignore-comments = true
+
+[[overrides]]
+include = ["**/tests/**/*.py", "**/test_*.py", "**/*_test.py", "**/conftest.py"]
+rules.too-many-positional-arguments = "warn"
+
+[[overrides]]
+include = ["contree_sdk/_internals/client/**"]
+rules.empty-body = "ignore"
+
+[[overrides]]
+include = ["tests/e2e/sdk/run/**"]
+rules.unsupported-operator = "warn"
+
+[[overrides]]
+include = ["examples/**"]
+rules.not-subscriptable = "warn"
+
+[[overrides]]
+include = ["examples/mini_swe_agent/**"]
+rules.unresolved-import = "ignore"
