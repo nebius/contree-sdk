@@ -29,3 +29,11 @@ rules.empty-body = "ignore"
 [[overrides]]
 include = ["tests/e2e/sdk/run/**"]
 rules.unsupported-operator = "warn"
+
+[[overrides]]
+include = ["examples/**"]
+rules.not-subscriptable = "warn"
+
+[[overrides]]
+include = ["examples/mini_swe_agent/**"]
+rules.unresolved-import = "ignore"
