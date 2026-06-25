@@ -9,4 +9,5 @@ icon: plug
 
 
 mini-swe-agent
+langchain
 ```
