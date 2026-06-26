@@ -56,14 +56,16 @@ dev-security = [
 
 httpx = [
 ]
-shell = [
-]
 langchain = [
     "deepagents; python_version >= '3.11'",
 ]
 
 docs = [
     "contree-docs",
+]
+exmaples = [
+    "mini-swe-agent",
+    "langchain-openai"
 ]
 
 [tool.uv.workspace]
