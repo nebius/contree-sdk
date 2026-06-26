@@ -33,7 +33,3 @@ rules.unsupported-operator = "warn"
 [[overrides]]
 include = ["examples/**"]
 rules.not-subscriptable = "warn"
-
-[[overrides]]
-include = ["examples/mini_swe_agent/**"]
-rules.unresolved-import = "ignore"
