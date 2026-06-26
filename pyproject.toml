@@ -68,6 +68,9 @@ exmaples = [
     "langchain-openai"
 ]
 
+[tool.uv]
+override-dependencies = ["pytest-codspeed>=3.0.0"]
+
 [tool.uv.workspace]
 members = [
     "docs",
