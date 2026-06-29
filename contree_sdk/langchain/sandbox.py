@@ -1,4 +1,4 @@
-from asyncio import Lock, gather
+from asyncio import Lock, create_task, gather
 from uuid import uuid4
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
@@ -20,17 +20,19 @@ class ContreeSandbox(BaseSandbox):
         return self._id
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        uploaded_files = await gather(*(self._session.client.files._upload_bytes_file(file[1]) for file in files))
-        mapped_files = {}
-        for (path, *_), uploaded_file in zip(files, uploaded_files, strict=True):
+        task_by_path = {}
+        for path, data in files:
             if not path.startswith("/"):
                 continue
+            task_by_path[path] = create_task(self._session.client.files._upload_bytes_file(data))
+        await gather(*task_by_path.values())
 
-            mapped_files[path] = uploaded_file
         async with self._lock:
-            await ContreeSession.apply_files(self._session, mapped_files)
+            await ContreeSession.apply_files(
+                self._session, {path: task.result() for path, task in task_by_path.items()}
+            )
         return [
-            FileUploadResponse(path=path, error=None if path in mapped_files else "invalid_path") for path, *_ in files
+            FileUploadResponse(path=path, error=None if path in task_by_path else "invalid_path") for path, *_ in files
         ]
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
