@@ -38,7 +38,7 @@ dev = [
     "pytest-html",
     "rich",
     "tomli; python_version < '3.11'",
-    "langchain-tests>=1.1.9",
+    "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
 
     # for format+checks
@@ -63,7 +63,7 @@ langchain = [
 docs = [
     "contree-docs",
 ]
-exmaples = [
+examples = [
     "mini-swe-agent",
     "langchain-openai"
 ]
