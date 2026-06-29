@@ -10,7 +10,6 @@ from time import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from httpcore import ConnectTimeout
 from typing_extensions import TypeVar
 
 from contree_sdk._internals.client.client import ContreeClient
@@ -82,7 +81,7 @@ class _ContreeBase:
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
         self._token_info: WhoAmI | None = None
-        exceptions = [TooManyRequestsError, ConnectTimeout, ApiTimeoutError]
+        exceptions = [TooManyRequestsError, ApiTimeoutError]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._operations = {
