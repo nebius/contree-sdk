@@ -193,9 +193,7 @@ async def amain():
         env=dict(http_proxy="http://10.20.30.40:1234"),
         files=[
             UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
-            UploadFileSpec(
-                source="/local/files/data_ver1.csv", path=PurePosixPath("/data.csv")
-            ),
+            UploadFileSpec(source="/local/files/data_ver1.csv", path=PurePosixPath("/data.csv")),
         ],
     )
     print(result0.stdout)
@@ -220,9 +218,7 @@ async def amain():
     session = busybox_image.session()
     await session.run(
         command="/bin/app",
-        files=[
-            UploadFileSpec(source="/local/files/app", path="bin/app", mode=stat.S_IXUSR)
-        ],
+        files=[UploadFileSpec(source="/local/files/app", path="bin/app", mode=stat.S_IXUSR)],
     )
     res = await session.run(command="/bin/cat", args=("result.txt",))
     print(res.stdout)
@@ -297,11 +293,7 @@ def main():
     session = busybox_image.session()
     session.run(
         command="/bin/app",
-        files=[
-            UploadFileSpec(
-                source="/local/files/app", path="/bin/app", mode=stat.S_IXUSR
-            )
-        ],
+        files=[UploadFileSpec(source="/local/files/app", path="/bin/app", mode=stat.S_IXUSR)],
     ).wait()
     res = session.run(command="cat", args=("result.txt",)).wait()
     print(res.stdout)
