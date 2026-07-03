@@ -6,6 +6,7 @@
   "toml": {
   },
   "ruff": {
+    "lineLength": 120
   },
   "malva": {
   },
