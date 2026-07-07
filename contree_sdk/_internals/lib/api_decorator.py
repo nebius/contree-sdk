@@ -10,7 +10,7 @@ from contree_sdk._internals.lib.types import ApiEndpointInfo, ReturnType
 
 
 if TYPE_CHECKING:
-    from contree_sdk._internals.client.client import ContreeClientBase
+    from contree_sdk._internals.lib.client_base import ClientBase
 
 _formatter = Formatter()
 
@@ -31,7 +31,7 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
 
     Returns:
         A decorator that wraps a client method and routes the call through
-        `ContreeClientBase._handle_api_call`.
+        `ClientBase._handle_api_call`.
 
     """
     match json:
@@ -51,7 +51,7 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
         )
 
         @wraps(func)
-        def wrapper(self: ContreeClientBase, *args, **kwargs):
+        def wrapper(self: ClientBase, *args, **kwargs):
             data = args_kwargs_to_kwargs(endpoint_info.all_params, args, kwargs)
             return self._handle_api_call(endpoint_info=endpoint_info, data=data)
 
