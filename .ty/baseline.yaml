@@ -1,11 +1,6 @@
-contree_sdk/_internals/lib/api_decorator.py:
-  no-matching-overload: 1
 contree_sdk/_internals/lib/client_base.py:
   invalid-argument-type: 1
-  invalid-overload: 2
   invalid-parameter-default: 1
-contree_sdk/_internals/lib/mixins.py:
-  no-matching-overload: 2
   unresolved-attribute: 1
 contree_sdk/_internals/lib/types.py:
   unbound-type-variable: 1
