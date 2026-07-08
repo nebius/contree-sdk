@@ -15,6 +15,7 @@ from typing_extensions import TypeVar
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
+from contree_sdk._internals.models.operation import OperationModel
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.auth import IAMAuth
@@ -162,11 +163,16 @@ class _ContreeBase:
         finished = False
         final_statuses = {OperationStatus.FAILED, OperationStatus.SUCCESS, OperationStatus.CANCELLED}
         not_founds_num = 0
+        last_event_id = -1
+
         async with self._operation_canceller(operation_uuid) as finished_event:
             while not finished:
                 if spent > timeout:
                     raise OperationTimedOutError(operation_uuid=operation_uuid)
                 spent = (datetime.now() - started).total_seconds()
+                async for item in self._api.stream_operation_events(operation_uuid, since=last_event_id):
+                    last_event_id = item.id
+
                 try:
                     resp = await self._api.get_operation_status(operation_uuid)
                 except NotFoundError:
@@ -195,13 +201,20 @@ class _ContreeBase:
                 logger.debug(f"Sleeping for {interval:0.2f} seconds for {kind_str}operation {operation_uuid}")
                 await sleep(interval)
 
+        return self._validate_operation_response(operation_uuid, resp, result_type)
+
+    @staticmethod
+    def _validate_operation_response(
+        operation_uuid: UUID,
+        resp: OperationModel | None,
+        result_type: type[_OperationResultT],
+    ) -> tuple[_OperationResultT, InstanceOperationResult]:
         if resp is None:
             raise RuntimeError("Operation response is None")
         if resp.status == OperationStatus.CANCELLED:
             raise CancelledOperationError(operation_uuid=operation_uuid)
         if resp.status == OperationStatus.FAILED:
             raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error or "Unknown error")
-        if resp.metadata is None or resp.result is None:
+        if not isinstance(resp.metadata, result_type) or resp.result is None:
             raise RuntimeError("Operation completed but metadata or result is None")
-
         return resp.metadata, resp.result
