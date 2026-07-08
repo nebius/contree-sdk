@@ -29,4 +29,4 @@ class ImagesMixin:
     async def untag_image(self, image_uuid: str) -> ContreeImageModel: ...
 
 
-# todo later use like this MainV1Client(ImagesMixin['/images'], OtherMixin, ContreeClientBase) and have all in one
+# todo later use like this MainV1Client(ImagesMixin['/images'], OtherMixin, ClientBase) and have all in one

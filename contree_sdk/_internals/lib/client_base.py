@@ -23,10 +23,7 @@ class ClientBase:
 
     @property
     def _client(self) -> AsyncClient:
-        try:
-            loop = get_running_loop()
-        except RuntimeError:
-            loop = None
+        loop = get_running_loop()
         if loop not in self._client_per_loop:
             self._client_per_loop[loop] = AsyncClient(
                 headers=self._client_headers,

@@ -51,9 +51,9 @@ def apied(method: str, path: str, *, json: bool | Iterable[str] = False):
         )
 
         @wraps(func)
-        def wrapper(self: ClientBase, *args, **kwargs):
+        async def wrapper(self: ClientBase, *args, **kwargs):
             data = args_kwargs_to_kwargs(endpoint_info.all_params, args, kwargs)
-            return self._handle_api_call(endpoint_info=endpoint_info, data=data)
+            return await self._handle_api_call(endpoint_info=endpoint_info, data=data)
 
         return wrapper
 
