@@ -1,5 +1,4 @@
 import json
-from json import JSONDecodeError
 from uuid import UUID
 
 from contree_sdk._internals.lib.api_decorator import delete, get
@@ -24,7 +23,7 @@ class OperationsMixin:
                 f"/v1/operations/{operation_id}/events",
                 params={
                     "follow": int(follow),
-                    "since": int(since),
+                    "since": since,
                 },
             ) as response:
                 data = {}
@@ -33,6 +32,11 @@ class OperationsMixin:
                         yield _stream_data_to_event(data)
                         data = {}
                         continue
+                    if ":" not in line:
+                        raise MalformedEventError(
+                            data=data,
+                            error=f"No delimiter in line {line}",
+                        )
                     name, value = line.split(":", 1)
                     value = value.strip()
                     data[name] = value
@@ -49,7 +53,7 @@ def _stream_data_to_event(data: dict) -> OperationEvent:
 
     try:
         return convert_data_to_type(json.loads(data["data"]), OperationEvent)
-    except (JSONDecodeError, TypeError, ValueError) as e:
+    except (TypeError, ValueError) as e:
         raise MalformedEventError(
             data=data,
             error=str(e),
