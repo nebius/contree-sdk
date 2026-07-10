@@ -22,7 +22,7 @@ from tests.unit.fixtures.imports import (
     api_fake_import_failed,
     api_fake_import_slow,
 )
-from tests.unit.fixtures.operations import operation_id
+from tests.unit.fixtures.operations import api_fake_streamed_run, operation_id
 from tests.unit.fixtures.runs import (
     api_fake_apply_files,
     api_fake_popen,
@@ -65,6 +65,7 @@ __all__ = [
     "api_fake_run_truncated",
     "api_fake_run_with_files",
     "api_fake_session_multiple_runs",
+    "api_fake_streamed_run",
     "api_fake_thread_pool",
     "api_fake_upload",
     "api_fake_whoami",
