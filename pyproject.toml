@@ -218,7 +218,11 @@ extend-ignore = [
 ]
 
 "contree_sdk/_internals/utils/**" = [
-    "PLR2004",
+    "PLR2004", # magic-value-comparison
+]
+
+"contree_sdk/sdk/exceptions/**" = [
+    "RUF027", # missing-f-string-syntax
 ]
 
 "examples/**" = [
