@@ -9,7 +9,7 @@ from contree_sdk._internals.models.image_import import ImageImportRequest, Publi
 from contree_sdk._internals.models.instance import InstanceOperationResult
 from contree_sdk._internals.models.operation import OperationKind, OperationModel
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.operations import add_base_responses
+from tests.unit.fixtures.operations import add_base_responses, add_events_responses
 from tests.unit.fixtures.utils import r
 
 
@@ -44,10 +44,11 @@ def add_import_operation_responses(
     pending_op = create_import_operation_model(result_image_uuid, OperationStatus.PENDING)
     final_op = create_import_operation_model(result_image_uuid, final_status, 0.5)
 
+    add_events_responses(httpx_mock, operation_id, is_reusable=True)
     for _ in range(pending_count):
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(f".*/operations/{operation_id}"),
+            url=re.compile(f".*/operations/{operation_id}$"),
             json=asdict(pending_op),
             is_optional=True,
         )
@@ -55,7 +56,7 @@ def add_import_operation_responses(
     for _ in range(final_count):
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(f".*/operations/{operation_id}"),
+            url=re.compile(f".*/operations/{operation_id}$"),
             json=asdict(final_op),
             is_optional=True,
         )

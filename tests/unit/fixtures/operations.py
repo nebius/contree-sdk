@@ -1,9 +1,10 @@
+import json
 import re
 from dataclasses import asdict
 from uuid import UUID, uuid4
 
 import pytest
-from pytest_httpx import HTTPXMock
+from pytest_httpx import HTTPXMock, IteratorStream
 
 from contree_sdk._internals.models.instance import (
     InstanceOperationMetadata,
@@ -22,6 +23,30 @@ from tests.unit.fixtures.utils import r
 @pytest.fixture
 def operation_id() -> str:
     return str(uuid4())
+
+
+def sse_event(
+    event_id: int, event_type: str = "completion", data: dict | None = None, spid: int | None = None
+) -> bytes:
+    payload = {"id": event_id, "ts": "2026-01-01T00:00:00Z", "type": event_type, "data": data or {}}
+    if spid is not None:
+        payload["spid"] = spid
+    return f"id: {event_id}\nevent: {event_type}\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def add_events_responses(
+    httpx_mock: HTTPXMock,
+    operation_id: str = "[^/]+",
+    *frames: bytes,
+    is_reusable: bool = False,
+):
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(f".*/operations/{operation_id}/events.*"),
+        stream=IteratorStream(frames),
+        is_optional=True,
+        is_reusable=is_reusable,
+    )
 
 
 def create_operation_model(
@@ -97,9 +122,12 @@ def add_operation_responses(
         0.5,
         stderr_content,
     )
-    operation_url = re.compile(f".*/operations/{operation_id}")
+    add_events_responses(httpx_mock, operation_id, is_reusable=True)
+    operation_url = re.compile(f".*/operations/{operation_id}$")
     if not_found_first:
         httpx_mock.add_response(
+            method="GET",
+            url=operation_url,
             status_code=404,
             is_optional=True,
             json={"error": "Operation not found", "status": 404},
@@ -117,6 +145,38 @@ def add_operation_responses(
         json=asdict(success_op),
         is_optional=True,
     )
+
+
+@pytest.fixture
+def api_fake_streamed_run(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    operation_id: str,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_base_responses(strict_httpx, operation_id)
+    frames = (sse_event(1, "init"), sse_event(2))
+    add_events_responses(strict_httpx, operation_id, *frames)
+    add_events_responses(strict_httpx, operation_id, *frames)
+    add_events_responses(strict_httpx, operation_id, sse_event(2))
+    success_op = create_operation_model(
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        "streamed\n",
+        OperationStatus.SUCCESS,
+        0.5,
+    )
+    strict_httpx.add_response(
+        method="GET",
+        url=re.compile(f".*/operations/{operation_id}$"),
+        json=asdict(success_op),
+        is_optional=True,
+    )
+    return strict_httpx
 
 
 def add_base_responses(httpx_mock: HTTPXMock, operation_id: str):
