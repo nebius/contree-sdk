@@ -32,7 +32,7 @@ class OperationsMixin:
             async with aclosing(response) as response:
                 async for line in response.aiter_lines():
                     if not line.strip():
-                        yield _stream_data_to_event(data)
+                        yield _stream_data_to_event(data)  # noqa: ASYNC119
                         data = {}
                         continue
                     if ":" not in line:
@@ -44,7 +44,7 @@ class OperationsMixin:
                     value = value.strip()
                     data[name] = value
                 if data:
-                    yield _stream_data_to_event(data)
+                    yield _stream_data_to_event(data)  # noqa: ASYNC119
 
 
 def _stream_data_to_event(data: dict) -> OperationEvent:
