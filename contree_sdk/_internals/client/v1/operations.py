@@ -1,4 +1,5 @@
 import json
+from contextlib import aclosing
 from uuid import UUID
 
 from contree_sdk._internals.lib.api_decorator import delete, get
@@ -17,16 +18,18 @@ class OperationsMixin:
     async def cancel_operation(self, operation_id: str | UUID) -> None: ...
 
     async def stream_operation_events(self: ClientBase, operation_id: str | UUID, follow: bool = True, since: int = -1):
+        request = self._client.build_request(
+            "GET",
+            f"/v1/operations/{operation_id}/events",
+            params={
+                "follow": int(follow),
+                "since": since,
+            },
+        )
         with wrap_api_call():
-            async with self._client.stream(
-                "GET",
-                f"/v1/operations/{operation_id}/events",
-                params={
-                    "follow": int(follow),
-                    "since": since,
-                },
-            ) as response:
-                data = {}
+            data = {}
+            response = await self._client.send(request, stream=True)
+            async with aclosing(response) as response:
                 async for line in response.aiter_lines():
                     if not line.strip():
                         yield _stream_data_to_event(data)
