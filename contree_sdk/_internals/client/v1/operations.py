@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from uuid import UUID
 
@@ -17,7 +18,9 @@ class OperationsMixin:
     @delete("/v1/operations/{operation_id}")
     async def cancel_operation(self, operation_id: str | UUID) -> None: ...
 
-    async def stream_operation_events(self: ClientBase, operation_id: str | UUID, follow: bool = True, since: int = -1):
+    async def stream_operation_events(
+        self: ClientBase, operation_id: str | UUID, follow: bool = True, since: int = -1
+    ) -> AsyncGenerator[OperationEvent]:
         request = self._client.build_request(
             "GET",
             f"/v1/operations/{operation_id}/events",

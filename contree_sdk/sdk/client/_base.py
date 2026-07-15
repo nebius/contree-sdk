@@ -17,6 +17,7 @@ from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
 from contree_sdk._internals.models.operation import OperationModel
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
+from contree_sdk._internals.utils.operation_waiter import OperationWaiter
 from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
@@ -166,7 +167,7 @@ class _ContreeBase:
         spent = 0
         timeout = timeout or self.config.operation_timeout
         not_founds_num = 0
-        last_event_id = -1
+        watcher = OperationWaiter(self, operation_uuid)
 
         async with self._operation_canceller(operation_uuid) as finished_event:
             while True:
@@ -175,11 +176,8 @@ class _ContreeBase:
                 spent = (datetime.now() - started).total_seconds()
                 resp = None
 
-                try:
-                    async for item in self._api.stream_operation_events(operation_uuid, since=last_event_id):
-                        last_event_id = item.id
-                except (NotFoundError, ForbiddenError, EventStreamError):
-                    pass
+                with suppress(NotFoundError, ForbiddenError, EventStreamError):
+                    await watcher._load_events()
 
                 try:
                     resp = await self._api.get_operation_status(operation_uuid)

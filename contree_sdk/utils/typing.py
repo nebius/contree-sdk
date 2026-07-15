@@ -1,0 +1,13 @@
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Writable(Protocol):
+    def write(self, data: bytes) -> object: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class AsyncWritable(Protocol):
+    async def write(self, data: bytes) -> object: ...
+    async def close(self) -> None: ...
