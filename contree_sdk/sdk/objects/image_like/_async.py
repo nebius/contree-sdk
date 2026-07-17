@@ -1,6 +1,8 @@
+from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
+from contree_sdk._internals.io.operation_waiter import OutputChunk
 from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk.sdk.objects.image_fs._async import ImageDirectory, ImageFile
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
@@ -14,6 +16,13 @@ class _ImageLike(_ImageLikeBase):
 
     def __await__(self):
         return self._await().__await__()
+
+    def __aiter__(self) -> AsyncIterator[OutputChunk]:
+        return self._iter_output()
+
+    @keep_signature(_ImageLikeBase._start)
+    async def start(self: _T) -> _T:
+        return await self._start()
 
     async def ls(self, path: str | PurePosixPath = "/") -> list[ImageFile | ImageDirectory]:
         """List files and directories at the given path.

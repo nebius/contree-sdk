@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
+from contree_sdk._internals.io.operation_waiter import OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk._internals.utils.typing import keep_signature
-from contree_sdk._internals.utils.wrapper import coro_sync
+from contree_sdk._internals.utils.wrapper import coro_iter_sync, coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
@@ -25,6 +27,13 @@ class _ImageLikeSync(_ImageLikeBase):
 
         """
         return coro_sync(self._await())
+
+    def __iter__(self) -> Iterator[OutputChunk]:
+        return coro_iter_sync(self._iter_output())
+
+    @keep_signature(_ImageLikeBase._start)
+    def start(self: _T) -> _T:
+        return coro_sync(self._start())
 
     def ls(self, path: str | PurePosixPath = "/") -> list[ImageFileSync | ImageDirectorySync]:
         """List files and directories at the given path.

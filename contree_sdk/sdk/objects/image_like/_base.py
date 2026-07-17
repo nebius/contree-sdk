@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from asyncio import gather, to_thread
-from collections.abc import Iterable
+from asyncio import create_task, gather, to_thread
+from collections.abc import AsyncGenerator, Iterable
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
@@ -12,36 +12,30 @@ from uuid import UUID
 
 import cattrs
 
-from contree_sdk._internals.io.codecs import io_encode
+from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
-from contree_sdk._internals.io.wiring import connect_outputs, finalize_output, read_input
+from contree_sdk._internals.io.wiring import OperationOutputs
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
-from contree_sdk.sdk.objects.image_like.state import ImageState
+from contree_sdk.sdk.objects.image_like.state import (
+    STATE_MACHINE,
+    ImageState,
+    StateData,
+    StateDataT,
+    _Executing,
+    _Failed,
+    _Prepared,
+    _Pulled,
+    _Succeeded,
+    _WithRequest,
+)
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
-from contree_sdk.utils.models.stream import StreamDescription
 
 
 if TYPE_CHECKING:
     from contree_sdk.sdk.client._base import _ContreeBase
-
-_PREPARATION_STATES = frozenset({ImageState.PREPARING, ImageState.PREPARED})
-
-"""
-Permitted state transitions.
-
-Mapping:
-    from_state -> allowed to_states
-"""
-_STATE_MACHINE: dict[ImageState, frozenset[ImageState]] = {
-    ImageState.PULLED: _PREPARATION_STATES,
-    ImageState.PREPARING: _PREPARATION_STATES,
-    ImageState.PREPARED: frozenset({ImageState.EXECUTING}),
-    ImageState.EXECUTING: frozenset({ImageState.SUCCEEDED, ImageState.FAILED}),
-    ImageState.SUCCEEDED: _PREPARATION_STATES,
-}
 
 FileTypeT = TypeVar("FileTypeT")
 DirTypeT = TypeVar("DirTypeT")
@@ -69,15 +63,16 @@ class _ImageLikeBase:
         self.uuid = UUID(uuid) if isinstance(uuid, str) else uuid
         self.tag = tag
         self._client = client
-        self._request: RunRequest | None = None
-        self._result: ContreeResult | None = None
-        self._state = ImageState.PULLED
+        self._state_data: StateData = _Pulled()
 
     # utils methods
-    def _copy_self(self: _T, clear: bool = True) -> _T:
-        new_self = copy(self)
-        if clear:
-            new_self._result = None
+
+    def _copy_self(self: _T) -> _T:
+        return copy(self)
+
+    def _copy_with_state(self: _T, data: StateData) -> _T:
+        new_self = self._copy_self()
+        new_self._set_state(data)
         return new_self
 
     # main methods
@@ -170,8 +165,6 @@ class _ImageLikeBase:
         """
         if not self.uuid and not self.tag:
             raise DisposableImageRunError
-        new_self = self._copy_self()
-        new_self._transition_state(ImageState.PREPARED)
         if shell is not None:
             command = shell
         if command is None:
@@ -181,7 +174,7 @@ class _ImageLikeBase:
             if isinstance(timeout, timedelta):
                 timeout = timeout.total_seconds()
             timeout = ceil(timeout)
-        new_self._request = RunRequest(
+        request = RunRequest(
             command=command,
             args=list(args or []),
             shell=shell is not None,
@@ -198,7 +191,7 @@ class _ImageLikeBase:
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
         )
-        return new_self
+        return self._copy_with_state(_Prepared(request=request))
 
     async def _apply_files(
         self: _T,
@@ -250,50 +243,44 @@ class _ImageLikeBase:
         return dict(await gather(*(_upload_file(i) for i in files)))
 
     def _update_request(self: _T, **kwargs) -> _T:
-        self._assert_states(ImageState.PREPARED)
-        new_self = self._copy_self()
-        if self._request is None:
-            raise RuntimeError("Request is not prepared")
-        self._request = replace(self._request, **kwargs)
-        return new_self
-
-    async def _read_stdin(self) -> StreamDescription:
-        value = await read_input(self._request.stdin if self._request else None)
-        return await to_thread(io_encode, value)
+        prepared = self._ensure_state(_Prepared)
+        return self._copy_with_state(_Prepared(request=replace(prepared.request, **kwargs)))
 
     # internal methods
 
-    def _assert_states(self, *states: ImageState) -> None:
-        if self.state not in set(states):
-            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(states))
+    def _ensure_state(self, state_type: type[StateDataT]) -> StateDataT:
+        data = self._state_data
+        if not isinstance(data, state_type):
+            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=[state_type.state])
+        return data
 
-    def _can_transition(self, state: ImageState):
-        possible_states = _STATE_MACHINE.get(self._state, set())
-        if state not in possible_states:
+    def _set_state(self, data: StateData) -> None:
+        possible_states = STATE_MACHINE.get(self.state, frozenset())
+        if data.state not in possible_states:
             raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(possible_states))
-
-    def _transition_state(self, state: ImageState):
-        self._can_transition(state)
-        self._state = state
+        self._state_data = data
 
     @property
     def state(self) -> ImageState:
         """Current state of the image in the execution lifecycle."""
-        return self._state
+        return self._state_data.state
 
-    async def _await(self: _T) -> _T:
-        req = self._request
-        if req is None:
-            raise RuntimeError("Run request has not been set")
-        new_self = self._copy_self()  # todo add support for start() method
-        new_self._transition_state(ImageState.EXECUTING)
+    async def _start(self: _T) -> _T:
+        """Start the prepared command without waiting for completion.
 
-        files, stdin = await gather(new_self._prepare_files_for_api(req.files), new_self._read_stdin())
+        Returns:
+            New image instance in EXECUTING state; await it or iterate its
+            output chunks to get the result.
+
+        """
+        req = self._ensure_state(_Prepared).request
+
+        outputs = OperationOutputs.from_request(req)
+        files, stdin = await gather(self._prepare_files_for_api(req.files), req._read_stdin())
 
         timeout = req.timeout
         if timeout is None:
             timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
-
         self._client._warn_if_timeout_exceeds_limit(timeout, "instance_max_timeout")
 
         operation_uuid = await self._client._start_operation(
@@ -306,7 +293,7 @@ class _ImageLikeBase:
                 shell=bool(req.shell),
                 cwd=req.cwd or "",
                 disposable=req.disposable,
-                timeout=round(timeout or self._client.config.operation_timeout),
+                timeout=round(timeout),
                 stdin=stdin,
                 files=files,
                 truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
@@ -314,26 +301,51 @@ class _ImageLikeBase:
             )
         )
         waiter = await self._client._get_operation_waiter(operation_uuid)
-        stdout, stderr = await connect_outputs(waiter, stdout_request=req.stdout, stderr_request=req.stderr)
+        await outputs.connect(waiter)
+        return self._copy_with_state(_Executing(request=req, waiter=waiter, outputs=outputs, timeout=timeout))
+
+    async def _ensure_started(self: _T) -> tuple[_T, _Executing]:
+        new_self = self
+        if new_self.state == ImageState.PREPARED:
+            new_self = await new_self._start()
+        return new_self, new_self._ensure_state(_Executing)
+
+    async def _await(self: _T) -> _T:
+        new_self, executing = await self._ensure_started()
+
         try:
-            operation_data, process_result = await self._client._wait_operation(operation_uuid, timeout=timeout)
+            operation_data, process_result = await executing.waiter.wait_for_result(
+                operation_timeout=executing.timeout
+            )
         except ContreeError:
-            new_self._transition_state(ImageState.FAILED)
+            new_self._set_state(_Failed(request=executing.request))
             raise
 
-        new_self._transition_state(ImageState.SUCCEEDED)
-        new_uuid = operation_data.result_image_uuid
-        new_self.uuid = new_uuid and UUID(new_uuid)
-        main_process = waiter.process_view()
-        new_self._result = ContreeResult.from_result(
+        view = executing.waiter.process_view()
+        finalized = executing.outputs.finalize(view)
+        result = ContreeResult.from_result(
             process_result,
-            stdout=finalize_output(req.stdout, stdout, main_process.outputs["stdout"]),
-            stderr=finalize_output(req.stderr, stderr, main_process.outputs["stderr"]),
-            truncated=main_process.truncated,
+            stdout=finalized.stdout,
+            stderr=finalized.stderr,
+            truncated=view.truncated,
         )
-        if req.tag:
-            new_self = await new_self._tag_as(req.tag)
+        new_self._set_state(_Succeeded(request=executing.request, result=result))
+        new_self.uuid = UUID(new_uuid) if (new_uuid := operation_data.result_image_uuid) else None
+        if executing.request.tag:
+            return await new_self._tag_as(executing.request.tag)
         return new_self
+
+    async def _iter_output(self) -> AsyncGenerator[OutputChunk]:
+        new_self, executing = await self._ensure_started()
+        result_task = create_task(new_self._await())
+        try:
+            async for chunk in executing.waiter.iter_chunks(MAIN_SPID):
+                yield chunk
+            await result_task
+        finally:
+            if not result_task.done():
+                result_task.cancel()
+                await gather(result_task, return_exceptions=True)
 
     # inspect methods
 
@@ -381,16 +393,13 @@ class _ImageLikeBase:
 
     @property
     def result(self) -> ContreeResult:
-        """Execution result. Only available after successful execution.
+        """Execution result. Only available after successful execution."""
+        return self._ensure_state(_Succeeded).result
 
-        Raises:
-            RuntimeError: If the result hasn't been set.
-
-        """
-        self._assert_states(ImageState.SUCCEEDED)
-        if self._result is None:
-            raise RuntimeError("Result has not been set")
-        return self._result
+    @property
+    def _request(self) -> RunRequest | None:
+        data = self._state_data
+        return data.request if isinstance(data, _WithRequest) else None
 
     @property
     def stdin(self) -> INPUT_TYPES | None:
@@ -430,7 +439,7 @@ class _ImageLikeBase:
         if tag is None:
             return await self._untag()
         await self._client._api.tag_image(str(self.uuid), tag)
-        new_self = self._copy_self(clear=False)
+        new_self = self._copy_self()
         new_self.tag = tag
         return new_self
 
@@ -442,7 +451,7 @@ class _ImageLikeBase:
 
         """
         await self._client._api.untag_image(str(self.uuid))
-        new_self = self._copy_self(clear=False)
+        new_self = self._copy_self()
         new_self.tag = None
         return new_self
 

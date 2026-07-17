@@ -1,7 +1,11 @@
+from asyncio import to_thread
 from dataclasses import dataclass, field
 
+from contree_sdk._internals.io.codecs import io_encode
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
+from contree_sdk._internals.io.wiring import read_input
 from contree_sdk.utils.models.file import UploadFileSpec
+from contree_sdk.utils.models.stream import StreamDescription
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -26,3 +30,7 @@ class RunRequest:
     truncate_output_at: int | None = None
 
     preserve_env: bool = False
+
+    async def _read_stdin(self) -> StreamDescription:
+        value = await read_input(self.stdin)
+        return await to_thread(io_encode, value)
