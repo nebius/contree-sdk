@@ -1,9 +1,23 @@
+from asyncio import iscoroutinefunction, to_thread
 from pathlib import Path
 from subprocess import PIPE
 
 from contree_sdk._internals.utils.operation_waiter import MAIN_SPID, OperationWaiter
-from contree_sdk.utils.io_wrap import OUTPUT_REQUEST_TYPES, OUTPUT_TYPES, PipeIO
+from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES, PipeIO
 from contree_sdk.utils.typing import AsyncWritable, Writable
+
+
+async def read_input(request: INPUT_TYPES | None) -> str | bytes:
+    if request is None:
+        return ""
+    if isinstance(request, (str, bytes)):
+        return request
+    if isinstance(request, Path):
+        return await to_thread(request.read_bytes)
+    read = request.read
+    if iscoroutinefunction(read):
+        return await read()
+    return await to_thread(read)
 
 
 async def connect_outputs(

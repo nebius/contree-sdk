@@ -5,23 +5,22 @@ from collections.abc import Iterable
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
-from io import IOBase
 from math import ceil
 from pathlib import Path, PurePosixPath
-from typing import IO, TYPE_CHECKING, TypeVar, overload
+from typing import TYPE_CHECKING, TypeVar, overload
 from uuid import UUID
 
 import cattrs
 
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
-from contree_sdk._internals.utils.io import connect_outputs, finalize_output
+from contree_sdk._internals.utils.io import connect_outputs, finalize_output, read_input
 from contree_sdk._internals.utils.operation_waiter import MAIN_SPID
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_encode
-from contree_sdk.utils.io_wrap import INPUT_TYPES, IO_TYPES, OUTPUT_REQUEST_TYPES, IOMode, get_io_by_obj
+from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 from contree_sdk.utils.models.stream import StreamDescription
 
@@ -72,7 +71,6 @@ class _ImageLikeBase:
         self.tag = tag
         self._client = client
         self._request: RunRequest | None = None
-        self._stdin = None
         self._result: ContreeResult | None = None
         self._state = ImageState.PULLED
 
@@ -201,7 +199,6 @@ class _ImageLikeBase:
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
         )
-        new_self._prepare_stdin(stdin)
         return new_self
 
     async def _apply_files(
@@ -253,25 +250,17 @@ class _ImageLikeBase:
 
         return dict(await gather(*(_upload_file(i) for i in files)))
 
-    def _prepare_stdin(self, stdin: IO_TYPES | None):
-        stdin = stdin or ""
-        io_obj = get_io_by_obj(stdin, IOMode.read)
-        self._stdin = io_obj  # todo do it on run or stdin_from
-
     def _update_request(self: _T, **kwargs) -> _T:
         self._assert_states(ImageState.PREPARED)
         new_self = self._copy_self()
         if self._request is None:
             raise RuntimeError("Request is not prepared")
         self._request = replace(self._request, **kwargs)
-        if stdin := kwargs.get("stdin"):
-            new_self._prepare_stdin(stdin)
         return new_self
 
-    def _read_stdin(self) -> StreamDescription:
-        if self._stdin is None:
-            return io_encode("")
-        return io_encode(self._stdin.read())
+    async def _read_stdin(self) -> StreamDescription:
+        value = await read_input(self._request.stdin if self._request else None)
+        return await to_thread(io_encode, value)
 
     # internal methods
 
@@ -300,7 +289,7 @@ class _ImageLikeBase:
         new_self = self._copy_self()  # todo add support for start() method
         new_self._transition_state(ImageState.EXECUTING)
 
-        files, stdin = await gather(new_self._prepare_files_for_api(req.files), to_thread(new_self._read_stdin))
+        files, stdin = await gather(new_self._prepare_files_for_api(req.files), new_self._read_stdin())
 
         timeout = req.timeout
         if timeout is None:
@@ -403,17 +392,17 @@ class _ImageLikeBase:
         return self._result
 
     @property
-    def stdin(self) -> IO | IOBase | None:
+    def stdin(self) -> INPUT_TYPES | None:
         """Configured stdin source."""
-        return self._stdin
+        return self._request.stdin if self._request else None
 
     @property
-    def stdout(self) -> IO_TYPES:
+    def stdout(self) -> OUTPUT_TYPES | None:
         """Stdout output from the execution."""
         return self.result.stdout
 
     @property
-    def stderr(self) -> IO_TYPES:
+    def stderr(self) -> OUTPUT_TYPES | None:
         """Stderr output from the execution."""
         return self.result.stderr
 

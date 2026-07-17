@@ -1,10 +1,6 @@
-from io import BytesIO, IOBase, StringIO
 from os import fdopen, pipe
 from pathlib import Path
-from subprocess import PIPE
-from typing import IO, Literal, TypeAlias
-
-from strenum import StrEnum
+from typing import Literal, TypeAlias
 
 from contree_sdk.utils.typing import AsyncReadable, AsyncWritable, Readable, Writable
 
@@ -39,38 +35,9 @@ class PipeIO:
         return self._w.closed and self._r.closed
 
 
-class IOMode(StrEnum):
-    read = "r"
-    write = "w"
-
-
 PipeLiteral = Literal[-1]  # subprocess.PIPE
 
 INPUT_TYPES: TypeAlias = str | bytes | Path | Readable | AsyncReadable
 OUTPUT_TYPES: TypeAlias = str | bytes | Path | Writable | AsyncWritable
 
 OUTPUT_REQUEST_TYPES: TypeAlias = str | Path | Writable | AsyncWritable | PipeLiteral | type[str | bytes]
-
-IO_TYPES: TypeAlias = str | bytes | Path | IO[str] | IO[bytes] | IOBase | PipeLiteral
-
-
-# todo move everyting in right places
-def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:
-    if obj is None:
-        return None
-    if obj is PIPE:
-        return PipeIO()
-    if isinstance(obj, IOBase):
-        return obj
-    if isinstance(obj, bytes):
-        if mode != IOMode.read:
-            raise TypeError("bytes cannot be used as output")
-        return BytesIO(obj)
-    if isinstance(obj, str):
-        if mode == IOMode.read:
-            return StringIO(obj)
-        obj = Path(obj)
-    if not isinstance(obj, Path):
-        raise TypeError(f"{obj} is not supported as IO")
-    file_mode = mode + "b"
-    return obj.open(file_mode)

@@ -1,10 +1,8 @@
 from datetime import timedelta
-from io import IOBase
 from subprocess import CalledProcessError
-from typing import IO
 
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
-from contree_sdk.utils.io_wrap import IO_TYPES
+from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_TYPES
 
 
 class ContreeProcessBase:
@@ -13,15 +11,15 @@ class ContreeProcessBase:
         self._check = check
 
     @property
-    def stdin(self) -> IO | IOBase | None:
+    def stdin(self) -> INPUT_TYPES | None:
         return self._image.stdin
 
     @property
-    def stdout(self) -> IO_TYPES:
+    def stdout(self) -> OUTPUT_TYPES | None:
         return self._image.stdout
 
     @property
-    def stderr(self) -> IO_TYPES:
+    def stderr(self) -> OUTPUT_TYPES | None:
         return self._image.stderr
 
     @property

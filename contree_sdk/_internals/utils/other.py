@@ -1,8 +1,6 @@
 from math import e, log1p
 from random import uniform
 
-from contree_sdk.config import ContreeConfig
-
 
 _JITTER_PEAK_PROGRESS = 0.5
 _JITTER_MIN = 0.1
@@ -15,12 +13,3 @@ def get_interval(interval_min: float, interval_max: float, progress: float, stee
     growth *= 1 + uniform(-jitter_size, jitter_size)
     result = interval_min + growth * (interval_max - interval_min)
     return max(interval_min, min(result, interval_max))
-
-
-def get_wait_interval(config: ContreeConfig, progress_ratio: float) -> float:
-    return get_interval(
-        config.operation_poll_secs_min,
-        config.operation_poll_secs_max,
-        progress_ratio,
-        config.operation_poll_secs_backoff_grow,
-    )

@@ -8,7 +8,7 @@ from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
-from contree_sdk.utils.io_wrap import IO_TYPES
+from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 
 
 _T = TypeVar("_T", bound="_ImageLikeSync")
@@ -68,10 +68,10 @@ class _ImageLikeSync(_ImageLikeBase):
         self,
         args: list[str] | str | None = None,
         *,
-        stdin: IO_TYPES | None = None,
-        input: IO_TYPES | None = None,  # noqa: A002
-        stdout: IO_TYPES | None = None,
-        stderr: IO_TYPES | None = None,
+        stdin: INPUT_TYPES | None = None,
+        input: INPUT_TYPES | None = None,  # noqa: A002
+        stdout: OUTPUT_REQUEST_TYPES | None = None,
+        stderr: OUTPUT_REQUEST_TYPES | None = None,
         shell: bool = False,
         cwd: str | None = None,
         timeout: float | None = None,

@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 
-from contree_sdk.utils.io_wrap import INPUT_TYPES, IO_TYPES, OUTPUT_REQUEST_TYPES
+from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.utils.models.file import UploadFileSpec
-
-
-REQUEST_IO_TYPES = IO_TYPES | type[str | bytes] | None
 
 
 @dataclass(frozen=True, kw_only=True)
