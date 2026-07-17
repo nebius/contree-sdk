@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES
+from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.utils.models.file import UploadFileSpec
 
 

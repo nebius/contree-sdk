@@ -1,8 +1,31 @@
 from os import fdopen, pipe
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, Protocol, TypeAlias, TypeVar, runtime_checkable
 
-from contree_sdk.utils.typing import AsyncReadable, AsyncWritable, Readable, Writable
+
+DataTypeT = TypeVar("DataTypeT", str, bytes)
+
+
+@runtime_checkable
+class Readable(Protocol[DataTypeT]):
+    def read(self, size: int = -1, /) -> DataTypeT: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class AsyncReadable(Protocol[DataTypeT]):
+    async def read(self, size: int = -1, /) -> DataTypeT: ...
+    async def close(self) -> None: ...
+
+
+@runtime_checkable
+class Writable(Protocol[DataTypeT]):
+    def write(self, data: DataTypeT, /) -> object: ...
+
+
+@runtime_checkable
+class AsyncWritable(Protocol[DataTypeT]):
+    async def write(self, data: DataTypeT, /) -> object: ...
 
 
 class PipeIO:

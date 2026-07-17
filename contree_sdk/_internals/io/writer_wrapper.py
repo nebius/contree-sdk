@@ -5,7 +5,7 @@ from codecs import getincrementaldecoder
 from functools import partial
 from io import IOBase, TextIOBase
 
-from contree_sdk.utils.typing import AsyncWritable, Writable
+from contree_sdk._internals.io.typing import AsyncWritable, Writable
 
 
 EOF = object()

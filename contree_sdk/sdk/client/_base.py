@@ -9,14 +9,12 @@ from time import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from typing_extensions import TypeVar
-
 from contree_sdk._internals.client.client import ContreeClient
+from contree_sdk._internals.io.operation_waiter import OperationWaiter
 from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceSpawnRequest
 from contree_sdk._internals.models.operation import EventDataCompletion, EventDataExit
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
-from contree_sdk._internals.utils.operation_waiter import OperationWaiter
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions.api import ApiTimeoutError, EventStreamError, TooManyRequestsError
@@ -28,7 +26,6 @@ if TYPE_CHECKING:
     from contree_sdk.sdk.managers.files._base import _FilesBaseManager
     from contree_sdk.sdk.managers.images._base import _ImagesBaseManager
 
-_OperationResultT = TypeVar("_OperationResultT")
 
 logger = logging.getLogger(__name__)
 

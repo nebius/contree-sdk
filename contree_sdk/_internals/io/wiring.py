@@ -2,9 +2,15 @@ from asyncio import iscoroutinefunction, to_thread
 from pathlib import Path
 from subprocess import PIPE
 
-from contree_sdk._internals.utils.operation_waiter import MAIN_SPID, OperationWaiter
-from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES, PipeIO
-from contree_sdk.utils.typing import AsyncWritable, Writable
+from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
+from contree_sdk._internals.io.typing import (
+    INPUT_TYPES,
+    OUTPUT_REQUEST_TYPES,
+    OUTPUT_TYPES,
+    AsyncWritable,
+    PipeIO,
+    Writable,
+)
 
 
 async def read_input(request: INPUT_TYPES | None) -> str | bytes:

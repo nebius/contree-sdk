@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
+from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
-from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 
 
 _T = TypeVar("_T", bound="_ImageLikeSync")

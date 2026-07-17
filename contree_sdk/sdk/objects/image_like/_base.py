@@ -12,14 +12,14 @@ from uuid import UUID
 
 import cattrs
 
+from contree_sdk._internals.io.codecs import io_encode
+from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
+from contree_sdk._internals.io.wiring import connect_outputs, finalize_output, read_input
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
-from contree_sdk._internals.utils.io import connect_outputs, finalize_output, read_input
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.sdk.objects.run import RunRequest
-from contree_sdk.utils.codecs import io_encode
-from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 from contree_sdk.utils.models.stream import StreamDescription
 

@@ -9,6 +9,9 @@ from sys import version_info
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from contree_sdk._internals.io.codecs import io_decode
+from contree_sdk._internals.io.typing import AsyncWritable, Writable
+from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.models.operation import (
     EventDataCompletion,
@@ -17,11 +20,8 @@ from contree_sdk._internals.models.operation import (
     OperationEvent,
     OperationEventType,
 )
-from contree_sdk._internals.utils.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 from contree_sdk.sdk.exceptions import ContreeApiError
-from contree_sdk.utils.codecs import io_decode
 from contree_sdk.utils.models.stream import StreamDescription
-from contree_sdk.utils.typing import AsyncWritable, Writable
 
 
 if version_info >= (3, 11):

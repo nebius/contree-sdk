@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from contree_sdk._internals.io.typing import OUTPUT_TYPES
 from contree_sdk._internals.models.operation import EventDataExit, EventDataTruncated
-from contree_sdk.utils.io_wrap import OUTPUT_TYPES
 
 
 @dataclass(frozen=True)

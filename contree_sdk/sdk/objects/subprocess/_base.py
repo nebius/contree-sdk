@@ -1,8 +1,8 @@
 from datetime import timedelta
 from subprocess import CalledProcessError
 
+from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_TYPES
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
-from contree_sdk.utils.io_wrap import INPUT_TYPES, OUTPUT_TYPES
 
 
 class ContreeProcessBase:
