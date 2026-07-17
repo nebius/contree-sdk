@@ -6,22 +6,15 @@ from typing import IO, Literal, TypeAlias
 
 from strenum import StrEnum
 
+from contree_sdk.utils.typing import AsyncReadable, AsyncWritable, Readable, Writable
 
-class PipeIO(IOBase):
+
+class PipeIO:
     def __init__(self) -> None:
         super().__init__()
         r, w = pipe()
         self._r = fdopen(r, "rb", buffering=0)
         self._w = fdopen(w, "wb", buffering=0)
-
-    def readable(self) -> bool:  # noqa: PLR6301
-        return True
-
-    def writable(self) -> bool:  # noqa: PLR6301
-        return True
-
-    def seekable(self) -> bool:  # noqa: PLR6301
-        return False
 
     def read(self, size: int = -1) -> bytes:
         return self._r.read(size)
@@ -52,9 +45,16 @@ class IOMode(StrEnum):
 
 
 PipeLiteral = Literal[-1]  # subprocess.PIPE
+
+INPUT_TYPES: TypeAlias = str | bytes | Path | Readable | AsyncReadable
+OUTPUT_TYPES: TypeAlias = str | bytes | Path | Writable | AsyncWritable
+
+OUTPUT_REQUEST_TYPES: TypeAlias = str | Path | Writable | AsyncWritable | PipeLiteral | type[str | bytes]
+
 IO_TYPES: TypeAlias = str | bytes | Path | IO[str] | IO[bytes] | IOBase | PipeLiteral
 
 
+# todo move everyting in right places
 def get_io_by_obj(obj: IO_TYPES | None, mode: IOMode) -> IOBase | IO | None:
     if obj is None:
         return None

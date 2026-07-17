@@ -13,13 +13,15 @@ from uuid import UUID
 
 import cattrs
 
-from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceOperationMetadata, InstanceSpawnRequest
+from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
+from contree_sdk._internals.utils.io import connect_outputs, finalize_output
+from contree_sdk._internals.utils.operation_waiter import MAIN_SPID
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
-from contree_sdk.sdk.objects.run import REQUEST_IO_TYPES, RunRequest
+from contree_sdk.sdk.objects.run import RunRequest
 from contree_sdk.utils.codecs import io_encode
-from contree_sdk.utils.io_wrap import IO_TYPES, IOMode, get_io_by_obj
+from contree_sdk.utils.io_wrap import INPUT_TYPES, IO_TYPES, OUTPUT_REQUEST_TYPES, IOMode, get_io_by_obj
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 from contree_sdk.utils.models.stream import StreamDescription
 
@@ -92,9 +94,9 @@ class _ImageLikeBase:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         hostname: str | None = None,
-        stdin: IO_TYPES | None = None,
-        stdout: REQUEST_IO_TYPES | None = None,
-        stderr: REQUEST_IO_TYPES | None = None,
+        stdin: INPUT_TYPES | None = None,
+        stdout: OUTPUT_REQUEST_TYPES | None = str,
+        stderr: OUTPUT_REQUEST_TYPES | None = str,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
@@ -112,9 +114,9 @@ class _ImageLikeBase:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         hostname: str | None = None,
-        stdin: IO_TYPES | None = None,
-        stdout: REQUEST_IO_TYPES | None = None,
-        stderr: REQUEST_IO_TYPES | None = None,
+        stdin: INPUT_TYPES | None = None,
+        stdout: OUTPUT_REQUEST_TYPES | None = str,
+        stderr: OUTPUT_REQUEST_TYPES | None = str,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
@@ -132,9 +134,9 @@ class _ImageLikeBase:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         hostname: str | None = None,
-        stdin: IO_TYPES | None = None,
-        stdout: REQUEST_IO_TYPES | None = None,
-        stderr: REQUEST_IO_TYPES | None = None,
+        stdin: INPUT_TYPES | None = None,
+        stdout: OUTPUT_REQUEST_TYPES | None = str,
+        stderr: OUTPUT_REQUEST_TYPES | None = str,
         tag: str | None = None,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
@@ -323,19 +325,22 @@ class _ImageLikeBase:
                 preserve_env=req.preserve_env,
             )
         )
+        waiter = await self._client._get_operation_waiter(operation_uuid)
+        stdout, stderr = await connect_outputs(waiter, stdout_request=req.stdout, stderr_request=req.stderr)
         try:
-            image_metadata, result = await self._client._wait_operation(
-                operation_uuid, InstanceOperationMetadata, timeout=timeout
-            )
+            operation_data, process_result = await self._client._wait_operation(operation_uuid, timeout=timeout)
         except ContreeError:
             new_self._transition_state(ImageState.FAILED)
             raise
 
         new_self._transition_state(ImageState.SUCCEEDED)
-        new_uuid = result.image
+        new_uuid = operation_data.result_image_uuid
         new_self.uuid = new_uuid and UUID(new_uuid)
-        new_self.tag = result.tag
-        new_self._result = ContreeResult.from_result(image_metadata, request=req)
+        new_self._result = ContreeResult.from_result(
+            process_result,
+            stdout=finalize_output(req.stdout, stdout, waiter.get_output(MAIN_SPID, "stdout")),
+            stderr=finalize_output(req.stderr, stderr, waiter.get_output(MAIN_SPID, "stderr")),
+        )
         if req.tag:
             new_self = await new_self._tag_as(req.tag)
         return new_self

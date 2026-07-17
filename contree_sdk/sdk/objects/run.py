@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from contree_sdk.utils.io_wrap import IO_TYPES
+from contree_sdk.utils.io_wrap import INPUT_TYPES, IO_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.utils.models.file import UploadFileSpec
 
 
@@ -21,10 +21,10 @@ class RunRequest:
     timeout: float | None = None
     disposable: bool
     tag: str | None = None  # tag to be assigned to result
-    stdin: IO_TYPES | None = None
+    stdin: INPUT_TYPES | None = None
 
-    stderr: REQUEST_IO_TYPES = None
-    stdout: REQUEST_IO_TYPES = None
+    stderr: OUTPUT_REQUEST_TYPES = str
+    stdout: OUTPUT_REQUEST_TYPES = str
 
     truncate_output_at: int | None = None
 

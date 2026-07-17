@@ -45,3 +45,20 @@ class OperationEvent:
     type: OperationEventType
     data: dict
     spid: int | None = None
+
+
+@dataclass
+class EventDataCompletion:
+    status: OperationStatus
+    duration_ms: int
+    result_image_uuid: str | None = None
+    error: str | None = None
+
+
+@dataclass
+class EventDataExit:
+    code: int
+    duration_ms: int
+    pid: int
+    timed_out: bool
+    resources: dict

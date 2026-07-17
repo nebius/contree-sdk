@@ -22,7 +22,9 @@ dependencies = [
     "cattrs",
     "aiofiles",
     "httpx", # todo move to httpx when transport will be supported
-    "typing-extensions; python_version < '3.13'"
+    "typing-extensions; python_version < '3.13'",
+    "async-timeout; python_version < '3.11'",
+
 ]
 
 [project.optional-dependencies]

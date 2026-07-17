@@ -697,6 +697,7 @@ version = "0.4.0.dev3"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
+    { name = "async-timeout", marker = "python_full_version < '3.11'" },
     { name = "cattrs" },
     { name = "httpx" },
     { name = "strenum" },
@@ -741,6 +742,7 @@ langchain = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles" },
+    { name = "async-timeout", marker = "python_full_version < '3.11'" },
     { name = "cattrs" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },

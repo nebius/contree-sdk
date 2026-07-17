@@ -104,7 +104,7 @@ class _ImageLikeSync(_ImageLikeBase):
         elif args:
             run_params["command"], *run_params["args"] = args
 
-        output_type = str if text else text
+        output_type = str if text else bytes
 
         return ContreeProcessSync(
             self.run(  # ty: ignore[no-matching-overload]
@@ -112,8 +112,8 @@ class _ImageLikeSync(_ImageLikeBase):
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
-                stdout=stdout or output_type,
-                stderr=stderr or output_type,
+                stdout=stdout if stdout is not None else output_type,
+                stderr=stderr if stderr is not None else output_type,
                 **run_params,
             ),
             check=check,

@@ -1,14 +1,32 @@
+from __future__ import annotations
+
 import asyncio
-from asyncio import Event, Lock, Queue, create_task, gather, iscoroutinefunction, to_thread
+from asyncio import Event, Lock, Queue, create_task, gather, shield
 from collections import defaultdict
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
-from functools import partial
+from sys import version_info
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from contree_sdk._internals.models.operation import OperationEvent, OperationEventType
+from contree_sdk._internals.lib.helpers import convert_data_to_type
+from contree_sdk._internals.models.operation import (
+    EventDataCompletion,
+    EventDataExit,
+    OperationEvent,
+    OperationEventType,
+)
+from contree_sdk._internals.utils.writer_wrapper import EOF, WriterToQueue, WriterWrapper
+from contree_sdk.sdk.exceptions import ContreeApiError
+from contree_sdk.utils.codecs import io_decode
+from contree_sdk.utils.models.stream import StreamDescription
 from contree_sdk.utils.typing import AsyncWritable, Writable
 
+
+if version_info >= (3, 11):
+    from asyncio import timeout
+else:
+    from async_timeout import timeout
 
 if TYPE_CHECKING:
     from contree_sdk.sdk.client._base import _ContreeBase
@@ -23,6 +41,9 @@ class OutputChunk:
     stream_name: StreamName
 
 
+MAIN_SPID = 1
+
+
 class OperationWaiter:
     def __init__(self, client: _ContreeBase, operation_id: UUID):
         self.operation_id = operation_id
@@ -35,6 +56,8 @@ class OperationWaiter:
         self._streaming_lock = Lock()
         self._processing_lock = Lock()
         self._last_event_id = -1
+        self._exits: dict[int | None, EventDataExit] = {}
+        self.completion: EventDataCompletion | None = None
 
     async def _load_events(self):
         async with self._streaming_lock:
@@ -49,13 +72,17 @@ class OperationWaiter:
                 OperationEventType.STDERR,
                 OperationEventType.STDOUT,
             }:
-                stream_name = str(event.type).lower()
-                if "value" not in event.data:
-                    raise RuntimeError("Cannot process output event without value")
-                value = event.data["value"].encode()
+                stream_name = str(event.type)
+                value = io_decode(convert_data_to_type(event.data, StreamDescription))
                 self._output_by_spid[event.spid][stream_name] += value
                 for reader in self._readers_by_spid[event.spid, stream_name]:
                     await reader.write(value)
+            elif event.type == OperationEventType.EXIT:
+                self._exits[event.spid] = convert_data_to_type(event.data, EventDataExit)
+            elif event.type == OperationEventType.COMPLETION:
+                await self._finish()
+                # todo validate properly
+                self.completion = convert_data_to_type(event.data, EventDataCompletion)
 
             self._last_event_id = event.id
 
@@ -100,36 +127,32 @@ class OperationWaiter:
                 await wrapper.write(self._output_by_spid[spid][stream_name])
             self._readers_by_spid[spid, stream_name].append(wrapper)
 
-    async def finish(self):
+    def get_output(self, spid: int, stream_name: str) -> bytes:
+        return self._output_by_spid[spid][stream_name]
+
+    async def wait_for_result(
+        self, *, operation_timeout=None, spid: int = MAIN_SPID
+    ) -> tuple[EventDataCompletion, EventDataExit | None]:
+        retrier = self._client._default_retrier
+        async with self._operation_canceller(), timeout(operation_timeout):
+            await retrier(self._load_events)
+        return self.completion, self._exits.get(spid)
+
+    async def _cancel_operation(self):
+        await self._client._api.cancel_operation(self.operation_id)
+
+    @asynccontextmanager
+    async def _operation_canceller(self):
+        try:
+            yield
+        finally:
+            if not self._finished_event.is_set():
+                with suppress(ContreeApiError):
+                    await shield(self._cancel_operation())
+
+    async def _finish(self):
         self._finished_event.set()
-        async with self._processing_lock:
-            self._readers_by_spid.clear()
-
-
-EOF = object()
-
-
-class WriterToQueue:
-    def __init__(self, queue: Queue):
-        self._queue = queue
-
-    def write(self, data: bytes):
-        self._queue.put_nowait(data)
-
-    def close(self):
-        self._queue.put_nowait(EOF)
-
-
-class WriterWrapper:
-    def __init__(self, writer: Writable | AsyncWritable):
-        self._writer = writer
-        write = writer.write
-        self._write = write if iscoroutinefunction(write) else partial(to_thread, write)
-        close = writer.close
-        self._close = close if iscoroutinefunction(close) else partial(to_thread, close)
-
-    async def write(self, data: bytes):
-        return await self._write(data)
-
-    async def close(self):
-        return await self._close()
+        for readers in self._readers_by_spid.values():
+            for reader in readers:
+                await reader.finalize()
+        self._readers_by_spid.clear()

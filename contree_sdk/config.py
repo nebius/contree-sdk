@@ -34,14 +34,6 @@ class ContreeConfig:
     """Run operation timeout, falls back to operation_timeout."""
     operation_timeout: float = 1000.0
     """Default timeout for operations."""
-    operation_poll_secs_min: float = 0.1
-    """Min polling interval for operation status checks."""
-    operation_poll_secs_max: float = 10.0
-    """Max polling interval for operation status checks."""
-    operation_poll_secs_backoff_grow: float = 1.75
-    """Backoff multiplier between polls. Higher values mean faster backoff growth; recommended range is 1 to 2."""
-    operation_poll_not_found_limit: int = 10
-    """Maximum number of not found responses when awaiting operation"""
 
     default_truncate_output_at: int = 65535
     """Default truncate output at which to truncate stdout and stderr."""

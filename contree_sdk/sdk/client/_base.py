@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-from asyncio import Event, shield, sleep
-from contextlib import asynccontextmanager, suppress
+from asyncio import Lock
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 from functools import partial
 from time import time
 from typing import TYPE_CHECKING
@@ -14,30 +13,15 @@ from typing_extensions import TypeVar
 
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.models.image_import import ImageImportRequest
-from contree_sdk._internals.models.instance import InstanceOperationResult, InstanceSpawnRequest
-from contree_sdk._internals.models.operation import OperationModel
+from contree_sdk._internals.models.instance import InstanceSpawnRequest
+from contree_sdk._internals.models.operation import EventDataCompletion, EventDataExit
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk._internals.utils.operation_waiter import OperationWaiter
-from contree_sdk._internals.utils.other import get_wait_interval
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
-from contree_sdk.sdk.exceptions import (
-    CancelledOperationError,
-    FailedOperationError,
-    NotFoundError,
-    OperationTimedOutError,
-    WrongOperationTypeError,
-)
-from contree_sdk.sdk.exceptions.api import (
-    ApiTimeoutError,
-    ContreeApiError,
-    EventStreamError,
-    ForbiddenError,
-    TooManyRequestsError,
-)
+from contree_sdk.sdk.exceptions.api import ApiTimeoutError, EventStreamError, TooManyRequestsError
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.auth import WhoAmI
-from contree_sdk.utils.models.operation import OperationStatus
 
 
 if TYPE_CHECKING:
@@ -89,7 +73,7 @@ class _ContreeBase:
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
         self._token_info: WhoAmI | None = None
-        exceptions = [TooManyRequestsError, ApiTimeoutError]
+        exceptions = [TooManyRequestsError, ApiTimeoutError, EventStreamError]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._operations = {
@@ -102,6 +86,11 @@ class _ContreeBase:
                 CircuitRetrier(exceptions=exceptions, retry_timeout=timedelta(seconds=spawn_timeout)),
             ),
         }
+        self._default_retrier = CircuitRetrier(
+            exceptions=exceptions, retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout))
+        )
+        self._waiters: dict[UUID, OperationWaiter] = {}
+        self._waiters_lock = Lock()
 
     @property
     def config(self) -> ContreeConfig:
@@ -138,86 +127,27 @@ class _ContreeBase:
 
     # operations management
 
+    async def _get_operation_waiter(self, operation_uuid: UUID | str) -> OperationWaiter:
+        if isinstance(operation_uuid, str):
+            operation_uuid = UUID(operation_uuid)
+        if operation_uuid not in self._waiters:
+            async with self._waiters_lock:
+                self._waiters[operation_uuid] = OperationWaiter(client=self, operation_id=operation_uuid)
+        return self._waiters[operation_uuid]
+
+    # todo think about removing them later
+
     async def _start_operation(self, request: ImageImportRequest | InstanceSpawnRequest) -> UUID:
         start_method, circuit_retryer = self._operations[type(request)]
         return UUID(await circuit_retryer(partial(start_method, request)))
 
-    @asynccontextmanager
-    async def _operation_canceller(self, operation_uuid: UUID):
-        done = Event()
-        try:
-            yield done
-        finally:
-            if not done.is_set():
-                with suppress(ContreeApiError):
-                    await shield(self._cancel_operation(operation_uuid=operation_uuid))
-
-    async def _cancel_operation(self, operation_uuid: UUID):
-        await self._api.cancel_operation(operation_uuid)
-
     async def _wait_operation(
         self,
         operation_uuid: UUID | str,
-        result_type: type[_OperationResultT],
         timeout: float | None = None,
-    ) -> tuple[_OperationResultT, InstanceOperationResult]:
+    ) -> tuple[EventDataCompletion, EventDataExit | None]:
         if isinstance(operation_uuid, str):
             operation_uuid = UUID(operation_uuid)
-        started = datetime.now()
-        spent = 0
         timeout = timeout or self.config.operation_timeout
-        not_founds_num = 0
-        watcher = OperationWaiter(self, operation_uuid)
-
-        async with self._operation_canceller(operation_uuid) as finished_event:
-            while True:
-                if spent > timeout:
-                    raise OperationTimedOutError(operation_uuid=operation_uuid)
-                spent = (datetime.now() - started).total_seconds()
-                resp = None
-
-                with suppress(NotFoundError, ForbiddenError, EventStreamError):
-                    await watcher._load_events()
-
-                try:
-                    resp = await self._api.get_operation_status(operation_uuid)
-                except NotFoundError:
-                    if (not_founds_num := not_founds_num + 1) >= self.config.operation_poll_not_found_limit:
-                        raise
-                result = self._extract_operation_result(operation_uuid, resp, result_type)
-                if result is not None:
-                    finished_event.set()
-                    return result
-
-                interval = min(
-                    get_wait_interval(self.config, spent / timeout),
-                    timeout - spent + self.config.operation_poll_secs_min,
-                )
-                logger.debug(
-                    f"Sleeping for {interval:0.2f} seconds for {result_type.__name__} operation {operation_uuid}"
-                )
-                await sleep(interval)
-
-    @staticmethod
-    def _extract_operation_result(
-        operation_uuid: UUID,
-        resp: OperationModel | None,
-        result_type: type[_OperationResultT],
-    ) -> tuple[_OperationResultT, InstanceOperationResult] | None:
-        if resp is None:
-            return None
-        if not isinstance(resp.metadata, result_type):
-            raise WrongOperationTypeError(
-                operation_uuid=operation_uuid,
-                expected=result_type,
-                actual=type(resp.metadata),
-            )
-        if resp.status == OperationStatus.CANCELLED:
-            raise CancelledOperationError(operation_uuid=operation_uuid)
-        if resp.status == OperationStatus.FAILED:
-            raise FailedOperationError(operation_uuid=operation_uuid, error=resp.error or "Unknown error")
-        if resp.status != OperationStatus.SUCCESS:
-            return None
-        if resp.result is None:
-            raise RuntimeError("Operation completed but result is None")
-        return resp.metadata, resp.result
+        waiter = await self._get_operation_waiter(operation_uuid)
+        return await waiter.wait_for_result(operation_timeout=timeout)
