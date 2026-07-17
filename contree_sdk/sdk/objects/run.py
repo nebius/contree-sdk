@@ -20,8 +20,8 @@ class RunRequest:
     tag: str | None = None  # tag to be assigned to result
     stdin: INPUT_TYPES | None = None
 
-    stderr: OUTPUT_REQUEST_TYPES = str
-    stdout: OUTPUT_REQUEST_TYPES = str
+    stderr: OUTPUT_REQUEST_TYPES | None = str
+    stdout: OUTPUT_REQUEST_TYPES | None = str
 
     truncate_output_at: int | None = None
 

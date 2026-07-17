@@ -52,7 +52,7 @@ class WriterWrapper:
     async def write(self, data: bytes):
         await self._prepare()
         if self._decoder is not None:
-            data = self._decoder.decode(data)
+            return await self._write(self._decoder.decode(data))
         return await self._write(data)
 
     async def finalize(self):

@@ -1,6 +1,8 @@
 from asyncio import iscoroutinefunction, to_thread
+from io import IOBase
 from pathlib import Path
 from subprocess import PIPE
+from typing import cast
 
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
 from contree_sdk._internals.io.typing import (
@@ -22,14 +24,16 @@ async def read_input(request: INPUT_TYPES | None) -> str | bytes:
         return await to_thread(request.read_bytes)
     read = request.read
     if iscoroutinefunction(read):
-        return await read()
-    return await to_thread(read)
+        data = await read()
+    else:
+        data = await to_thread(read)
+    return cast("str | bytes", data)
 
 
 async def connect_outputs(
     waiter: OperationWaiter,
-    stdout_request: OUTPUT_REQUEST_TYPES,
-    stderr_request: OUTPUT_REQUEST_TYPES,
+    stdout_request: OUTPUT_REQUEST_TYPES | None,
+    stderr_request: OUTPUT_REQUEST_TYPES | None,
     spid: int = MAIN_SPID,
 ):
     streams = {
@@ -47,18 +51,18 @@ async def connect_outputs(
     return streams["stdout"], streams["stderr"]
 
 
-def get_output_obj(request: OUTPUT_REQUEST_TYPES) -> Writable | AsyncWritable | None:
+def get_output_obj(request: OUTPUT_REQUEST_TYPES | None) -> Writable | AsyncWritable | None:
     if request is None or request is str or request is bytes:
         return None
     if request is PIPE:
         return PipeIO()
     if isinstance(request, (str, Path)):
         return Path(request).open("wb")
-    return request
+    return cast(Writable | AsyncWritable, request)
 
 
 def finalize_output(
-    request: OUTPUT_REQUEST_TYPES,
+    request: OUTPUT_REQUEST_TYPES | None,
     connected: Writable | AsyncWritable | None,
     buffer: bytes,
 ) -> OUTPUT_TYPES | Path | None:
@@ -68,10 +72,11 @@ def finalize_output(
         return buffer.decode()
     if request is bytes:
         return buffer
-    if request is PIPE:
+    if isinstance(connected, PipeIO):
         connected.close()
         return connected
     if isinstance(request, (str, Path)):
-        connected.close()
+        if isinstance(connected, IOBase):
+            connected.close()
         return Path(request)
     return connected

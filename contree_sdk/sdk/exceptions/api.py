@@ -62,6 +62,16 @@ class UnprocessableEntityError(ApiStatusCodeError):
 
 
 @dataclass
+class TooEarlyError(ApiStatusCodeError):
+    status: int | None = 425
+
+
+@dataclass
+class GoneError(ApiStatusCodeError):
+    status: int | None = 410
+
+
+@dataclass
 class EventStreamError(ContreeApiError):
     pass
 
@@ -71,3 +81,14 @@ class MalformedEventError(EventStreamError):
     data: dict | None = None
     error: str | None = None
     _template = "SSE event cannot be parsed: {data} with error: {error}"
+
+
+@dataclass
+class MalformedStreamEventError(MalformedEventError):
+    pass
+
+
+@dataclass
+class EventStreamInterruptedError(EventStreamError):
+    error: str | None = None
+    _template = "Event stream was interrupted: {error}"

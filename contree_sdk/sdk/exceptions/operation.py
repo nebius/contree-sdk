@@ -12,14 +12,6 @@ class OperationError(ContreeError):
 
 
 @dataclass
-class WrongOperationTypeError(OperationError):
-    expected: type
-    actual: type
-
-    _template = "Wrong operation type {expected} != {actual}. Please report to SDK devs, should never happen."
-
-
-@dataclass
 class CancelledOperationError(OperationError):
     _template = "Operation {operation_uuid} was cancelled"
 

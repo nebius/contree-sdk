@@ -20,7 +20,16 @@ from contree_sdk._internals.models.operation import (
     OperationEvent,
     OperationEventType,
 )
-from contree_sdk.sdk.exceptions import ContreeApiError
+from contree_sdk.sdk.exceptions import (
+    CancelledOperationError,
+    ContreeApiError,
+    EventStreamInterruptedError,
+    FailedOperationError,
+    GoneError,
+    NotFoundError,
+    OperationTimedOutError,
+)
+from contree_sdk.utils.models.operation import OperationStatus
 from contree_sdk.utils.models.stream import StreamDescription
 
 
@@ -46,7 +55,7 @@ class OutputChunk:
 class ProcessView:
     exit: EventDataExit | None
     outputs: dict[StreamName, bytes]
-    truncated: dict[StreamName, EventDataTruncated]
+    truncated: dict[str, EventDataTruncated]
 
 
 MAIN_SPID = 1
@@ -65,15 +74,24 @@ class OperationWaiter:
         self._processing_lock = Lock()
         self._last_event_id = -1
         self._exits: dict[int | None, EventDataExit] = {}
-        self._truncated: dict[int | None, dict[StreamName, EventDataTruncated]] = defaultdict(dict)
+        self._truncated: dict[int | None, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.completion: EventDataCompletion | None = None
 
     async def _load_events(self):
         async with self._streaming_lock:
             if self._finished_event.is_set():
                 return
-            async for event in self._client._api.stream_operation_events(self.operation_id, since=self._last_event_id):
-                await self._process_event(event)
+            try:
+                async for event in self._client._api.stream_operation_events(
+                    self.operation_id, since=self._last_event_id
+                ):
+                    await self._process_event(event)
+            except (NotFoundError, GoneError) as e:
+                if self._last_event_id >= 0:
+                    raise CancelledOperationError(operation_uuid=self.operation_id) from e
+                raise
+            if not self._finished_event.is_set():
+                raise EventStreamInterruptedError(error="stream ended before completion event")
 
     async def _process_event(self, event: OperationEvent):
         async with self._processing_lock:
@@ -147,12 +165,27 @@ class OperationWaiter:
         )
 
     async def wait_for_result(
-        self, *, operation_timeout=None, spid: int = MAIN_SPID
+        self, *, operation_timeout: float | None = None, spid: int = MAIN_SPID
     ) -> tuple[EventDataCompletion, EventDataExit | None]:
         retrier = self._client._default_retrier
-        async with self._operation_canceller(), timeout(operation_timeout):
-            await retrier(self._load_events)
-        return self.completion, self._exits.get(spid)
+        try:
+            async with self._operation_canceller(), timeout(operation_timeout):
+                await retrier(self._load_events)
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            raise OperationTimedOutError(operation_uuid=self.operation_id) from e
+
+        completion = self.completion
+        if completion is None:
+            raise EventStreamInterruptedError(error="no completion event received")
+        if completion.status == OperationStatus.CANCELLED:
+            raise CancelledOperationError(operation_uuid=self.operation_id)
+        if completion.status == OperationStatus.FAILED:
+            raise FailedOperationError(operation_uuid=self.operation_id, error=completion.error or "Unknown error")
+
+        exit_event = self._exits.get(spid)
+        if exit_event is not None and exit_event.timed_out:
+            raise OperationTimedOutError(operation_uuid=self.operation_id)
+        return completion, exit_event
 
     async def _cancel_operation(self):
         await self._client._api.cancel_operation(self.operation_id)

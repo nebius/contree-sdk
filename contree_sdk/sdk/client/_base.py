@@ -8,6 +8,7 @@ from functools import partial
 from time import time
 from typing import TYPE_CHECKING
 from uuid import UUID
+from weakref import WeakValueDictionary
 
 from contree_sdk._internals.client.client import ContreeClient
 from contree_sdk._internals.io.operation_waiter import OperationWaiter
@@ -17,7 +18,15 @@ from contree_sdk._internals.models.operation import EventDataCompletion, EventDa
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
-from contree_sdk.sdk.exceptions.api import ApiTimeoutError, EventStreamError, TooManyRequestsError
+from contree_sdk.sdk.exceptions.api import (
+    ApiTimeoutError,
+    ContreeTransportError,
+    EventStreamInterruptedError,
+    MalformedStreamEventError,
+    NotFoundError,
+    TooEarlyError,
+    TooManyRequestsError,
+)
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.auth import WhoAmI
 
@@ -70,23 +79,32 @@ class _ContreeBase:
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
         self._token_info: WhoAmI | None = None
-        exceptions = [TooManyRequestsError, ApiTimeoutError, EventStreamError]
+        start_exceptions = [TooManyRequestsError, ApiTimeoutError]
+        stream_exceptions = [
+            TooManyRequestsError,
+            ApiTimeoutError,
+            ContreeTransportError,
+            NotFoundError,
+            TooEarlyError,
+            EventStreamInterruptedError,
+            MalformedStreamEventError,
+        ]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._operations = {
             ImageImportRequest: (
                 self._api.start_import_image,
-                CircuitRetrier(exceptions=exceptions, retry_timeout=timedelta(seconds=import_timeout)),
+                CircuitRetrier(exceptions=start_exceptions, retry_timeout=timedelta(seconds=import_timeout)),
             ),
             InstanceSpawnRequest: (
                 self._api.spawn_instance,
-                CircuitRetrier(exceptions=exceptions, retry_timeout=timedelta(seconds=spawn_timeout)),
+                CircuitRetrier(exceptions=start_exceptions, retry_timeout=timedelta(seconds=spawn_timeout)),
             ),
         }
         self._default_retrier = CircuitRetrier(
-            exceptions=exceptions, retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout))
+            exceptions=stream_exceptions, retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout))
         )
-        self._waiters: dict[UUID, OperationWaiter] = {}
+        self._waiters: WeakValueDictionary[UUID, OperationWaiter] = WeakValueDictionary()
         self._waiters_lock = Lock()
 
     @property
@@ -127,10 +145,12 @@ class _ContreeBase:
     async def _get_operation_waiter(self, operation_uuid: UUID | str) -> OperationWaiter:
         if isinstance(operation_uuid, str):
             operation_uuid = UUID(operation_uuid)
-        if operation_uuid not in self._waiters:
-            async with self._waiters_lock:
-                self._waiters[operation_uuid] = OperationWaiter(client=self, operation_id=operation_uuid)
-        return self._waiters[operation_uuid]
+        async with self._waiters_lock:
+            waiter = self._waiters.get(operation_uuid)
+            if waiter is None:
+                waiter = OperationWaiter(client=self, operation_id=operation_uuid)
+                self._waiters[operation_uuid] = waiter
+            return waiter
 
     # todo think about removing them later
 
