@@ -312,14 +312,18 @@ class _ImageLikeBase:
 
     async def _await(self: _T) -> _T:
         new_self, executing = await self._ensure_started()
+        return await new_self._collect_result(executing)
 
+    async def _collect_result(self: _T, executing: _Executing) -> _T:
         try:
-            operation_data, process_result = await executing.waiter.wait_for_result(
-                operation_timeout=executing.timeout
-            )
+            operation_data, process_result = await executing.waiter.wait_for_result(operation_timeout=executing.timeout)
         except ContreeError:
-            new_self._set_state(_Failed(request=executing.request))
+            if self._state_data is executing:
+                self._set_state(_Failed(request=executing.request))
             raise
+
+        if self._state_data is not executing:
+            return self
 
         view = executing.waiter.process_view()
         finalized = executing.outputs.finalize(view)
@@ -329,15 +333,15 @@ class _ImageLikeBase:
             stderr=finalized.stderr,
             truncated=view.truncated,
         )
-        new_self._set_state(_Succeeded(request=executing.request, result=result))
-        new_self.uuid = UUID(new_uuid) if (new_uuid := operation_data.result_image_uuid) else None
+        self._set_state(_Succeeded(request=executing.request, result=result))
+        self.uuid = UUID(new_uuid) if (new_uuid := operation_data.result_image_uuid) else None
         if executing.request.tag:
-            return await new_self._tag_as(executing.request.tag)
-        return new_self
+            return await self._tag_as(executing.request.tag)
+        return self
 
     async def _iter_output(self) -> AsyncGenerator[OutputChunk]:
         new_self, executing = await self._ensure_started()
-        result_task = create_task(new_self._await())
+        result_task = create_task(new_self._collect_result(executing))
         try:
             async for chunk in executing.waiter.iter_chunks(MAIN_SPID):
                 yield chunk

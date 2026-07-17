@@ -198,13 +198,9 @@ class OperationWaiter:
                 await retrier(self._load_events)
         except (TimeoutError, asyncio.TimeoutError) as e:
             raise OperationTimedOutError(operation_uuid=self.operation_id) from e
-        finally:
-            await self._finish()
 
         completion = self.completion
-        if completion is None:
-            raise EventStreamInterruptedError(error="no completion event received")
-        if completion.status == OperationStatus.CANCELLED:
+        if completion is None or completion.status == OperationStatus.CANCELLED:
             raise CancelledOperationError(operation_uuid=self.operation_id)
         if completion.status == OperationStatus.FAILED:
             raise FailedOperationError(operation_uuid=self.operation_id, error=completion.error or "Unknown error")
@@ -225,6 +221,8 @@ class OperationWaiter:
             yield
         finally:
             if not self._finished_event.is_set():
+                with suppress(ContreeApiError):
+                    await shield(self._cancel_operation())
                 await self._finish()
 
     async def _finish(self):
@@ -233,5 +231,3 @@ class OperationWaiter:
             for reader in readers:
                 await reader.finalize()
         self._readers_by_spid.clear()
-        with suppress(ContreeApiError):
-            await shield(self._cancel_operation())

@@ -45,9 +45,10 @@ class WriterWrapper:
             return False
         try:
             await self._write(b"")
-            return False
         except TypeError:
             return True
+        else:
+            return False
 
     async def write(self, data: bytes):
         await self._prepare()
