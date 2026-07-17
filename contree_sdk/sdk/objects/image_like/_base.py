@@ -14,7 +14,6 @@ import cattrs
 
 from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
 from contree_sdk._internals.utils.io import connect_outputs, finalize_output, read_input
-from contree_sdk._internals.utils.operation_waiter import MAIN_SPID
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import ImageState
@@ -325,10 +324,12 @@ class _ImageLikeBase:
         new_self._transition_state(ImageState.SUCCEEDED)
         new_uuid = operation_data.result_image_uuid
         new_self.uuid = new_uuid and UUID(new_uuid)
+        main_process = waiter.process_view()
         new_self._result = ContreeResult.from_result(
             process_result,
-            stdout=finalize_output(req.stdout, stdout, waiter.get_output(MAIN_SPID, "stdout")),
-            stderr=finalize_output(req.stderr, stderr, waiter.get_output(MAIN_SPID, "stderr")),
+            stdout=finalize_output(req.stdout, stdout, main_process.outputs["stdout"]),
+            stderr=finalize_output(req.stderr, stderr, main_process.outputs["stderr"]),
+            truncated=main_process.truncated,
         )
         if req.tag:
             new_self = await new_self._tag_as(req.tag)

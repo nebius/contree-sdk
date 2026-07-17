@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from contree_sdk._internals.models.operation import EventDataExit
+from contree_sdk._internals.models.operation import EventDataExit, EventDataTruncated
 from contree_sdk.utils.io_wrap import OUTPUT_TYPES
 
 
@@ -13,6 +13,7 @@ class ContreeResult:
     stdout: OUTPUT_TYPES | None
     exit_code: int
     elapsed_time: timedelta
+    truncated: dict[str, EventDataTruncated]
 
     _raw: EventDataExit | None = field(repr=False)
 
@@ -23,11 +24,13 @@ class ContreeResult:
         *,
         stdout: OUTPUT_TYPES | None,
         stderr: OUTPUT_TYPES | None,
+        truncated: dict[str, EventDataTruncated],
     ) -> ContreeResult:
         return cls(
             exit_code=raw_result.code,
             stdout=stdout,
             stderr=stderr,
             elapsed_time=timedelta(milliseconds=raw_result.duration_ms),
+            truncated=truncated,
             _raw=raw_result,
         )

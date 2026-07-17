@@ -13,6 +13,7 @@ from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.models.operation import (
     EventDataCompletion,
     EventDataExit,
+    EventDataTruncated,
     OperationEvent,
     OperationEventType,
 )
@@ -41,6 +42,13 @@ class OutputChunk:
     stream_name: StreamName
 
 
+@dataclass
+class ProcessView:
+    exit: EventDataExit | None
+    outputs: dict[StreamName, bytes]
+    truncated: dict[StreamName, EventDataTruncated]
+
+
 MAIN_SPID = 1
 
 
@@ -57,6 +65,7 @@ class OperationWaiter:
         self._processing_lock = Lock()
         self._last_event_id = -1
         self._exits: dict[int | None, EventDataExit] = {}
+        self._truncated: dict[int | None, dict[StreamName, EventDataTruncated]] = defaultdict(dict)
         self.completion: EventDataCompletion | None = None
 
     async def _load_events(self):
@@ -79,6 +88,9 @@ class OperationWaiter:
                     await reader.write(value)
             elif event.type == OperationEventType.EXIT:
                 self._exits[event.spid] = convert_data_to_type(event.data, EventDataExit)
+            elif event.type == OperationEventType.TRUNCATED:
+                truncated = convert_data_to_type(event.data, EventDataTruncated)
+                self._truncated[event.spid][truncated.stream] = truncated
             elif event.type == OperationEventType.COMPLETION:
                 await self._finish()
                 # todo validate properly
@@ -127,8 +139,12 @@ class OperationWaiter:
                 await wrapper.write(self._output_by_spid[spid][stream_name])
             self._readers_by_spid[spid, stream_name].append(wrapper)
 
-    def get_output(self, spid: int, stream_name: str) -> bytes:
-        return self._output_by_spid[spid][stream_name]
+    def process_view(self, spid: int = MAIN_SPID) -> ProcessView:
+        return ProcessView(
+            exit=self._exits.get(spid),
+            outputs={name: self._output_by_spid[spid][name] for name in ("stdout", "stderr")},
+            truncated=dict(self._truncated[spid]),
+        )
 
     async def wait_for_result(
         self, *, operation_timeout=None, spid: int = MAIN_SPID

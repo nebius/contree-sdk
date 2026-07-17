@@ -62,3 +62,10 @@ class EventDataExit:
     pid: int
     timed_out: bool
     resources: dict
+
+
+@dataclass
+class EventDataTruncated:
+    stream: str
+    bytes_emitted: int
+    bytes_dropped: int
