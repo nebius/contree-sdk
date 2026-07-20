@@ -1,5 +1,4 @@
 import re
-from dataclasses import asdict
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -7,11 +6,9 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
-from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.operation import OperationEvent, OperationEventType
 from contree_sdk.sdk.exceptions.api import MalformedEventError
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.imports import create_import_operation_model
 from tests.unit.fixtures.operations import add_events_responses, sse_event
 
 
@@ -75,35 +72,33 @@ async def test_stream_events_malformed(fake_contree: Contree, operation_id: str,
         await _collect(fake_contree, operation_id)
 
 
-def _add_status_response(httpx_mock: HTTPXMock, operation_id: str, result_image_uuid: UUID, status: OperationStatus):
-    httpx_mock.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}$"),
-        json=asdict(create_import_operation_model(result_image_uuid, status)),
-    )
+def _completion_frame(event_id: int, result_image_uuid: UUID) -> bytes:
+    completion_data = {
+        "status": str(OperationStatus.SUCCESS),
+        "result_image_uuid": str(result_image_uuid),
+        "duration_ms": 500,
+    }
+    return sse_event(event_id, "completion", completion_data)
 
 
 async def test_wait_operation_over_stream(
     fake_contree: Contree, operation_id: str, result_image_uuid: UUID, strict_httpx: HTTPXMock
 ):
-    add_events_responses(strict_httpx, operation_id, sse_event(1))
-    _add_status_response(strict_httpx, operation_id, result_image_uuid, OperationStatus.SUCCESS)
+    add_events_responses(strict_httpx, operation_id, sse_event(1, "init"), _completion_frame(2, result_image_uuid))
 
-    metadata, result = await fake_contree._wait_operation(operation_id, ImageImportRequest)
+    completion, _ = await fake_contree._wait_operation(operation_id, spid=None)
 
-    assert isinstance(metadata, ImageImportRequest)
-    assert result.image == str(result_image_uuid)
+    assert completion.status == OperationStatus.SUCCESS
+    assert completion.result_image_uuid == str(result_image_uuid)
 
 
 async def test_wait_operation_resumes_stream_after_last_event(
     fake_contree: Contree, operation_id: str, result_image_uuid: UUID, strict_httpx: HTTPXMock
 ):
     add_events_responses(strict_httpx, operation_id, sse_event(1, "init"), sse_event(2, "spawn"))
-    _add_status_response(strict_httpx, operation_id, result_image_uuid, OperationStatus.PENDING)
-    add_events_responses(strict_httpx, operation_id, sse_event(3))
-    _add_status_response(strict_httpx, operation_id, result_image_uuid, OperationStatus.SUCCESS)
+    add_events_responses(strict_httpx, operation_id, _completion_frame(3, result_image_uuid))
 
-    await fake_contree._wait_operation(operation_id, ImageImportRequest)
+    await fake_contree._wait_operation(operation_id, spid=None)
 
     events_requests = [r for r in strict_httpx.get_requests() if r.url.path.endswith("/events")]
     assert [r.url.params["since"] for r in events_requests] == ["-1", "2"]
@@ -118,8 +113,8 @@ async def test_wait_operation_survives_stream_errors(
         status_code=404,
         json={"error": "Operation not found", "status": 404},
     )
-    _add_status_response(strict_httpx, operation_id, result_image_uuid, OperationStatus.SUCCESS)
+    add_events_responses(strict_httpx, operation_id, _completion_frame(1, result_image_uuid))
 
-    _, result = await fake_contree._wait_operation(operation_id, ImageImportRequest)
+    completion, _ = await fake_contree._wait_operation(operation_id, spid=None)
 
-    assert result.image == str(result_image_uuid)
+    assert completion.result_image_uuid == str(result_image_uuid)

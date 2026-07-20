@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_httpx import HTTPXMock, IteratorStream
 
+from contree_sdk._internals.io.codecs import io_encode
+from contree_sdk._internals.io.operation_waiter import MAIN_SPID
 from contree_sdk._internals.models.instance import (
     InstanceOperationMetadata,
     InstanceOperationResult,
@@ -14,7 +16,6 @@ from contree_sdk._internals.models.instance import (
     ProcessState,
 )
 from contree_sdk._internals.models.operation import OperationKind, OperationModel
-from contree_sdk.utils.codecs import io_encode
 from contree_sdk.utils.models.operation import OperationStatus
 from contree_sdk.utils.models.stream import StreamDescription, StreamEncoding
 from tests.unit.fixtures.utils import r
@@ -91,6 +92,39 @@ def create_operation_model(
     )
 
 
+def run_event_frames(
+    result_image_uuid: UUID | None,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    stdout_content: str,
+    stderr_content: str,
+    status: OperationStatus = OperationStatus.SUCCESS,
+) -> tuple[bytes, ...]:
+    frames = [sse_event(0, "init", spid=0)]
+    for stream_name, content in (("stdout", stdout_content), ("stderr", stderr_content)):
+        if content:
+            frames.append(
+                sse_event(len(frames), stream_name, asdict(io_encode(content, StreamEncoding.base64)), spid=MAIN_SPID)
+            )
+    exit_data = {
+        "code": process_state.exit_code,
+        "duration_ms": int(resource_usage.elapsed_time * 1000),
+        "pid": process_state.pid,
+        "signal": process_state.signal,
+        "timed_out": process_state.timed_out,
+        "resources": asdict(resource_usage),
+    }
+    frames.append(sse_event(len(frames), "exit", exit_data, spid=MAIN_SPID))
+    completion_data = {
+        "status": str(status),
+        "result_image_uuid": str(result_image_uuid) if result_image_uuid else None,
+        "error": None,
+        "duration_ms": int(resource_usage.elapsed_time * 1000),
+    }
+    frames.append(sse_event(len(frames), "completion", completion_data))
+    return tuple(frames)
+
+
 def add_operation_responses(
     httpx_mock: HTTPXMock,
     operation_id: str,
@@ -102,54 +136,20 @@ def add_operation_responses(
     stderr_content: str = "this is stderr\n",
     not_found_first: bool = False,
 ):
-    pending_op = create_operation_model(
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        stdout_content,
-        OperationStatus.PENDING,
-        0.0,
-        stderr_content,
-    )
-    success_op = create_operation_model(
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        stdout_content,
-        OperationStatus.SUCCESS,
-        0.5,
-        stderr_content,
-    )
-    add_events_responses(httpx_mock, operation_id, is_reusable=True)
-    operation_url = re.compile(f".*/operations/{operation_id}$")
     if not_found_first:
         httpx_mock.add_response(
             method="GET",
-            url=operation_url,
+            url=re.compile(f".*/operations/{operation_id}/events.*"),
             status_code=404,
             is_optional=True,
             json={"error": "Operation not found", "status": 404},
         )
-
-    httpx_mock.add_response(
-        method="GET",
-        url=operation_url,
-        json=asdict(pending_op),
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="GET",
-        url=operation_url,
-        json=asdict(success_op),
-        is_optional=True,
-    )
+    frames = run_event_frames(result_image_uuid, process_state, resource_usage, stdout_content, stderr_content)
+    add_events_responses(httpx_mock, operation_id, *frames, is_reusable=True)
 
 
 @pytest.fixture
 def api_fake_streamed_run(
-    image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
@@ -157,25 +157,10 @@ def api_fake_streamed_run(
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_base_responses(strict_httpx, operation_id)
-    frames = (sse_event(1, "init"), sse_event(2))
+    frames = run_event_frames(result_image_uuid, process_state, resource_usage, "streamed\n", "")
     add_events_responses(strict_httpx, operation_id, *frames)
     add_events_responses(strict_httpx, operation_id, *frames)
-    add_events_responses(strict_httpx, operation_id, sse_event(2))
-    success_op = create_operation_model(
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        "streamed\n",
-        OperationStatus.SUCCESS,
-        0.5,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=re.compile(f".*/operations/{operation_id}$"),
-        json=asdict(success_op),
-        is_optional=True,
-    )
+    add_events_responses(strict_httpx, operation_id, *frames[1:])
     return strict_httpx
 
 

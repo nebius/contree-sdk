@@ -11,7 +11,7 @@ from uuid import UUID
 from weakref import WeakValueDictionary
 
 from contree_sdk._internals.client.client import ContreeClient
-from contree_sdk._internals.io.operation_waiter import OperationWaiter
+from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
 from contree_sdk._internals.models.image_import import ImageImportRequest
 from contree_sdk._internals.models.instance import InstanceSpawnRequest
 from contree_sdk._internals.models.operation import EventDataCompletion, EventDataExit
@@ -162,9 +162,10 @@ class _ContreeBase:
         self,
         operation_uuid: UUID | str,
         timeout: float | None = None,
+        spid: int | None = MAIN_SPID,
     ) -> tuple[EventDataCompletion, EventDataExit | None]:
         if isinstance(operation_uuid, str):
             operation_uuid = UUID(operation_uuid)
         timeout = timeout or self.config.operation_timeout
         waiter = await self._get_operation_waiter(operation_uuid)
-        return await waiter.wait_for_result(operation_timeout=timeout)
+        return await waiter.wait_for_result(operation_timeout=timeout, spid=spid)

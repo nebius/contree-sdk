@@ -1,14 +1,12 @@
-from unittest.mock import AsyncMock, patch
+import json
 from uuid import uuid4
 
 import pytest
+from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from contree_sdk.sdk.exceptions import DisposableImageRunError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
-from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.operations import create_operation_model
 
 
 async def test_use_returns_image_with_none_uuid(fake_contree: Contree):
@@ -38,27 +36,12 @@ async def test_use_image_no_tag_raises_disposable_error(fake_contree: Contree):
         image.run(command="echo hello")
 
 
-async def test_use_image_await_passes_tag_spec(
-    fake_contree: Contree,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-):
+async def test_use_image_await_passes_tag_spec(fake_contree: Contree, api_fake_run: HTTPXMock):
     image = await fake_contree.images.use("my-tag:latest")
-    running = image.run(shell="echo hello")
+    await image.run(shell="echo hello")
 
-    result_uuid = uuid4()
-    op = create_operation_model(result_uuid, result_uuid, process_state, resource_usage, "", OperationStatus.SUCCESS)
-
-    with (
-        patch.object(fake_contree, "_start_operation", new_callable=AsyncMock) as start_mock,
-        patch.object(fake_contree, "_wait_operation", new_callable=AsyncMock) as wait_mock,
-    ):
-        start_mock.return_value = result_uuid
-        wait_mock.return_value = (op.metadata, op.result)
-        await running
-
-    start_mock.assert_called_once()
-    assert start_mock.call_args[0][0].image == "tag:my-tag:latest"
+    [request] = [r for r in api_fake_run.get_requests() if r.url.path.endswith("/instances")]
+    assert json.loads(request.content)["image"] == "tag:my-tag:latest"
 
 
 async def test_use_with_uuid_string(fake_contree: Contree):

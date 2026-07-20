@@ -236,6 +236,7 @@ extend-ignore = [
     "S106",     # hardcoded-password-func-arg
 ]
 "tests/**" = [
+    "ASYNC240",# blocking-path-method-in-async-function
     "D",       # pydocstyle
     "DOC",     # pydoclint
     "PERF",    # perflint

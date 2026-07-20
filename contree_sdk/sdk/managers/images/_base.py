@@ -272,6 +272,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         operation_result, _ = await self._client._wait_operation(
             operation_uuid=operation_uuid,
             timeout=timeout,
+            spid=None,
         )
         if operation_result.result_image_uuid is None:
             raise FailedOperationError(

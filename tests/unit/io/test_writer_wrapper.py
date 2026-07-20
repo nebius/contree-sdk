@@ -1,0 +1,103 @@
+from asyncio import Queue
+from io import BytesIO, StringIO
+
+from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
+
+
+class _TextSink:
+    def __init__(self):
+        self.parts: list[str] = []
+
+    def write(self, data: str):
+        self.parts.append("" + data)
+
+
+class _AsyncSink:
+    def __init__(self):
+        self.parts: list[bytes] = []
+
+    async def write(self, data: bytes):
+        self.parts.append(data)
+
+
+async def test_bytes_writer_gets_raw_bytes():
+    buffer = BytesIO()
+    wrapper = WriterWrapper(buffer)
+
+    await wrapper.write(b"data")
+    await wrapper.finalize()
+
+    assert buffer.getvalue() == b"data"
+
+
+async def test_text_writer_gets_decoded_str():
+    buffer = StringIO()
+    wrapper = WriterWrapper(buffer)
+
+    await wrapper.write("Привет".encode())
+    await wrapper.finalize()
+
+    assert buffer.getvalue() == "Привет"
+
+
+async def test_text_writer_decodes_incrementally():
+    buffer = StringIO()
+    wrapper = WriterWrapper(buffer)
+
+    encoded = "П".encode()
+    await wrapper.write(encoded[:1])
+    await wrapper.write(encoded[1:])
+    await wrapper.finalize()
+
+    assert buffer.getvalue() == "П"
+
+
+async def test_finalize_flushes_decoder_tail():
+    buffer = StringIO()
+    wrapper = WriterWrapper(buffer)
+
+    await wrapper.write("П".encode()[:1])
+    await wrapper.finalize()
+
+    assert buffer.getvalue() == "�"
+
+
+async def test_custom_text_writer_sniffed_by_probe():
+    sink = _TextSink()
+    wrapper = WriterWrapper(sink)
+
+    await wrapper.write(b"data")
+
+    assert "data" in sink.parts
+
+
+async def test_async_writer_awaited():
+    sink = _AsyncSink()
+    wrapper = WriterWrapper(sink)
+
+    await wrapper.write(b"data")
+
+    assert b"data" in sink.parts
+
+
+async def test_writer_to_queue_skips_empty_and_finalizes_with_eof():
+    queue = Queue()
+    writer = WriterToQueue(queue=queue)
+
+    writer.write(b"")
+    writer.write(b"data")
+    writer.finalize()
+
+    assert queue.get_nowait() == b"data"
+    assert queue.get_nowait() is EOF
+
+
+async def test_finalize_sends_eof_through_wrapper():
+    queue = Queue()
+    wrapper = WriterWrapper(WriterToQueue(queue=queue))
+
+    await wrapper.write(b"data")
+    await wrapper.finalize()
+
+    assert queue.get_nowait() == b"data"
+    assert queue.get_nowait() is EOF

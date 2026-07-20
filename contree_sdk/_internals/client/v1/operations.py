@@ -34,6 +34,8 @@ class OperationsMixin:
         with wrap_api_call():
             data = {}
             response = await self._client.send(request, stream=True)
+            if response.is_error:
+                await response.aread()
             response.raise_for_status()
             async with aclosing(response) as response:
                 async for line in response.aiter_lines():

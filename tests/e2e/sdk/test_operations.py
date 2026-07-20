@@ -6,9 +6,9 @@ from contree_sdk.sdk.objects.image import ContreeImage
 
 
 async def test_stream_operation_events(contree: Contree, image: ContreeImage, mocker: MockerFixture):
-    spy_wait = mocker.spy(contree, "_wait_operation")
+    spy_start = mocker.spy(contree, "_start_operation")
     await image.run(shell="echo streamed")
-    operation_id = spy_wait.call_args.args[0]
+    operation_id = spy_start.spy_return
 
     events = [event async for event in contree._api.stream_operation_events(operation_id)]
 

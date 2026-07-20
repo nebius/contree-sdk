@@ -1,9 +1,10 @@
 from datetime import timedelta
-from io import IOBase, StringIO
+from io import StringIO
 from pathlib import Path, PurePosixPath
 from subprocess import PIPE
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
+from contree_sdk.utils.io import PipeIO
 from contree_sdk.utils.models.file import UploadFileSpec
 
 
@@ -108,7 +109,7 @@ def test_run_io_output_s(image_s):
     stdout_io = StringIO()
     result = image_s.run(shell=_shell_command, stdin=_stdin, stdout=stdout_io, stderr=PIPE).wait()
 
-    assert isinstance(result.stderr, IOBase)
+    assert isinstance(result.stderr, PipeIO)
     assert result.stderr.read() == _stderr.encode()
 
     assert result.stdout == stdout_io

@@ -52,6 +52,7 @@ __all__ = [
     "fake_token",
     "file_sha256",
     "file_uuid",
+    "image",
     "image_tag",
     "image_uuid",
     "operation_id",
@@ -129,6 +130,11 @@ def api_fake_stable_uuid(
     )
 
     return strict_httpx
+
+
+@pytest.fixture
+def image(fake_image_s: ContreeImageSync) -> ContreeImageSync:
+    return fake_image_s
 
 
 @pytest.fixture

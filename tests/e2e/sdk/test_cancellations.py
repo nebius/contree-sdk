@@ -1,5 +1,4 @@
 from asyncio import get_event_loop, sleep
-from datetime import datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -7,7 +6,7 @@ from pytest_mock import MockerFixture, MockType
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk.sdk.client._base import _ContreeBase
-from contree_sdk.utils.models.operation import OperationStatus
+from contree_sdk.sdk.exceptions import CancelledOperationError, GoneError
 from tests.utils.interrupter import interrupter
 
 
@@ -21,13 +20,9 @@ async def _get_operation_id_from_spy(spy_obj: MockType):
 
 
 async def _wait_cancelled(operation_id: UUID, contree: _ContreeBase):
-    started = datetime.now()
-    while datetime.now() - started < timedelta(seconds=3):
-        operation = await contree._api.get_operation_status(operation_id)
-        if operation.status == OperationStatus.CANCELLED:
-            return
-        await sleep(0.1)
-    raise AssertionError("Operation was not cancelled")
+    waiter = await contree._get_operation_waiter(operation_id)
+    with pytest.raises((CancelledOperationError, GoneError)):
+        await waiter.wait_for_result(operation_timeout=3)
 
 
 async def test_cancel_import(contree: Contree, mocker: MockerFixture):
