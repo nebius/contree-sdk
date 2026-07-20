@@ -24,7 +24,6 @@ dependencies = [
     "httpx", # todo move to httpx when transport will be supported
     "typing-extensions; python_version < '3.13'",
     "async-timeout; python_version < '3.11'",
-
 ]
 
 [project.optional-dependencies]
@@ -50,6 +49,7 @@ dev = [
     "ty~=0.0.51",
     "ruff",
     "typing-extensions",
+    "async-timeout",
 ]
 
 dev-security = [

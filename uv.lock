@@ -706,6 +706,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "async-timeout" },
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
     { name = "dprint-py" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11'" },
@@ -743,6 +744,7 @@ langchain = [
 requires-dist = [
     { name = "aiofiles" },
     { name = "async-timeout", marker = "python_full_version < '3.11'" },
+    { name = "async-timeout", marker = "extra == 'dev'" },
     { name = "cattrs" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
