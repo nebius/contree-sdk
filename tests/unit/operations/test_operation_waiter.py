@@ -4,7 +4,7 @@ from io import BytesIO
 from uuid import UUID
 
 import pytest
-from pytest_httpx import HTTPXMock, IteratorStream
+from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID
@@ -17,8 +17,7 @@ from contree_sdk.sdk.exceptions import (
     OperationTimedOutError,
 )
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.imports import pending_then
-from tests.unit.fixtures.operations import add_events_responses, run_event_frames, sse_event
+from tests.unit.fixtures.operations import SlowEventStream, add_events_responses, run_event_frames, sse_event
 from tests.unit.fixtures.utils import r
 
 
@@ -30,7 +29,7 @@ def _add_slow_events(httpx_mock: HTTPXMock, pending_seconds: float = 5.0):
     httpx_mock.add_response(
         method="GET",
         url=r(".*/operations/.*/events.*"),
-        stream=IteratorStream(pending_then((), pending_seconds)),
+        stream=SlowEventStream(pending_seconds=pending_seconds),
         is_optional=True,
     )
     httpx_mock.add_response(
@@ -46,6 +45,7 @@ def _add_slow_events(httpx_mock: HTTPXMock, pending_seconds: float = 5.0):
         url=r(".*/operations/.*"),
         json={},
         is_optional=True,
+        is_reusable=True,
     )
 
 

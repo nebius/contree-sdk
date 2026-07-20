@@ -5,7 +5,7 @@ from pytest_httpx import HTTPXMock
 
 from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
-from tests.unit.fixtures.operations import add_base_responses, add_operation_responses
+from tests.unit.fixtures.operations import SlowEventStream, add_base_responses, add_operation_responses
 from tests.unit.fixtures.utils import r
 
 
@@ -287,6 +287,29 @@ def api_fake_session_multiple_runs(
         ["", "some other step\n", "some data", "final step\n"],
     )
 
+    return strict_httpx
+
+
+@pytest.fixture
+def api_fake_slow_run(operation_id: str, strict_httpx: HTTPXMock) -> HTTPXMock:
+    strict_httpx.add_response(
+        method="POST",
+        url=r(".*/instances"),
+        json={"uuid": operation_id},
+        is_optional=True,
+    )
+    strict_httpx.add_response(
+        method="GET",
+        url=r(f".*/operations/{operation_id}/events.*"),
+        stream=SlowEventStream(),
+        is_optional=True,
+    )
+    strict_httpx.add_response(
+        method="DELETE",
+        url=r(".*/operations/.*"),
+        json={},
+        is_optional=True,
+    )
     return strict_httpx
 
 

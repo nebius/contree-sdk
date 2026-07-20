@@ -1,9 +1,13 @@
+import asyncio
 import json
 import re
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import asdict
+from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 import pytest
+from httpx import AsyncByteStream, SyncByteStream
 from pytest_httpx import HTTPXMock, IteratorStream
 
 from contree_sdk._internals.io.codecs import io_encode
@@ -33,6 +37,27 @@ def sse_event(
     if spid is not None:
         payload["spid"] = spid
     return f"id: {event_id}\nevent: {event_type}\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+class SlowEventStream(AsyncByteStream, SyncByteStream):
+    def __init__(self, frames: tuple[bytes, ...] = (), pending_seconds: float = 5.0):
+        self._frames = frames
+        self._pending_seconds = pending_seconds
+
+    def __iter__(self) -> Iterator[bytes]:
+        deadline = monotonic() + self._pending_seconds
+        while monotonic() < deadline:
+            sleep(0.05)
+            yield b": keepalive\n\n"
+        yield from self._frames
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        deadline = monotonic() + self._pending_seconds
+        while monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            yield b": keepalive\n\n"
+        for frame in self._frames:
+            yield frame
 
 
 def add_events_responses(

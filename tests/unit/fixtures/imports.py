@@ -1,13 +1,11 @@
 import re
-from collections.abc import Iterator
-from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 import pytest
-from pytest_httpx import HTTPXMock, IteratorStream
+from pytest_httpx import HTTPXMock
 
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.operations import add_base_responses, add_events_responses, sse_event
+from tests.unit.fixtures.operations import SlowEventStream, add_base_responses, add_events_responses, sse_event
 from tests.unit.fixtures.utils import r
 
 
@@ -19,14 +17,6 @@ def import_event_frames(result_image_uuid: UUID, status: OperationStatus) -> tup
         "duration_ms": 500,
     }
     return (sse_event(0, "init", spid=0), sse_event(1, "completion", completion_data))
-
-
-def pending_then(frames: tuple[bytes, ...], pending_seconds: float) -> Iterator[bytes]:
-    deadline = monotonic() + pending_seconds
-    while monotonic() < deadline:
-        sleep(0.05)
-        yield b": keepalive\n\n"
-    yield from frames
 
 
 def add_import_operation_responses(
@@ -42,7 +32,7 @@ def add_import_operation_responses(
         httpx_mock.add_response(
             method="GET",
             url=re.compile(f".*/operations/{operation_id}/events.*"),
-            stream=IteratorStream(pending_then(frames, pending_seconds=pending_count * 0.1)),
+            stream=SlowEventStream(frames, pending_seconds=pending_count * 0.1),
             is_optional=True,
         )
     add_events_responses(httpx_mock, operation_id, *frames, is_reusable=True)
@@ -114,7 +104,7 @@ def api_fake_import_slow(result_image_uuid: UUID, httpx_mock: HTTPXMock) -> HTTP
         httpx_mock,
         str(uuid4()),
         result_image_uuid,
-        pending_count=7,
+        pending_count=30,
         final_status=OperationStatus.CANCELLED,
         final_count=5,
     )
