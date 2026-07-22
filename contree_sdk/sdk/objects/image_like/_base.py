@@ -100,6 +100,7 @@ class _ImageLikeBase:
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
+        preserve_env: bool = False,
     ) -> _T: ...
 
     @overload
@@ -119,6 +120,7 @@ class _ImageLikeBase:
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
+        preserve_env: bool = False,
     ) -> _T: ...
 
     def run(  # noqa: PLR0913
@@ -138,6 +140,7 @@ class _ImageLikeBase:
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
+        preserve_env: bool = False,
     ) -> _T:
         """Prepare image for command execution.
 
@@ -156,6 +159,7 @@ class _ImageLikeBase:
             timeout: Execution timeout in seconds or as timedelta.
             disposable: If True, image is discarded after execution.
             truncate_output_at: number of bytes to truncate stdout and stderr. Defaults to default_truncate_output_at
+            preserve_env: If True, environment variables are preserved in resulting image after execution.
 
         Returns:
             New image instance configured for execution.
@@ -193,6 +197,7 @@ class _ImageLikeBase:
             stderr=stderr,
             disposable=disposable,
             truncate_output_at=truncate_output_at,
+            preserve_env=preserve_env,
         )
         new_self._prepare_stdin(stdin)
         return new_self
@@ -309,6 +314,7 @@ class _ImageLikeBase:
                 stdin=stdin,
                 files=files,
                 truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
+                preserve_env=req.preserve_env,
             )
         )
         image_metadata, result = await self._client._wait_operation(

@@ -58,6 +58,7 @@ class InstanceOperationMetadata:
     stdin: StreamDescription
     timeout: int
     truncate_output_at: int
+    preserve_env: bool = False
 
 
 @dataclass
@@ -88,3 +89,4 @@ class InstanceSpawnRequest:
     timeout: int = 60
     truncate_output_at: int
     files: dict[str, InstanceFileSpec]
+    preserve_env: bool = False
