@@ -68,9 +68,7 @@ def test_run_preserve_env_s(fake_image_s, api_fake_run_preserve_env: HTTPXMock):
     assert second_request_body["preserve_env"] is False
 
 
-async def test_run_without_preserve_env_does_not_persist_env(
-    fake_image, api_fake_run_without_preserve_env: HTTPXMock
-):
+async def test_run_without_preserve_env_does_not_persist_env(fake_image, api_fake_run_without_preserve_env: HTTPXMock):
     await _test_run_without_preserve_env_does_not_persist_env(fake_image)
 
     first_request_body, second_request_body = _instance_request_bodies(api_fake_run_without_preserve_env)
@@ -80,9 +78,7 @@ async def test_run_without_preserve_env_does_not_persist_env(
     assert second_request_body["preserve_env"] is False
 
 
-def test_run_without_preserve_env_does_not_persist_env_s(
-    fake_image_s, api_fake_run_without_preserve_env: HTTPXMock
-):
+def test_run_without_preserve_env_does_not_persist_env_s(fake_image_s, api_fake_run_without_preserve_env: HTTPXMock):
     _test_run_without_preserve_env_does_not_persist_env_s(fake_image_s)
 
     first_request_body, second_request_body = _instance_request_bodies(api_fake_run_without_preserve_env)
