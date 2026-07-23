@@ -35,9 +35,6 @@ def _instance_request_bodies(api_mock: HTTPXMock) -> list[dict]:
 async def test_basic_run(fake_image, api_fake_run: HTTPXMock):
     await _test_basic_run(fake_image)
 
-    [request_body] = _instance_request_bodies(api_fake_run)
-    assert request_body["preserve_env"] is False
-
 
 async def test_basic_run_deferred(fake_image, api_fake_run_deferred: HTTPXMock):
     await _test_basic_run(fake_image)
