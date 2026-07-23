@@ -61,38 +61,6 @@ def add_multiple_run_operations(
         )
 
 
-def add_run_operation(
-    httpx_mock: HTTPXMock,
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-    stdout_content: str = "my input\nthis is stdout\n",
-    stderr_content: str = "this is stderr\n",
-):
-    op_id = str(uuid4())
-
-    httpx_mock.add_response(
-        method="POST",
-        url=r(".*/instances"),
-        json={"uuid": op_id},
-        is_optional=True,
-    )
-
-    add_inspect_by_uuid_response(httpx_mock, result_image_uuid)
-
-    add_operation_responses(
-        httpx_mock,
-        op_id,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        stdout_content,
-        stderr_content,
-    )
-
-
 @pytest.fixture
 def result_image_uuid() -> UUID:
     return uuid4()
@@ -238,49 +206,19 @@ def api_fake_apply_files(
     return api_fake_run_with_files
 
 
-def add_preserve_env_chain_responses(
-    httpx_mock: HTTPXMock,
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-    verify_stdout: str,
-):
-    add_run_operation(
-        httpx_mock,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        stdout_content="",
-        stderr_content="",
-    )
-    add_run_operation(
-        httpx_mock,
-        result_image_uuid,
-        uuid4(),
-        process_state,
-        resource_usage,
-        stdout_content=verify_stdout,
-        stderr_content="",
-    )
-
-
 @pytest.fixture
 def api_fake_run_preserve_env(
     image_uuid: UUID,
-    result_image_uuid: UUID,
     process_state: ProcessState,
     resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
-    add_preserve_env_chain_responses(
+    add_multiple_run_operations(
         strict_httpx,
         image_uuid,
-        result_image_uuid,
         process_state,
         resource_usage,
-        verify_stdout="ok\n",
+        ["", "ok\n"],
     )
     return strict_httpx
 
@@ -288,18 +226,16 @@ def api_fake_run_preserve_env(
 @pytest.fixture
 def api_fake_run_without_preserve_env(
     image_uuid: UUID,
-    result_image_uuid: UUID,
     process_state: ProcessState,
     resource_usage: ProcessResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
-    add_preserve_env_chain_responses(
+    add_multiple_run_operations(
         strict_httpx,
         image_uuid,
-        result_image_uuid,
         process_state,
         resource_usage,
-        verify_stdout="",
+        ["", ""],
     )
     return strict_httpx
 
