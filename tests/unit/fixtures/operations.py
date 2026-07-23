@@ -54,7 +54,6 @@ def create_operation_model(
         stdin=StreamDescription(value="", encoding=StreamEncoding.ascii),
         timeout=60,
         truncate_output_at=65535,
-        preserve_env=True,
         result=execution_result,
     )
 
