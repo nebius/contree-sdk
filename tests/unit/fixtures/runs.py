@@ -61,6 +61,38 @@ def add_multiple_run_operations(
         )
 
 
+def add_run_operation(
+    httpx_mock: HTTPXMock,
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    stdout_content: str = "my input\nthis is stdout\n",
+    stderr_content: str = "this is stderr\n",
+):
+    op_id = str(uuid4())
+
+    httpx_mock.add_response(
+        method="POST",
+        url=r(".*/instances"),
+        json={"uuid": op_id},
+        is_optional=True,
+    )
+
+    add_inspect_by_uuid_response(httpx_mock, result_image_uuid)
+
+    add_operation_responses(
+        httpx_mock,
+        op_id,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        stdout_content,
+        stderr_content,
+    )
+
+
 @pytest.fixture
 def result_image_uuid() -> UUID:
     return uuid4()
@@ -204,6 +236,64 @@ def api_fake_apply_files(
         "second line\nlast line\n",
     )
     return api_fake_run_with_files
+
+
+@pytest.fixture
+def api_fake_run_preserve_env(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_run_operation(
+        strict_httpx,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        stdout_content="",
+        stderr_content="",
+    )
+    add_run_operation(
+        strict_httpx,
+        result_image_uuid,
+        uuid4(),
+        process_state,
+        resource_usage,
+        stdout_content="ok\n",
+        stderr_content="",
+    )
+    return strict_httpx
+
+
+@pytest.fixture
+def api_fake_run_without_preserve_env(
+    image_uuid: UUID,
+    result_image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_run_operation(
+        strict_httpx,
+        image_uuid,
+        result_image_uuid,
+        process_state,
+        resource_usage,
+        stdout_content="",
+        stderr_content="",
+    )
+    add_run_operation(
+        strict_httpx,
+        result_image_uuid,
+        uuid4(),
+        process_state,
+        resource_usage,
+        stdout_content="",
+        stderr_content="",
+    )
+    return strict_httpx
 
 
 @pytest.fixture
