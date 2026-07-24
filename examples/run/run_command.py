@@ -19,6 +19,16 @@ async def main(client: Contree):
     result = await image.run("/bin/printenv", args=["MY_VAR"], env={"MY_VAR": "test_value"})
     print(f"Result: {result.stdout=}, {result.exit_code=}")
 
+    print("\nExample 4: Preserve environment variables in the resulting image")
+    prepared = await image.run(
+        shell="true",
+        env={"MY_PERSISTED_VAR": "persisted_value"},
+        preserve_env=True,
+        disposable=False,
+    )
+    result = await prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
+    print(f"Result: {result.stdout=}, {result.exit_code=}")
+
 
 if __name__ == "__main__":
     run(

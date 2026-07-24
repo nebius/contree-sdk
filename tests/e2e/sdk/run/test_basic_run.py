@@ -132,6 +132,52 @@ async def test_run_truncated_output(image):
     assert len(result.stdout) == _truncate_at
 
 
+async def test_run_preserve_env(image):
+    result = await image.run(
+        shell="true",
+        env={"SDK_PRESERVE_ENV": "ok"},
+        preserve_env=True,
+        disposable=False,
+    )
+
+    verified = await result.run(shell="printenv SDK_PRESERVE_ENV")
+    assert verified.stdout.strip() == "ok"
+
+
+def test_run_preserve_env_s(image_s):
+    result = image_s.run(
+        shell="true",
+        env={"SDK_PRESERVE_ENV_SYNC": "ok"},
+        preserve_env=True,
+        disposable=False,
+    ).wait()
+
+    verified = result.run(shell="printenv SDK_PRESERVE_ENV_SYNC").wait()
+    assert verified.stdout.strip() == "ok"
+
+
+async def test_run_without_preserve_env_does_not_persist_env(image):
+    result = await image.run(
+        shell="true",
+        env={"SDK_GHOST_ENV": "missing"},
+        disposable=False,
+    )
+
+    verified = await result.run(shell="printenv SDK_GHOST_ENV || true")
+    assert verified.stdout.strip() == ""
+
+
+def test_run_without_preserve_env_does_not_persist_env_s(image_s):
+    result = image_s.run(
+        shell="true",
+        env={"SDK_GHOST_ENV_SYNC": "missing"},
+        disposable=False,
+    ).wait()
+
+    verified = result.run(shell="printenv SDK_GHOST_ENV_SYNC || true").wait()
+    assert verified.stdout.strip() == ""
+
+
 RANDOM_INT_COMMAND = "od -An -N2 -tu2 /dev/urandom"
 
 

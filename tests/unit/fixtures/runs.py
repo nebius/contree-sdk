@@ -207,6 +207,40 @@ def api_fake_apply_files(
 
 
 @pytest.fixture
+def api_fake_run_preserve_env(
+    image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_multiple_run_operations(
+        strict_httpx,
+        image_uuid,
+        process_state,
+        resource_usage,
+        ["", "ok\n"],
+    )
+    return strict_httpx
+
+
+@pytest.fixture
+def api_fake_run_without_preserve_env(
+    image_uuid: UUID,
+    process_state: ProcessState,
+    resource_usage: ProcessResources,
+    strict_httpx: HTTPXMock,
+) -> HTTPXMock:
+    add_multiple_run_operations(
+        strict_httpx,
+        image_uuid,
+        process_state,
+        resource_usage,
+        ["", ""],
+    )
+    return strict_httpx
+
+
+@pytest.fixture
 def api_fake_run_truncated(
     image_uuid: UUID,
     result_image_uuid: UUID,

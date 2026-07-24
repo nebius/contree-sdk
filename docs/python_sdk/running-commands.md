@@ -68,6 +68,41 @@ See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSyn
 - **Shell mode**: Use `shell="ls -la /tmp"` for shell commands with pipes, redirects, and wildcards
 - **Environment variables**: Pass `env={"VAR": "value"}` to set environment for command execution
 
+### Preserving Environment Variables
+
+By default, values passed through `env` are available only to the current command. Set `preserve_env=True`
+with `disposable=False` when those variables should be written into the resulting image and inherited by
+later commands:
+
+````{tab} Async
+```python
+prepared = await image.run(
+    shell="true",
+    env={"MY_PERSISTED_VAR": "persisted_value"},
+    preserve_env=True,
+    disposable=False,
+)
+result = await prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
+```
+````
+
+````{tab} Sync
+```python
+prepared = image.run(
+    shell="true",
+    env={"MY_PERSISTED_VAR": "persisted_value"},
+    preserve_env=True,
+    disposable=False,
+).wait()
+result = prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"]).wait()
+```
+````
+
+On the ConTree side, `preserve_env=True` merges the image's existing `metadata/env` entries with the `env`
+values from the request, with request values taking priority, then writes the merged values back to
+`metadata/env` in the resulting image. Setting a variable to an empty string removes it from the preserved
+environment.
+
 ## Working with Files
 
 You can upload and use files in your commands by specifying local file paths or pre-uploaded file objects:
@@ -178,6 +213,7 @@ See {class}`~contree_sdk.sdk.objects.subprocess.ContreeProcessSync` for the full
 
 - **`cwd`**: Working directory inside container
 - **`disposable`**: Whether to persist changes (default: True for runs, False for sessions)
+- **`preserve_env`**: Whether to persist `env` values into the resulting image environment
 - **`tag`**: Tag to assign to the resulting image after execution (e.g. `tag="myapp:v2"`)
 
 ## Result Objects
