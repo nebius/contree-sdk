@@ -20,6 +20,13 @@ class ContreeResult:
 
     _raw: InstanceOperationMetadata | None = field(repr=False)
 
+    @property
+    def truncated(self) -> bool:
+        """Whether stdout or stderr was truncated by the output size limit."""
+        if self._raw is None or self._raw.result is None:
+            return False
+        return self._raw.result.stdout.truncated or self._raw.result.stderr.truncated
+
     @classmethod
     def from_result(cls, raw_result: InstanceOperationMetadata, request: RunRequest) -> ContreeResult:
         if raw_result.result is None:

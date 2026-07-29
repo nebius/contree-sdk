@@ -21,12 +21,12 @@ class UploadFileSpec:
     mode: int = DEFAULT_MODE
     path: PurePosixPath | str | None = None
 
-    source: str | Path | UploadedFile
+    source: str | Path | bytes | UploadedFile
 
     @classmethod
     def _prepare_files(
         cls,
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec],
         default_image_path: str = "/",
     ) -> list[UploadFileSpec]:
         entries = files.items() if isinstance(files, dict) else ((None, f) for f in files)
@@ -35,12 +35,14 @@ class UploadFileSpec:
             if isinstance(source, UploadFileSpec):
                 image_path = image_path or source.path
                 if image_path is None:
-                    if isinstance(source.source, UploadedFile):
+                    if isinstance(source.source, (UploadedFile, bytes)):
                         raise ValueError(f"In file item {source} there's no information about path")
                     image_path = PurePosixPath(default_image_path) / Path(source.source).name
                 item = replace(source, path=PurePosixPath(image_path))
             else:
                 if image_path is None:
+                    if isinstance(source, bytes):
+                        raise ValueError("File item with bytes source must have a path")
                     image_path = PurePosixPath(default_image_path) / Path(source).name
                 if isinstance(source, str):
                     source = Path(source)

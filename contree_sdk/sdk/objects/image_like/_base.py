@@ -96,7 +96,7 @@ class _ImageLikeBase:
         stdout: REQUEST_IO_TYPES | None = None,
         stderr: REQUEST_IO_TYPES | None = None,
         tag: str | None = None,
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
@@ -116,7 +116,7 @@ class _ImageLikeBase:
         stdout: REQUEST_IO_TYPES | None = None,
         stderr: REQUEST_IO_TYPES | None = None,
         tag: str | None = None,
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
@@ -136,7 +136,7 @@ class _ImageLikeBase:
         stdout: REQUEST_IO_TYPES | None = None,
         stderr: REQUEST_IO_TYPES | None = None,
         tag: str | None = None,
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
         truncate_output_at: int | None = None,
@@ -204,8 +204,12 @@ class _ImageLikeBase:
 
     async def _apply_files(
         self: _T,
-        *args: str | Path | UploadFileSpec | list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec],
-        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | UploadFileSpec] | None = None,
+        *args: str
+        | Path
+        | UploadFileSpec
+        | list[str | Path | UploadFileSpec]
+        | dict[str, str | Path | bytes | UploadFileSpec],
+        files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None = None,
     ) -> _T:
         """Upload files into a new image derived from this one.
 
@@ -234,7 +238,9 @@ class _ImageLikeBase:
     async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, InstanceFileSpec]:
         async def _upload_file(file: UploadFileSpec) -> tuple[str, InstanceFileSpec]:
             source = file.source
-            if not isinstance(source, UploadedFile):
+            if isinstance(source, bytes):
+                source = await self._client.files._upload_bytes_file(source)
+            elif not isinstance(source, UploadedFile):
                 source = await self._client.files._upload_file(source)
             return str(file.path), InstanceFileSpec(
                 uuid=source.uuid,
