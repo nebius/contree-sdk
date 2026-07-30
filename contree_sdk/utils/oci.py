@@ -41,9 +41,9 @@ class OCIReference:
 
         host = host or DOCKER_IO
         if host == DOCKER_IO:
-            if not path.startswith(DOCKER_NAMESPACE):
+            if "/" not in path:
                 path = join(DOCKER_NAMESPACE, path)
-            tag = path.removeprefix(DOCKER_NAMESPACE)
+            tag = path.removeprefix(f"{DOCKER_NAMESPACE}/")
         else:
             tag = join(host, path)
         return cls(url=urlunparse((parsed.scheme, host, path, "", "", "")), tag=tag.lstrip("/"))
