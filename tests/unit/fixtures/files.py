@@ -27,7 +27,7 @@ def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
     httpx_mock.add_response(
         method="POST",
         url=r(".*/files"),
-        json={"uuid": file_uuid, "sha256": file_sha256},
+        json={"uuid": file_uuid, "sha256": file_sha256, "size": 4},
         is_optional=True,
     )
 

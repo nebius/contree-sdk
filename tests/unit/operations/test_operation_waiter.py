@@ -4,11 +4,11 @@ from io import BytesIO
 from uuid import UUID
 
 import pytest
+from contree_client.models import EventResources
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID
-from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
     EventStreamInterruptedError,
@@ -18,7 +18,13 @@ from contree_sdk.sdk.exceptions import (
     OperationTimedOutError,
 )
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.operations import SlowEventStream, add_events_responses, run_event_frames, sse_event
+from tests.unit.fixtures.operations import (
+    ProcessState,
+    SlowEventStream,
+    add_events_responses,
+    run_event_frames,
+    sse_event,
+)
 from tests.unit.fixtures.utils import r
 
 
@@ -55,7 +61,7 @@ async def test_wait_for_result_success(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "hi\n", "oops\n")
@@ -78,7 +84,7 @@ async def test_wait_for_result_failed(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "", "", OperationStatus.FAILED)
@@ -94,7 +100,7 @@ async def test_wait_for_result_cancelled_status(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "", "", OperationStatus.CANCELLED)
@@ -128,7 +134,7 @@ async def test_wait_for_result_process_timed_out(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     timed_out_state = replace(process_state, timed_out=True)
@@ -187,7 +193,7 @@ async def test_success_does_not_cancel_operation(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "", "")
@@ -204,7 +210,7 @@ async def test_multiple_waiters_share_result(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "", "")
@@ -236,7 +242,7 @@ async def test_connect_output_after_finish(
     operation_id: str,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ):
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, "hi\n", "")

@@ -32,7 +32,7 @@ async def test_token_from_env_var(
 ):
     monkeypatch.setenv("NEBIUS_API_KEY", _contree_token)
     monkeypatch.setenv("NEBIUS_PROJECT_ID", _contree_project_id)
-    config = ContreeConfig(auth=IAMAuth(base_url=contree_config.auth.base_url))
+    config = ContreeConfig(auth=IAMAuth(base_url=contree_config.auth.base_url), transport=contree_config.transport)
 
     client = Contree(config=config)
 

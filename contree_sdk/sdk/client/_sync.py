@@ -12,6 +12,8 @@ class ContreeSync(_ContreeBase):
     images: ImagesManagerSync
     files: FilesManagerSync
 
+    _prefer_sync_transport = True
+
     @keep_signature(_ContreeBase.__init__)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -4,17 +4,17 @@ import logging
 from asyncio import Lock
 from dataclasses import replace
 from datetime import timedelta
-from functools import partial
 from time import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 from weakref import WeakValueDictionary
 
-from contree_sdk._internals.client.client import ContreeClient
+from contree_client.base import ContreeAsyncClient
+from contree_client.models import EventDataCompletion, EventDataExit
+
+from contree_sdk._internals.client.provider import TransportProvider
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
-from contree_sdk._internals.models.image_import import ImageImportRequest
-from contree_sdk._internals.models.instance import InstanceSpawnRequest
-from contree_sdk._internals.models.operation import EventDataCompletion, EventDataExit
+from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
@@ -43,6 +43,8 @@ class _ContreeBase:
     """Manager for file operations."""
     images: _ImagesBaseManager[_ContreeImageBase]
     """Manager for image operations."""
+
+    _prefer_sync_transport: ClassVar[bool] = False
 
     def __init__(self, config: ContreeConfig | None = None, *, base_url: str | None = None, token: str | None = None):
         """Initialize the ConTree client.
@@ -75,7 +77,7 @@ class _ContreeBase:
 
         config = replace(config, auth=config.auth.resolve())
 
-        self._api: ContreeClient = self._create_api_client(config)
+        self._transport = self._create_transport_provider(config)
         self._config = config
         self._token_info: WhoAmI | None = None
         start_exceptions = [TooManyRequestsError, ApiTimeoutError]
@@ -89,16 +91,12 @@ class _ContreeBase:
         ]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
-        self._operations = {
-            ImageImportRequest: (
-                self._api.start_import_image,
-                CircuitRetrier(exceptions=start_exceptions, retry_timeout=timedelta(seconds=import_timeout)),
-            ),
-            InstanceSpawnRequest: (
-                self._api.spawn_instance,
-                CircuitRetrier(exceptions=start_exceptions, retry_timeout=timedelta(seconds=spawn_timeout)),
-            ),
-        }
+        self._import_retrier = CircuitRetrier(
+            exceptions=start_exceptions, retry_timeout=timedelta(seconds=import_timeout)
+        )
+        self._spawn_retrier = CircuitRetrier(
+            exceptions=start_exceptions, retry_timeout=timedelta(seconds=spawn_timeout)
+        )
         self._default_retrier = CircuitRetrier(
             exceptions=stream_exceptions, retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout))
         )
@@ -110,9 +108,13 @@ class _ContreeBase:
         """Current client configuration."""
         return self._config
 
+    @property
+    def _api(self) -> ContreeAsyncClient:
+        return self._transport.get()
+
     async def _get_token_info(self, refresh: bool = False) -> WhoAmI:
         if refresh or self._token_info is None:
-            self._token_info = await self._api.whoami()
+            self._token_info = convert_data_to_type((await self._api.whoami()).to_dict(), WhoAmI)
             self._warn_token_expiration(self._token_info)
         return self._token_info
 
@@ -131,11 +133,14 @@ class _ContreeBase:
         if limit is not None and timeout > limit:
             logger.warning(f"Timeout {timeout:.0f}s exceeds {limit_key}={limit}")
 
-    @staticmethod
-    def _create_api_client(config: ContreeConfig) -> ContreeClient:
-        return ContreeClient(
+    def _create_transport_provider(self, config: ContreeConfig) -> TransportProvider:
+        sync_transport_mode = config.sync_transport_mode or ("blocking" if self._prefer_sync_transport else "thread")
+        return TransportProvider(
             auth=config.auth,
             transport_timeout=config.transport_timeout,
+            transport=config.transport,
+            sync_transport_mode=sync_transport_mode,
+            prefer_sync_transport=self._prefer_sync_transport,
         )
 
     # operations management
@@ -149,12 +154,6 @@ class _ContreeBase:
                 waiter = OperationWaiter(client=self, operation_id=operation_uuid)
                 self._waiters[operation_uuid] = waiter
             return waiter
-
-    # todo think about removing them later
-
-    async def _start_operation(self, request: ImageImportRequest | InstanceSpawnRequest) -> UUID:
-        start_method, circuit_retryer = self._operations[type(request)]
-        return UUID(await circuit_retryer(partial(start_method, request)))
 
     async def _wait_operation(
         self,

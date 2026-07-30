@@ -21,7 +21,7 @@ dependencies = [
     "strenum",
     "cattrs",
     "aiofiles",
-    "httpx", # todo move to httpx when transport will be supported
+    "contree-client>=0.2.0,<0.3",
     "typing-extensions; python_version < '3.13'",
     "async-timeout; python_version < '3.11'",
 ]
@@ -41,6 +41,7 @@ dev = [
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
+    "contree-sdk[aiohttp,httpx,requests,urllib3]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -58,7 +59,17 @@ dev-security = [
 "semgrep>=1.0",
 ]
 
+aiohttp = [
+    "contree-client[aiohttp]",
+]
 httpx = [
+    "contree-client[httpx]",
+]
+requests = [
+    "contree-client[requests]",
+]
+urllib3 = [
+    "contree-client[urllib3]",
 ]
 langchain = [
     "deepagents; python_version >= '3.11'",

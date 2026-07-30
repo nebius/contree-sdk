@@ -3,17 +3,19 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import pytest
+from contree_client.models import OperationEvent
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
-from contree_sdk._internals.models.operation import OperationEvent, OperationEventType
-from contree_sdk.sdk.exceptions.api import MalformedEventError
+from contree_sdk.sdk.exceptions.api import EventStreamInterruptedError
 from contree_sdk.utils.models.operation import OperationStatus
 from tests.unit.fixtures.operations import add_events_responses, sse_event
 
 
-async def _collect(contree: Contree, operation_id: str, **kwargs) -> list[OperationEvent]:
-    return [event async for event in contree._api.stream_operation_events(operation_id, **kwargs)]
+async def _collect(
+    contree: Contree, operation_id: str, *, follow: bool = True, since: int = -1
+) -> list[OperationEvent]:
+    return [event async for event in contree._api.iter_operation_events(operation_id, follow=follow, since=since)]
 
 
 async def test_stream_events_parsed(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock):
@@ -29,13 +31,13 @@ async def test_stream_events_parsed(fake_contree: Contree, operation_id: str, st
     assert first == OperationEvent(
         id=1,
         ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        type=OperationEventType.STDOUT,
+        type="stdout",
         data={"text": "hi"},
         spid=5,
     )
     assert last.id == 2
-    assert last.type == OperationEventType.COMPLETION
-    assert last.spid is None
+    assert last.type == "completion"
+    assert last.spid is Ellipsis
 
 
 async def test_stream_events_query_params(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock):
@@ -44,32 +46,38 @@ async def test_stream_events_query_params(fake_contree: Contree, operation_id: s
     assert await _collect(fake_contree, operation_id, follow=False, since=5) == []
 
     [request] = strict_httpx.get_requests()
-    assert request.url.params["follow"] == "0"
+    assert "follow" not in request.url.params
     assert request.url.params["since"] == "5"
 
 
-async def test_stream_events_frame_without_trailing_separator(
+async def test_stream_events_discards_frame_without_trailing_separator(
     fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock
 ):
     add_events_responses(strict_httpx, operation_id, sse_event(7).rstrip(b"\n"))
 
-    [event] = await _collect(fake_contree, operation_id)
-    assert event.id == 7
+    assert await _collect(fake_contree, operation_id) == []
+
+
+async def test_stream_events_malformed_json(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock):
+    add_events_responses(strict_httpx, operation_id, b"data: {broken json\n\n")
+
+    with pytest.raises(EventStreamInterruptedError):
+        await _collect(fake_contree, operation_id)
 
 
 @pytest.mark.parametrize(
     "frame",
     [
-        b"data: {broken json\n\n",
         b"id: 1\n\n",
         b"line without delimiter\n\n",
     ],
 )
-async def test_stream_events_malformed(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock, frame: bytes):
+async def test_stream_events_ignores_dataless_frames(
+    fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock, frame: bytes
+):
     add_events_responses(strict_httpx, operation_id, frame)
 
-    with pytest.raises(MalformedEventError):
-        await _collect(fake_contree, operation_id)
+    assert await _collect(fake_contree, operation_id) == []
 
 
 def _completion_frame(event_id: int, result_image_uuid: UUID) -> bytes:

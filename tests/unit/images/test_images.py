@@ -4,7 +4,6 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.utils.models.image import ImageKind
 from tests.e2e.sdk.images.test_images import test_get_all_images as _test_get_all_images
 from tests.e2e.sdk.images.test_images import test_get_images_with_parameters_s as _test_get_images_with_parameters_s
 from tests.e2e.sdk.images.test_images import test_iter_images as _test_iter_images
@@ -30,9 +29,7 @@ def api_fake_images_with_params(strict_httpx: HTTPXMock) -> HTTPXMock:
 
     strict_httpx.add_response(
         method="GET",
-        url=r(
-            f".*/images\\?kind={ImageKind.IMPORTED}&limit=2&offset=0&tagged=1&since=2025-01-01T00%3A00%3A00&until=.*"
-        ),
+        url=r(".*/images\\?limit=2&offset=0&tagged=1&since=2025-01-01T00%3A00%3A00&until=.*"),
         json={"images": [image1, image2]},
         is_optional=True,
     )

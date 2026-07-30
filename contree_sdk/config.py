@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from contree_sdk._internals.client.transport import SyncTransportMode, TransportName
 from contree_sdk.auth import IAMAuth, JWTAuth
 
 
@@ -24,6 +25,14 @@ class ContreeConfig:
 
     transport_timeout: float = 10.0
     """HTTP timeout in seconds."""
+
+    transport: TransportName = "auto"
+    """HTTP backend: a contree-client backend name or "auto" for autodetection."""
+
+    sync_transport_mode: SyncTransportMode | None = None
+    """How synchronous HTTP backends are driven: "thread" offloads blocking calls
+    to worker threads, "blocking" runs them directly on the event loop. Defaults
+    to "blocking" for ``ContreeSync`` and "thread" for ``Contree``."""
 
     file_upload_chunk_size: int = 1024 * 1024
     """Chunk size in bytes for uploads."""

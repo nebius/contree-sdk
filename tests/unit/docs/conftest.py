@@ -4,12 +4,14 @@ from uuid import UUID, uuid4
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from contree_client.models import EventResources
 from pytest_httpx import HTTPXMock
 from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_project_id, fake_token, strict_httpx
 from tests.unit.fixtures.files import add_file_responses, api_fake_upload, file_sha256, file_uuid
 from tests.unit.fixtures.images import add_inspect_by_tag_response, api_fake_images, fake_image_s, image_tag, image_uuid
 from tests.unit.fixtures.imports import add_import_operation_responses
 from tests.unit.fixtures.operations import (
+    ProcessState,
     add_base_responses,
     add_inspect_list_download_responses,
     add_operation_responses,
@@ -27,7 +29,6 @@ from tests.unit.fixtures.runs import (
 )
 from tests.unit.fixtures.utils import r, url
 
-from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from contree_sdk.sdk.managers.files._async import FilesManager
 from contree_sdk.sdk.managers.files._base import _FilesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImageSync
@@ -75,7 +76,7 @@ def api_fake_stable_uuid(
     file_uuid: str,
     file_sha256: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     from tests.unit.fixtures.runs import add_inspect_by_uuid_response
@@ -187,7 +188,7 @@ def api_fake_quick_start(
     file_uuid: str,
     file_sha256: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_session_multiple_runs: HTTPXMock,
     docs_file_upload: Path,
 ) -> HTTPXMock:

@@ -35,7 +35,7 @@ async def test_cancel_import(contree: Contree, mocker: MockerFixture):
     task.cancel()
 
     await _wait_cancel_requested(spy_cancel)
-    assert spy_cancel.call_args.args[0] == operation_id
+    assert spy_cancel.call_args.args[0] == str(operation_id)
 
 
 async def test_cancel_import_s(contree_s: ContreeSync, mocker: MockerFixture):
@@ -47,11 +47,11 @@ async def test_cancel_import_s(contree_s: ContreeSync, mocker: MockerFixture):
 
     operation_id = spy_wait.call_args.kwargs["operation_uuid"]
     await _wait_cancel_requested(spy_cancel)
-    assert spy_cancel.call_args.args[0] == operation_id
+    assert spy_cancel.call_args.args[0] == str(operation_id)
 
 
 async def test_timed_out_wait_cancels_operation(contree: Contree, image: ContreeImage, mocker: MockerFixture):
-    spy_start = mocker.spy(contree, "_start_operation")
+    spy_waiter = mocker.spy(contree, "_get_operation_waiter")
     spy_cancel = mocker.spy(contree._api, "cancel_operation")
     started = await image.run(shell="sleep 60", timeout=60).start()
 
@@ -59,4 +59,4 @@ async def test_timed_out_wait_cancels_operation(contree: Contree, image: Contree
         await wait_for(started, timeout=2)
 
     await _wait_cancel_requested(spy_cancel)
-    assert spy_cancel.call_args.args[0] == spy_start.spy_return
+    assert spy_cancel.call_args.args[0] == str(spy_waiter.call_args.args[0])

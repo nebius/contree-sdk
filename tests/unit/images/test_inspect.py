@@ -1,10 +1,9 @@
-from dataclasses import asdict
 from uuid import UUID
 
 import pytest
+from contree_client.models import FileItem
 from pytest_httpx import HTTPXMock
 
-from contree_sdk._internals.models.file import FileItemModel
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from tests.e2e.sdk.images.test_inspect import test_download_file as _test_download_file
 from tests.e2e.sdk.images.test_inspect import test_download_file_s as _test_download_file_s
@@ -17,7 +16,7 @@ from tests.unit.fixtures.utils import url
 
 
 def create_file_item(name: str, is_dir: bool = False, size: int = 0) -> dict:
-    model = FileItemModel(
+    model = FileItem(
         size=size if not is_dir else 4096,
         path=name,
         uid=0,
@@ -34,7 +33,7 @@ def create_file_item(name: str, is_dir: bool = False, size: int = 0) -> dict:
         owner="root",
         group="root",
     )
-    return asdict(model)
+    return model.to_dict()
 
 
 def create_etc_files() -> list[dict]:
@@ -61,14 +60,14 @@ def api_fake_inspect_ls(image_uuid: UUID, api_fake_images: HTTPXMock) -> HTTPXMo
     api_fake_images.add_response(
         method="GET",
         url=url(f"/v1/inspect/{image_uuid}/list", params={"path": "/etc"}),
-        json={"files": create_etc_files()},
+        json={"path": "/etc", "files": create_etc_files()},
         is_optional=True,
     )
 
     api_fake_images.add_response(
         method="GET",
         url=url(f"/v1/inspect/{image_uuid}/list", params={"path": "/etc/xdg"}),
-        json={"files": create_xdg_files()},
+        json={"path": "/etc/xdg", "files": create_xdg_files()},
         is_optional=True,
     )
 
@@ -94,7 +93,7 @@ def api_fake_inspect_download(
     api_fake_run.add_response(
         method="GET",
         url=url(f"/v1/inspect/{result_image_uuid}/list", params={"path": "/"}),
-        json={"files": create_output_file(len(random_data))},
+        json={"path": "/", "files": create_output_file(len(random_data))},
         is_optional=True,
     )
 

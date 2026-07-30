@@ -5,7 +5,6 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree
-from contree_sdk.utils.models.file import UploadedFile
 from tests.e2e.sdk.files.test_upload import test_upload_file as _test_upload_file
 from tests.unit.fixtures.utils import r
 
@@ -40,12 +39,18 @@ async def test_get_file_by_sha256_uses_path_parameter(
     strict_httpx.add_response(
         method="GET",
         url=r(f".*/files/{file_sha256}$"),
-        json={"uuid": file_uuid, "sha256": file_sha256},
+        json={
+            "uuid": file_uuid,
+            "sha256": file_sha256,
+            "size": 4,
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+        },
     )
 
-    res = await fake_contree._api.get_file_by_sha256(file_sha256)
+    res = await fake_contree._api.get_file(file_sha256)
 
-    assert res == UploadedFile(uuid=file_uuid, sha256=file_sha256)
+    assert (res.uuid, res.sha256) == (file_uuid, file_sha256)
     [request] = strict_httpx.get_requests()
     assert request.method == "GET"
     assert request.url.path == f"/v1/files/{file_sha256}"

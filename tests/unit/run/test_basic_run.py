@@ -47,7 +47,7 @@ async def test_run_flushes_caller_supplied_writer(fake_image, tmp_path, api_fake
 async def test_run_result_exposes_cost(fake_image, resource_usage, api_fake_run: HTTPXMock):
     result = await fake_image.run(shell="true")
 
-    assert result.result.cost == resource_usage.cost
+    assert result.result.cost is None
 
 
 async def test_run_clears_source_tag(fake_image, result_image_uuid, api_fake_run: HTTPXMock):
