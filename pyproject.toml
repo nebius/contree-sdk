@@ -21,7 +21,7 @@ dependencies = [
     "strenum",
     "cattrs",
     "aiofiles",
-    "contree-client>=0.2.0,<0.3",
+    "contree-client~=0.2.0",
     "typing-extensions; python_version < '3.13'",
     "async-timeout; python_version < '3.11'",
 ]

@@ -5,24 +5,17 @@ from collections.abc import AsyncGenerator, Iterable
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
-from functools import partial
 from math import ceil
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, TypeVar, overload
 from uuid import UUID
 
-import cattrs
-from contree_client.models import ClosableStreamRepr, FileSpec
+from contree_client.models import FileSpec
 
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
 from contree_sdk._internals.io.wiring import OperationOutputs
-from contree_sdk.sdk.exceptions import (
-    ContreeError,
-    ContreeImageStateError,
-    DisposableImageRunError,
-    UnknownContreeError,
-)
+from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import (
     STATE_MACHINE,
@@ -278,9 +271,6 @@ class _ImageLikeBase:
             New image instance in EXECUTING state; await it or iterate its
             output chunks to get the result.
 
-        Raises:
-            UnknownContreeError: If the server response carries no operation uuid.
-
         """
         req = self._ensure_state(_Prepared).request
 
@@ -292,27 +282,22 @@ class _ImageLikeBase:
             timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
         self._client._warn_if_timeout_exceeds_limit(timeout, "instance_max_timeout")
 
-        response = await self._client._spawn_retrier(
-            partial(
-                self._client._api.spawn_instance,
-                req.command,
-                image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
-                hostname=req.hostname or "localhost",
-                args=req.args or [],
-                env=req.env,
-                shell=bool(req.shell),
-                cwd=req.cwd or "",
-                disposable=req.disposable,
-                timeout=round(timeout),
-                stdin=ClosableStreamRepr.from_dict(cattrs.unstructure(stdin)),
-                files=files,
-                truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
-                preserve_env=req.preserve_env,
-            )
+        operation_uuid = await self._client._start_spawn(
+            command=req.command,
+            image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
+            hostname=req.hostname or "localhost",
+            args=req.args or [],
+            env=req.env,
+            shell=bool(req.shell),
+            cwd=req.cwd or "",
+            disposable=req.disposable,
+            timeout=round(timeout),
+            stdin=stdin,
+            files=files,
+            truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
+            preserve_env=req.preserve_env,
         )
-        if not isinstance(response.uuid, str):
-            raise UnknownContreeError(exception=ValueError(f"spawn response has no operation uuid: {response}"))
-        waiter = await self._client._get_operation_waiter(UUID(response.uuid))
+        waiter = await self._client._get_operation_waiter(operation_uuid)
         await outputs.connect(waiter)
         return self._copy_with_state(_Executing(request=req, waiter=waiter, outputs=outputs, timeout=timeout))
 
@@ -332,6 +317,7 @@ class _ImageLikeBase:
         except ContreeError:
             if self._state_data is executing:
                 self._set_state(_Failed(request=executing.request))
+                executing.outputs.close()
             raise
 
         if self._state_data is not executing:

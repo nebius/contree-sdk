@@ -1,5 +1,4 @@
 from asyncio import Lock, gather
-from pathlib import Path
 from uuid import uuid4
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
@@ -8,7 +7,6 @@ from deepagents.backends.sandbox import BaseSandbox
 from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.sdk.exceptions import NotFoundError, UnprocessableEntityError
 from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync
-from contree_sdk.utils.models.file import UploadFileSpec
 
 
 class ContreeSandbox(BaseSandbox):
@@ -22,13 +20,12 @@ class ContreeSandbox(BaseSandbox):
         return self._id
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        valid: dict[str, str | Path | bytes | UploadFileSpec] = {
-            path: data for path, data in files if path.startswith("/")
-        }
-        if valid:
-            async with self._lock:
-                await self._session.apply_files(valid)
-        return [FileUploadResponse(path=path, error=None if path in valid else "invalid_path") for path, *_ in files]
+        uploads = {path: data for path, data in files if path.startswith("/")}
+        uploaded = await gather(*(self._session.client.files._upload_bytes_file(data) for data in uploads.values()))
+
+        async with self._lock:
+            await self._session._apply_files(dict(zip(uploads, uploaded, strict=True)))
+        return [FileUploadResponse(path=path, error=None if path in uploads else "invalid_path") for path, *_ in files]
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         return coro_sync(self.aupload_files(files))

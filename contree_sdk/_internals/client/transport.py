@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncGenerator, Iterator
+from asyncio import sleep, to_thread
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
 from importlib import import_module
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from contree_client.base import ContreeAsyncClient, ContreeSyncClient
 from contree_client.runtime import RequestSpec, ResponseData
@@ -13,7 +13,7 @@ TransportName = Literal["auto", "aiohttp", "httpx", "requests", "urllib3", "http
 SyncTransportMode = Literal["thread", "blocking"]
 TransportClass = type[ContreeSyncClient] | type[ContreeAsyncClient]
 
-_BACKEND_NAMES = ("aiohttp", "httpx", "requests", "urllib3", "http")
+_BACKEND_NAMES = tuple(name for name in get_args(TransportName) if name != "auto")
 
 
 def _next_chunk(chunks: Iterator[bytes]) -> bytes | None:
@@ -22,15 +22,23 @@ def _next_chunk(chunks: Iterator[bytes]) -> bytes | None:
     return None
 
 
+async def _run_blocking(func: Callable[..., Any], /, *args: Any) -> Any:
+    await sleep(0)
+    try:
+        return func(*args)
+    finally:
+        await sleep(0)
+
+
 class SyncTransportBridge(ContreeAsyncClient):
     """Exposes a synchronous contree-client backend through the async interface.
 
-    In ``thread`` mode every blocking transport call runs in a worker thread.
-    In ``blocking`` mode calls run directly on the event loop between
-    ``await asyncio.sleep(0)`` suspension points: threads are not used, the
-    client blocks for the duration of each transport call, and other tasks
-    on the same loop only progress between calls. Blocking is the expected
-    behavior for the synchronous SDK facade.
+    Every blocking call goes through a single mode-selected wrapper: ``thread``
+    runs it in a worker thread, ``blocking`` runs it directly on the event loop
+    between ``await sleep(0)`` suspension points — threads are not used, the
+    client blocks for the duration of each call, and other tasks on the same
+    loop only progress between calls. Blocking is the expected behavior for
+    the synchronous SDK facade.
     """
 
     def __init__(self, sync_client: ContreeSyncClient, mode: SyncTransportMode) -> None:
@@ -45,45 +53,23 @@ class SyncTransportBridge(ContreeAsyncClient):
         self.retryable_errors = type(sync_client).retryable_errors
         self.nonretryable_errors = type(sync_client).nonretryable_errors
         self._sync_client = sync_client
-        self._blocking = mode == "blocking"
+        self._call: Callable[..., Awaitable[Any]] = _run_blocking if mode == "blocking" else to_thread
 
     async def request(self, spec: RequestSpec) -> ResponseData:
-        if self._blocking:
-            await asyncio.sleep(0)
-            try:
-                return self._sync_client.request(spec)
-            finally:
-                await asyncio.sleep(0)
-        return await asyncio.to_thread(self._sync_client.request, spec)
+        return await self._call(self._sync_client.request, spec)
 
     async def stream(self, spec: RequestSpec, auto_decompress: bool = True) -> AsyncGenerator[bytes, None]:
         chunks = self._sync_client.stream(spec, auto_decompress)
         try:
-            if self._blocking:
-                await asyncio.sleep(0)
-                for chunk in chunks:
-                    yield chunk
-                    await asyncio.sleep(0)
-            else:
-                while (chunk := await asyncio.to_thread(_next_chunk, chunks)) is not None:
-                    yield chunk
+            while (chunk := await self._call(_next_chunk, chunks)) is not None:
+                yield chunk
         finally:
-            await self._close_chunks(chunks)
-
-    async def _close_chunks(self, chunks: Iterator[bytes]) -> None:
-        close = getattr(chunks, "close", None)
-        if close is None:
-            return
-        if self._blocking:
-            close()
-        else:
-            await asyncio.to_thread(close)
+            close = getattr(chunks, "close", None)
+            if close is not None:
+                await self._call(close)
 
     async def close(self) -> None:
-        if self._blocking:
-            self._sync_client.close()
-        else:
-            await asyncio.to_thread(self._sync_client.close)
+        await self._call(self._sync_client.close)
 
 
 def resolve_transport_class(transport: TransportName | str, prefer_sync: bool) -> TransportClass:

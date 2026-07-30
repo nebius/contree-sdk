@@ -4,13 +4,14 @@ import logging
 from asyncio import Lock
 from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 from time import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 from weakref import WeakValueDictionary
 
 from contree_client.base import ContreeAsyncClient
-from contree_client.models import EventDataCompletion, EventDataExit
+from contree_client.models import EventDataCompletion, EventDataExit, ImageImportRegistry
 
 from contree_sdk._internals.client.provider import TransportProvider
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
@@ -18,6 +19,7 @@ from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
+from contree_sdk.sdk.exceptions import UnknownContreeError
 from contree_sdk.sdk.exceptions.api import (
     ApiTimeoutError,
     ContreeTransportError,
@@ -144,6 +146,15 @@ class _ContreeBase:
         )
 
     # operations management
+
+    async def _start_import(self, registry: ImageImportRegistry, *, tag: str | None, timeout: int) -> UUID:
+        return UUID(await self._import_retrier(partial(self._api.import_image, registry, tag=tag, timeout=timeout)))
+
+    async def _start_spawn(self, **request: Any) -> UUID:
+        response = await self._spawn_retrier(partial(self._api.spawn_instance, **request))
+        if not isinstance(response.uuid, str):
+            raise UnknownContreeError(exception=ValueError(f"spawn response has no operation uuid: {response}"))
+        return UUID(response.uuid)
 
     async def _get_operation_waiter(self, operation_uuid: UUID | str) -> OperationWaiter:
         if isinstance(operation_uuid, str):

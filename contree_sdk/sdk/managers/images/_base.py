@@ -3,14 +3,13 @@ import warnings
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime, timedelta
-from functools import partial
 from typing import Generic, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID
 
 from contree_client.models import Image, ImageImportRegistry, ImageImportRegistryCredentials
 
-from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
+from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError, UnknownContreeError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
@@ -100,7 +99,9 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 until=_process_time_param(until, offset=timedelta_offset),
                 tagged=tagged,
             )
-            batch = response.images if isinstance(response.images, list) else []
+            batch = response.images
+            if not isinstance(batch, list):
+                raise UnknownContreeError(exception=ValueError(f"images response carries no image list: {response}"))
             for image in batch:
                 yield self._image_by_data(image)
 
@@ -264,11 +265,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
 
         self._client._warn_if_timeout_exceeds_limit(timeout, "images_import_max_timeout")
 
-        operation_uuid = UUID(
-            await self._client._import_retrier(
-                partial(self._client._api.import_image, registry, tag=new_tag, timeout=round(timeout))
-            )
-        )
+        operation_uuid = await self._client._start_import(registry, tag=new_tag, timeout=round(timeout))
         operation_result, _ = await self._client._wait_operation(
             operation_uuid=operation_uuid,
             timeout=timeout,

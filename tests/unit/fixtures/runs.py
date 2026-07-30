@@ -209,7 +209,7 @@ def api_fake_apply_files(
 def api_fake_run_preserve_env(
     image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_multiple_run_operations(
@@ -226,7 +226,7 @@ def api_fake_run_preserve_env(
 def api_fake_run_without_preserve_env(
     image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_multiple_run_operations(

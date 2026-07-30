@@ -653,6 +653,29 @@ wheels = [
 ]
 
 [[package]]
+name = "contree-client"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/14/c3/f724379ecb910493e7b42d1749005b2ba1130c310a0a3e2e1e43e96cb35a/contree_client-0.2.0.tar.gz", hash = "sha256:6901b41a2dbd0c0bb6b27b404e2f8066ced6e1cdf4c4ce946745eb9c3bce7144", size = 144489, upload-time = "2026-07-27T14:58:17.367Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/d2/465c250ad33cd728a22c5968f7bb9becb3ff97f4068d53fa77b9fd32a0ae/contree_client-0.2.0-py3-none-any.whl", hash = "sha256:d085351d32944511196cd5b8caea98cf362a8fa64b3581c51e234a1131e4fadd", size = 108094, upload-time = "2026-07-27T14:58:16.078Z" },
+]
+
+[package.optional-dependencies]
+aiohttp = [
+    { name = "aiohttp" },
+]
+httpx = [
+    { name = "httpx" },
+]
+requests = [
+    { name = "requests" },
+]
+urllib3 = [
+    { name = "urllib3" },
+]
+
+[[package]]
 name = "contree-docs"
 version = "0.0.0"
 source = { editable = "docs" }
@@ -699,15 +722,19 @@ dependencies = [
     { name = "aiofiles" },
     { name = "async-timeout", marker = "python_full_version < '3.11'" },
     { name = "cattrs" },
-    { name = "httpx" },
+    { name = "contree-client" },
     { name = "strenum" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 
 [package.optional-dependencies]
+aiohttp = [
+    { name = "contree-client", extra = ["aiohttp"] },
+]
 dev = [
     { name = "async-timeout" },
     { name = "click" },
+    { name = "contree-client", extra = ["aiohttp", "httpx", "requests", "urllib3"] },
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
     { name = "dprint-py" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11'" },
@@ -738,8 +765,17 @@ examples = [
     { name = "langchain-openai" },
     { name = "mini-swe-agent" },
 ]
+httpx = [
+    { name = "contree-client", extra = ["httpx"] },
+]
 langchain = [
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
+]
+requests = [
+    { name = "contree-client", extra = ["requests"] },
+]
+urllib3 = [
+    { name = "contree-client", extra = ["urllib3"] },
 ]
 
 [package.metadata]
@@ -749,11 +785,16 @@ requires-dist = [
     { name = "async-timeout", marker = "extra == 'dev'" },
     { name = "cattrs" },
     { name = "click", marker = "extra == 'dev'" },
+    { name = "contree-client", specifier = "~=0.2.0" },
+    { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'aiohttp'" },
+    { name = "contree-client", extras = ["httpx"], marker = "extra == 'httpx'" },
+    { name = "contree-client", extras = ["requests"], marker = "extra == 'requests'" },
+    { name = "contree-client", extras = ["urllib3"], marker = "extra == 'urllib3'" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
+    { name = "contree-sdk", extras = ["aiohttp", "httpx", "requests", "urllib3"], marker = "extra == 'dev'" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
     { name = "deepagents", marker = "python_full_version >= '3.11' and extra == 'langchain'" },
     { name = "dprint-py", marker = "extra == 'dev'" },
-    { name = "httpx" },
     { name = "langchain-openai", marker = "extra == 'examples'" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11' and extra == 'dev'", specifier = ">=1.1.9" },
     { name = "mini-swe-agent", marker = "extra == 'examples'" },
@@ -777,7 +818,7 @@ requires-dist = [
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
     { name = "typing-extensions", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev", "dev-security", "httpx", "langchain", "docs", "examples"]
+provides-extras = ["dev", "dev-security", "aiohttp", "httpx", "requests", "urllib3", "langchain", "docs", "examples"]
 
 [[package]]
 name = "coverage"

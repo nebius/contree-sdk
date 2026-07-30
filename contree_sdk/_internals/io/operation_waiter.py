@@ -31,7 +31,7 @@ from contree_sdk.sdk.exceptions import (
     NotFoundError,
     OperationTimedOutError,
 )
-from contree_sdk.utils.models.operation import OperationStatus
+from contree_sdk.utils.models.operation import OperationEventType, OperationStatus
 
 
 if version_info >= (3, 11):
@@ -113,17 +113,17 @@ class OperationWaiter:
     async def _process_event(self, event: OperationEvent):
         async with self._processing_lock:
             spid = _unset_to_none(event.spid)
-            if event.type in {"stderr", "stdout"}:
+            if event.type in {OperationEventType.STDERR, OperationEventType.STDOUT}:
                 value = _event_data(event, EventDataStream, MalformedEventError).as_bytes()
                 self._output_by_spid[spid][event.type] += value
                 for reader in self._readers_by_spid[spid, event.type]:
                     await reader.write(value)
-            elif event.type == "exit":
+            elif event.type == OperationEventType.EXIT:
                 self._exits[spid] = _event_data(event, EventDataExit, MalformedEventError)
-            elif event.type == "truncated":
+            elif event.type == OperationEventType.TRUNCATED:
                 truncated = _event_data(event, EventDataTruncated, MalformedEventError)
                 self._truncated[spid][truncated.stream] = truncated
-            elif event.type == "completion":
+            elif event.type == OperationEventType.COMPLETION:
                 completion = _event_data(event, EventDataCompletion, MalformedEventError)
                 self.completion = dataclasses.replace(
                     completion,

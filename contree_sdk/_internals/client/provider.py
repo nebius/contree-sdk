@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+from asyncio import get_running_loop
 from contextlib import aclosing
 from functools import wraps
 from inspect import isasyncgenfunction, iscoroutinefunction
@@ -91,7 +91,7 @@ class TransportProvider:
         self._clients: dict[object, ContreeAsyncClient] = {}
 
     def get(self) -> ContreeAsyncClient:
-        key = None if issubclass(self._transport_class, ContreeSyncClient) else asyncio.get_running_loop()
+        key = None if issubclass(self._transport_class, ContreeSyncClient) else get_running_loop()
         client = self._clients.get(key)
         if client is None:
             client = self._clients[key] = self._create()

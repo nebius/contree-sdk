@@ -7,20 +7,8 @@ from contree_sdk.sdk.exceptions.base import ContreeError
 
 
 @dataclass
-class RequestInfo:
-    url: str | None = None
-    method: str | None = None
-
-
-@dataclass
-class ResponseInfo:
-    headers: dict | None = None
-
-
-@dataclass
 class ContreeApiError(ContreeError):
-    request: RequestInfo | None = None
-    response: ResponseInfo | None = None
+    pass
 
 
 @dataclass
