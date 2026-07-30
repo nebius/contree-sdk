@@ -13,6 +13,7 @@ from contree_sdk.sdk.exceptions import (
     ForbiddenError,
     NotFoundError,
     UnknownContreeError,
+    UnprocessableEntityError,
 )
 from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo, TooManyRequestsError
 
@@ -52,6 +53,8 @@ def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeErr
             class_ = NotFoundError
         elif response.status_code == 403:
             class_ = ForbiddenError
+        elif response.status_code == 422:
+            class_ = UnprocessableEntityError
         elif response.status_code == 429:
             class_ = TooManyRequestsError
         return class_(

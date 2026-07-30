@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from asyncio import get_running_loop
 from typing import overload
 
 import httpx
@@ -20,10 +21,24 @@ class ClientBase(ABC):
         auth: IAMAuth | JWTAuth,
         transport_timeout: float = DEFAULT_TIMEOUT_CONFIG.connect or 5.0,
     ) -> None:
-        headers = {"User-Agent": build_user_agent(), **auth.get_headers()}
-        self._client = self._client_class(
-            headers=headers, base_url=auth.base_url, timeout=Timeout(timeout=transport_timeout)
-        )
+        self._client_headers = {"User-Agent": build_user_agent(), **auth.get_headers()}
+        self._client_base_url = auth.base_url
+        self._client_timeout = Timeout(timeout=transport_timeout)
+        self._client_per_loop: dict = {}
+
+    @property
+    def _client(self):
+        try:
+            loop = get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop not in self._client_per_loop:
+            self._client_per_loop[loop] = self._client_class(
+                headers=self._client_headers,
+                base_url=self._client_base_url,
+                timeout=self._client_timeout,
+            )
+        return self._client_per_loop[loop]
 
     def _build_request(self, endpoint_info: ApiEndpointInfo, data: dict) -> Request:
         kwargs = endpoint_info.get_file_upload_kwargs(data)

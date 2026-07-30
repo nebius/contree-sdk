@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import Event, shield, sleep
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -26,7 +26,7 @@ from contree_sdk.sdk.exceptions import (
     OperationTimedOutError,
     WrongOperationTypeError,
 )
-from contree_sdk.sdk.exceptions.api import TooManyRequestsError
+from contree_sdk.sdk.exceptions.api import ApiTimeoutError, ContreeApiError, TooManyRequestsError
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.auth import WhoAmI
 from contree_sdk.utils.models.operation import OperationStatus
@@ -81,7 +81,7 @@ class _ContreeBase:
         self._api: ContreeClient = self._create_api_client(config)
         self._config = config
         self._token_info: WhoAmI | None = None
-        exceptions = [TooManyRequestsError]
+        exceptions = [TooManyRequestsError, ApiTimeoutError]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._operations = {
@@ -141,7 +141,8 @@ class _ContreeBase:
             yield done
         finally:
             if not done.is_set():
-                await shield(self._cancel_operation(operation_uuid=operation_uuid))
+                with suppress(ContreeApiError):
+                    await shield(self._cancel_operation(operation_uuid=operation_uuid))
 
     async def _cancel_operation(self, operation_uuid: UUID):
         await self._api.cancel_operation(operation_uuid)
