@@ -50,6 +50,8 @@ dev = [
     "ruff",
     "typing-extensions",
     "async-timeout",
+    "click",
+    "pyyaml",
 ]
 
 dev-security = [
