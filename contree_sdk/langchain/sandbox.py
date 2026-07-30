@@ -1,4 +1,4 @@
-from asyncio import Lock, create_task, gather
+from asyncio import Lock, gather
 from pathlib import Path
 from uuid import uuid4
 
