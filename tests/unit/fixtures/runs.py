@@ -84,7 +84,7 @@ def resource_usage() -> ProcessResources:
     return ProcessResources(
         block_input=0,
         block_output=0,
-        cost=0.0,
+        cost=0.25,
         elapsed_time=0.5,
         involuntary_switches=0,
         max_rss=1024,

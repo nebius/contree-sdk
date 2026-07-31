@@ -335,6 +335,7 @@ class _ImageLikeBase:
         )
         self._set_state(_Succeeded(request=executing.request, result=result))
         self.uuid = UUID(new_uuid) if (new_uuid := operation_data.result_image_uuid) else None
+        self.tag = None
         if executing.request.tag:
             return await self._tag_as(executing.request.tag)
         return self

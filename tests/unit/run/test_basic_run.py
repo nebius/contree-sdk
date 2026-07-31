@@ -36,6 +36,29 @@ async def test_basic_run(fake_image, api_fake_run: HTTPXMock):
     await _test_basic_run(fake_image)
 
 
+async def test_run_flushes_caller_supplied_writer(fake_image, tmp_path, api_fake_run: HTTPXMock):
+    out_path = tmp_path / "out.log"
+    with out_path.open("wb") as file:
+        await fake_image.run(shell="true", stdout=file)
+
+        assert out_path.read_bytes() == b"my input\nthis is stdout\n"
+
+
+async def test_run_result_exposes_cost(fake_image, resource_usage, api_fake_run: HTTPXMock):
+    result = await fake_image.run(shell="true")
+
+    assert result.result.cost == resource_usage.cost
+
+
+async def test_run_clears_source_tag(fake_image, result_image_uuid, api_fake_run: HTTPXMock):
+    assert fake_image.tag is not None
+
+    result = await fake_image.run(shell="true")
+
+    assert result.uuid == result_image_uuid
+    assert result.tag is None
+
+
 async def test_basic_run_deferred(fake_image, api_fake_run_deferred: HTTPXMock):
     await _test_basic_run(fake_image)
 

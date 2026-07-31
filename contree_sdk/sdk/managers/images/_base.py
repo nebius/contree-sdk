@@ -282,7 +282,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         return self._image_by_data(
             ContreeImageModel(
                 uuid=operation_result.result_image_uuid,
-                tag=ref.tag,
+                tag=new_tag,
             )
         )
 

@@ -1,6 +1,8 @@
 from asyncio import Queue
 from io import BytesIO, StringIO
 
+import pytest
+
 from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 
 
@@ -78,6 +80,39 @@ async def test_async_writer_awaited():
     await wrapper.write(b"data")
 
     assert b"data" in sink.parts
+
+
+class _FlushSink:
+    def __init__(self):
+        self.flushed = False
+
+    def write(self, data: bytes):
+        pass
+
+    def flush(self):
+        self.flushed = True
+
+
+class _AsyncFlushSink:
+    def __init__(self):
+        self.flushed = False
+
+    async def write(self, data: bytes):
+        pass
+
+    async def flush(self):
+        self.flushed = True
+
+
+@pytest.mark.parametrize("sink_class", [_FlushSink, _AsyncFlushSink])
+async def test_finalize_flushes_writer(sink_class):
+    sink = sink_class()
+    wrapper = WriterWrapper(sink)
+
+    await wrapper.write(b"data")
+    await wrapper.finalize()
+
+    assert sink.flushed
 
 
 async def test_writer_to_queue_skips_empty_and_finalizes_with_eof():

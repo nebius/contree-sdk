@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from asyncio import Queue, iscoroutinefunction, to_thread
+from asyncio import Queue, to_thread
 from codecs import getincrementaldecoder
 from functools import partial
+from inspect import iscoroutinefunction
 from io import IOBase, TextIOBase
 
 from contree_sdk._internals.io.typing import AsyncWritable, Writable
@@ -61,3 +62,10 @@ class WriterWrapper:
             await self._write(tail)
         if isinstance(self._writer, WriterToQueue):
             await self._writer.finalize()
+        flush = getattr(self._writer, "flush", None)
+        if flush is None:
+            return
+        if iscoroutinefunction(flush):
+            await flush()
+        else:
+            await to_thread(flush)
