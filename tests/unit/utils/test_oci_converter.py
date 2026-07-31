@@ -20,14 +20,30 @@ class DockerImageTestCase(NamedTuple):
         ),
         DockerImageTestCase("python", "docker://docker.io/library/python", "python"),
         DockerImageTestCase("python:3.12-slim", "docker://docker.io/library/python:3.12-slim", "python:3.12-slim"),
-        DockerImageTestCase(
-            "vpupkin/myimage:v1.0", "docker://docker.io/library/vpupkin/myimage:v1.0", "vpupkin/myimage:v1.0"
-        ),
+        DockerImageTestCase("python:3.12", "docker://docker.io/library/python:3.12", "python:3.12"),
+        DockerImageTestCase("vpupkin/myimage:v1.0", "docker://docker.io/vpupkin/myimage:v1.0", "vpupkin/myimage:v1.0"),
         DockerImageTestCase(
             "docker://docker.io/something/python:3.12-slim",
-            "docker://docker.io/library/something/python:3.12-slim",
+            "docker://docker.io/something/python:3.12-slim",
             "something/python:3.12-slim",
         ),
+        DockerImageTestCase(
+            "alexgshaw/adaptive-rejection-sampler:20251031",
+            "docker://docker.io/alexgshaw/adaptive-rejection-sampler:20251031",
+            "alexgshaw/adaptive-rejection-sampler:20251031",
+        ),
+        DockerImageTestCase("docker.io/user/img:tag", "docker://docker.io/user/img:tag", "user/img:tag"),
+        DockerImageTestCase("docker.io/python:3.12", "docker://docker.io/library/python:3.12", "python:3.12"),
+        DockerImageTestCase("librarything/img:1", "docker://docker.io/librarything/img:1", "librarything/img:1"),
+        DockerImageTestCase(
+            "cr.eu-north1.nebius.cloud/org/img:tag",
+            "docker://cr.eu-north1.nebius.cloud/org/img:tag",
+            "cr.eu-north1.nebius.cloud/org/img:tag",
+        ),
+        DockerImageTestCase(
+            "localhost:5000/img:tag", "docker://docker.io/localhost:5000/img:tag", "localhost:5000/img:tag"
+        ),
+        DockerImageTestCase("docker.io/library/python:3.12", "docker://docker.io/library/python:3.12", "python:3.12"),
         DockerImageTestCase("docker://quay.io/python", "docker://quay.io/python", "quay.io/python"),
         DockerImageTestCase(
             "docker://quay.io/prometheus/prometheus:v2.45.0",
