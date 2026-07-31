@@ -14,7 +14,7 @@ class ContreeResult:
     exit_code: int
     elapsed_time: timedelta
     truncated: dict[str, EventDataTruncated]
-    cost: float = field(repr=False)
+    cost: float | None = field(repr=False)
 
     _raw: EventDataExit | None = field(repr=False)
 
@@ -33,6 +33,6 @@ class ContreeResult:
             stderr=stderr,
             elapsed_time=timedelta(milliseconds=raw_result.duration_ms),
             truncated=truncated,
-            cost=raw_result.resources["cost"],
+            cost=raw_result.resources.get("cost"),
             _raw=raw_result,
         )
