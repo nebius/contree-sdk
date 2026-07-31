@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from contree_client import httpx as contree_client_httpx
 from contree_client.models import EventResources
 from pytest_httpx import HTTPXMock
 from tests.unit.conftest import fake_contree_config, fake_contree_s, fake_project_id, fake_token, strict_httpx
@@ -29,6 +30,7 @@ from tests.unit.fixtures.runs import (
 )
 from tests.unit.fixtures.utils import r, url
 
+from contree_sdk._internals.client import transport
 from contree_sdk.sdk.managers.files._async import FilesManager
 from contree_sdk.sdk.managers.files._base import _FilesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImageSync
@@ -231,7 +233,12 @@ def api_fake_quick_start(
     return api_fake_session_multiple_runs
 
 
+def _httpx_transport_class(prefer_sync: bool) -> transport.TransportClass:
+    return contree_client_httpx.ContreeClient if prefer_sync else contree_client_httpx.ContreeAsyncClient
+
+
 @pytest.fixture(autouse=True)
-def set_contree_base_url_env(monkeypatch: MonkeyPatch, fake_project_id: str):
+def fake_contree_environment(monkeypatch: MonkeyPatch, fake_project_id: str):
     monkeypatch.setenv("CONTREE_BASE_URL", "https://fake.contree.endpoint")
     monkeypatch.setenv("NEBIUS_PROJECT_ID", fake_project_id)
+    monkeypatch.setattr(transport, "_autodetect_class", _httpx_transport_class)
