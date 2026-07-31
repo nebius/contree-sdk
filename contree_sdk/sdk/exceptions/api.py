@@ -84,11 +84,6 @@ class MalformedEventError(EventStreamError):
 
 
 @dataclass
-class MalformedStreamEventError(MalformedEventError):
-    pass
-
-
-@dataclass
 class EventStreamInterruptedError(EventStreamError):
     error: str | None = None
     _template = "Event stream was interrupted: {error}"

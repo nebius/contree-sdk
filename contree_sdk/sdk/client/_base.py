@@ -22,7 +22,6 @@ from contree_sdk.sdk.exceptions.api import (
     ApiTimeoutError,
     ContreeTransportError,
     EventStreamInterruptedError,
-    MalformedStreamEventError,
     NotFoundError,
     TooEarlyError,
     TooManyRequestsError,
@@ -87,7 +86,6 @@ class _ContreeBase:
             NotFoundError,
             TooEarlyError,
             EventStreamInterruptedError,
-            MalformedStreamEventError,
         ]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout

@@ -14,6 +14,7 @@ from contree_sdk.sdk.exceptions import (
     EventStreamInterruptedError,
     FailedOperationError,
     GoneError,
+    MalformedEventError,
     OperationTimedOutError,
 )
 from contree_sdk.utils.models.operation import OperationStatus
@@ -137,6 +138,25 @@ async def test_wait_for_result_process_timed_out(
     waiter = await fake_contree._get_operation_waiter(operation_id)
     with pytest.raises(OperationTimedOutError):
         await waiter.wait_for_result()
+
+
+async def test_malformed_stream_event_is_fatal_and_not_retried(
+    fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock
+):
+    add_events_responses(strict_httpx, operation_id, sse_event(1, "stdout", {"encoding": "utf-8"}, spid=MAIN_SPID))
+    strict_httpx.add_response(
+        method="DELETE",
+        url=r(".*/operations/.*"),
+        json={},
+        is_optional=True,
+    )
+
+    waiter = await fake_contree._get_operation_waiter(operation_id)
+    with pytest.raises(MalformedEventError):
+        await waiter.wait_for_result()
+
+    events_requests = [request for request in strict_httpx.get_requests() if request.url.path.endswith("/events")]
+    assert len(events_requests) == 1
 
 
 async def test_wait_timeout_cancels_operation(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock):

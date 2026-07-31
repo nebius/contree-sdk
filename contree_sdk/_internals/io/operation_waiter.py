@@ -30,7 +30,6 @@ from contree_sdk.sdk.exceptions import (
     FailedOperationError,
     GoneError,
     MalformedEventError,
-    MalformedStreamEventError,
     NotFoundError,
     OperationTimedOutError,
 )
@@ -114,14 +113,14 @@ class OperationWaiter:
                 OperationEventType.STDOUT,
             }:
                 stream_name = str(event.type)
-                value = io_decode(_convert_event_data(event, StreamDescription, MalformedStreamEventError))
+                value = io_decode(_convert_event_data(event, StreamDescription, MalformedEventError))
                 self._output_by_spid[event.spid][stream_name] += value
                 for reader in self._readers_by_spid[event.spid, stream_name]:
                     await reader.write(value)
             elif event.type == OperationEventType.EXIT:
                 self._exits[event.spid] = _convert_event_data(event, EventDataExit, MalformedEventError)
             elif event.type == OperationEventType.TRUNCATED:
-                truncated = _convert_event_data(event, EventDataTruncated, MalformedStreamEventError)
+                truncated = _convert_event_data(event, EventDataTruncated, MalformedEventError)
                 self._truncated[event.spid][truncated.stream] = truncated
             elif event.type == OperationEventType.COMPLETION:
                 self.completion = _convert_event_data(event, EventDataCompletion, MalformedEventError)

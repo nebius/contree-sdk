@@ -55,7 +55,7 @@ dev = [
 ]
 
 dev-security = [
-    "semgrep>=1.0",
+"semgrep>=1.0",
 ]
 
 httpx = [

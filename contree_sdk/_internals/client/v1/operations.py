@@ -10,10 +10,7 @@ from contree_sdk._internals.lib.client_base import ClientBase
 from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.models.operation import OperationEvent
 from contree_sdk._internals.utils.exception import wrap_api_call
-from contree_sdk.sdk.exceptions.api import EventStreamInterruptedError, MalformedEventError, MalformedStreamEventError
-
-
-_FINAL_EVENT_TYPES = frozenset({"completion", "exit"})
+from contree_sdk.sdk.exceptions.api import EventStreamInterruptedError, MalformedEventError
 
 
 class OperationsMixin:
@@ -63,13 +60,8 @@ def _stream_data_to_event(data: dict) -> OperationEvent:
     if data.get("event") == "sse_error":
         raise EventStreamInterruptedError(error=data.get("data"))
 
-    event_type = data.get("event")
-    error_class = MalformedEventError
-    if event_type is not None and event_type not in _FINAL_EVENT_TYPES:
-        error_class = MalformedStreamEventError
-
     if "data" not in data:
-        raise error_class(
+        raise MalformedEventError(
             data=data,
             error="No data in event",
         )
@@ -77,7 +69,7 @@ def _stream_data_to_event(data: dict) -> OperationEvent:
     try:
         return convert_data_to_type(json.loads(data["data"]), OperationEvent)
     except (TypeError, ValueError, BaseValidationError) as e:
-        raise error_class(
+        raise MalformedEventError(
             data=data,
             error=str(e),
         ) from e

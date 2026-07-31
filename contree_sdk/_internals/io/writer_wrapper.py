@@ -15,11 +15,11 @@ class WriterToQueue:
     def __init__(self, queue: Queue):
         self._queue = queue
 
-    def write(self, data: bytes):
+    async def write(self, data: bytes):
         if data:
             self._queue.put_nowait(data)
 
-    def finalize(self):
+    async def finalize(self):
         self._queue.put_nowait(EOF)
 
 
@@ -60,4 +60,4 @@ class WriterWrapper:
         if self._decoder is not None and (tail := self._decoder.decode(b"", final=True)):
             await self._write(tail)
         if isinstance(self._writer, WriterToQueue):
-            self._writer.finalize()
+            await self._writer.finalize()

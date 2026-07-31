@@ -84,9 +84,9 @@ async def test_writer_to_queue_skips_empty_and_finalizes_with_eof():
     queue = Queue()
     writer = WriterToQueue(queue=queue)
 
-    writer.write(b"")
-    writer.write(b"data")
-    writer.finalize()
+    await writer.write(b"")
+    await writer.write(b"data")
+    await writer.finalize()
 
     assert queue.get_nowait() == b"data"
     assert queue.get_nowait() is EOF
