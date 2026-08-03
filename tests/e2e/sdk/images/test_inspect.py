@@ -49,7 +49,7 @@ async def test_download_file(image: ContreeImage, tmp_file: Path, random_data):
     res = await image.run(shell="cat > /output.txt", stdin=random_data, disposable=False)
 
     await res.download("/output.txt", tmp_file)
-    assert tmp_file.read_bytes() == random_data  # noqa: ASYNC240
+    assert tmp_file.read_bytes() == random_data
 
 
 async def test_read_file(image: ContreeImage, random_data):

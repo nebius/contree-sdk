@@ -1,36 +1,22 @@
 import re
-from dataclasses import asdict
 from uuid import UUID, uuid4
 
 import pytest
 from pytest_httpx import HTTPXMock
 
-from contree_sdk._internals.models.image_import import ImageImportRequest, PublicRegistryInfo
-from contree_sdk._internals.models.instance import InstanceOperationResult
-from contree_sdk._internals.models.operation import OperationKind, OperationModel
 from contree_sdk.utils.models.operation import OperationStatus
-from tests.unit.fixtures.operations import add_base_responses
+from tests.unit.fixtures.operations import SlowEventStream, add_base_responses, add_events_responses, sse_event
 from tests.unit.fixtures.utils import r
 
 
-def create_import_operation_model(
-    result_image_uuid: UUID,
-    status: OperationStatus,
-    duration: float = 0.0,
-) -> OperationModel:
-    metadata = ImageImportRequest(
-        registry=PublicRegistryInfo(url="docker://ghcr.io/linuxserver/code-server:latest"),
-        tag=None,
-        timeout=300,
-    )
-
-    return OperationModel(
-        kind=OperationKind.IMAGE_IMPORT,
-        status=status,
-        duration=duration,
-        metadata=metadata,
-        result=InstanceOperationResult(image=str(result_image_uuid), tag="ghcr.io/linuxserver/code-server:latest"),
-    )
+def import_event_frames(result_image_uuid: UUID, status: OperationStatus) -> tuple[bytes, ...]:
+    completion_data = {
+        "status": str(status),
+        "result_image_uuid": str(result_image_uuid) if status == OperationStatus.SUCCESS else None,
+        "error": "Import failed" if status == OperationStatus.FAILED else None,
+        "duration_ms": 500,
+    }
+    return (sse_event(0, "init", spid=0), sse_event(1, "completion", completion_data))
 
 
 def add_import_operation_responses(
@@ -41,24 +27,15 @@ def add_import_operation_responses(
     final_status: OperationStatus = OperationStatus.SUCCESS,
     final_count: int = 1,
 ):
-    pending_op = create_import_operation_model(result_image_uuid, OperationStatus.PENDING)
-    final_op = create_import_operation_model(result_image_uuid, final_status, 0.5)
-
-    for _ in range(pending_count):
+    frames = import_event_frames(result_image_uuid, final_status)
+    if pending_count > 1:
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(f".*/operations/{operation_id}"),
-            json=asdict(pending_op),
+            url=re.compile(f".*/operations/{operation_id}/events.*"),
+            stream=SlowEventStream(frames, pending_seconds=pending_count * 0.1),
             is_optional=True,
         )
-
-    for _ in range(final_count):
-        httpx_mock.add_response(
-            method="GET",
-            url=re.compile(f".*/operations/{operation_id}"),
-            json=asdict(final_op),
-            is_optional=True,
-        )
+    add_events_responses(httpx_mock, operation_id, *frames, is_reusable=True)
 
 
 def add_failed_import_operation_responses(
@@ -127,7 +104,7 @@ def api_fake_import_slow(result_image_uuid: UUID, httpx_mock: HTTPXMock) -> HTTP
         httpx_mock,
         str(uuid4()),
         result_image_uuid,
-        pending_count=7,
+        pending_count=30,
         final_status=OperationStatus.CANCELLED,
         final_count=5,
     )

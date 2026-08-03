@@ -133,13 +133,13 @@ def api_fake_stable_uuid(
 
 
 @pytest.fixture
-def session(fake_image_s: ContreeImageSync) -> ContreeSessionSync:
-    return fake_image_s.session()
+def image(fake_image_s: ContreeImageSync) -> ContreeImageSync:
+    return fake_image_s
 
 
 @pytest.fixture
-def image(fake_image_s: ContreeImageSync) -> ContreeImageSync:
-    return fake_image_s
+def session(fake_image_s: ContreeImageSync) -> ContreeSessionSync:
+    return fake_image_s.session()
 
 
 @pytest.fixture

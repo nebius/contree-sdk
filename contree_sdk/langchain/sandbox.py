@@ -63,6 +63,7 @@ class ContreeSandbox(BaseSandbox):
                     shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024
                 )
             ).result
+        truncated = bool(result.truncated)
         output = ""
         for part in (result.stdout, result.stderr):
             if part is None:
@@ -71,7 +72,7 @@ class ContreeSandbox(BaseSandbox):
         return ExecuteResponse(
             output=output,
             exit_code=result.exit_code,
-            truncated=result.truncated,
+            truncated=truncated,
         )
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:

@@ -1,9 +1,12 @@
 from datetime import timedelta
-from io import IOBase, StringIO
+from io import StringIO
 from pathlib import Path, PurePosixPath
 from subprocess import PIPE
 
+import pytest
+
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
+from contree_sdk.utils.io import PipeIO
 from contree_sdk.utils.models.file import UploadFileSpec
 
 
@@ -108,7 +111,7 @@ def test_run_io_output_s(image_s):
     stdout_io = StringIO()
     result = image_s.run(shell=_shell_command, stdin=_stdin, stdout=stdout_io, stderr=PIPE).wait()
 
-    assert isinstance(result.stderr, IOBase)
+    assert isinstance(result.stderr, PipeIO)
     assert result.stderr.read() == _stderr.encode()
 
     assert result.stdout == stdout_io
@@ -127,6 +130,7 @@ _truncate_at = 50
 _long_output_command = "dd if=/dev/urandom bs=100 count=1 2>/dev/null | base64"
 
 
+@pytest.mark.xfail(raises=AssertionError, reason="server does not truncate output yet")
 async def test_run_truncated_output(image):
     result = await image.run(shell=_long_output_command, truncate_output_at=_truncate_at)
     assert len(result.stdout) == _truncate_at

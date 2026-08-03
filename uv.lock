@@ -697,6 +697,7 @@ version = "0.4.0.dev3"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
+    { name = "async-timeout", marker = "python_full_version < '3.11'" },
     { name = "cattrs" },
     { name = "httpx" },
     { name = "strenum" },
@@ -705,6 +706,8 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "async-timeout" },
+    { name = "click" },
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
     { name = "dprint-py" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11'" },
@@ -718,6 +721,7 @@ dev = [
     { name = "pytest-markdown-docs" },
     { name = "pytest-mock" },
     { name = "pytest-xdist" },
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "ruff" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
@@ -741,7 +745,10 @@ langchain = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles" },
+    { name = "async-timeout", marker = "python_full_version < '3.11'" },
+    { name = "async-timeout", marker = "extra == 'dev'" },
     { name = "cattrs" },
+    { name = "click", marker = "extra == 'dev'" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
     { name = "deepagents", marker = "python_full_version >= '3.11' and extra == 'langchain'" },
@@ -760,6 +767,7 @@ requires-dist = [
     { name = "pytest-markdown-docs", marker = "extra == 'dev'" },
     { name = "pytest-mock", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
+    { name = "pyyaml", marker = "extra == 'dev'" },
     { name = "rich", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "semgrep", marker = "extra == 'dev-security'", specifier = ">=1.0" },

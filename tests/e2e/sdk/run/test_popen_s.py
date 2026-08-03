@@ -8,6 +8,7 @@ def test_popen_s(image_s: ContreeImageSync):
     process = image_s.popen(
         ["/bin/ls", "-la"],
         cwd="/dev",
+        text=True,
     )
 
     assert isinstance(process, ContreeProcessSync)
@@ -24,6 +25,7 @@ def test_popen_error_s(image_s: ContreeImageSync):
     process = image_s.popen(
         ["/bin/ls", "-la", "/totally/fake/directory"],
         check=True,
+        text=True,
     )
     assert isinstance(process, ContreeProcessSync)
     import pytest
@@ -38,7 +40,7 @@ def test_popen_error_s(image_s: ContreeImageSync):
 
 
 def test_popen_shell_s(image_s: ContreeImageSync):
-    process = image_s.popen("echo 'Hello World' && echo 'Error message' >&2", shell=True)
+    process = image_s.popen("echo 'Hello World' && echo 'Error message' >&2", shell=True, text=True)
 
     assert isinstance(process, ContreeProcessSync)
 
@@ -50,7 +52,7 @@ def test_popen_shell_s(image_s: ContreeImageSync):
 
 
 def test_popen_stdin_s(image_s: ContreeImageSync):
-    process = image_s.popen(["/bin/cat"], stdin="Hello from stdin\nSecond line\n")
+    process = image_s.popen(["/bin/cat"], stdin="Hello from stdin\nSecond line\n", text=True)
 
     assert isinstance(process, ContreeProcessSync)
 
@@ -62,7 +64,7 @@ def test_popen_stdin_s(image_s: ContreeImageSync):
 
 
 def test_popen_communicate_s(image_s: ContreeImageSync):
-    process = image_s.popen(["/bin/grep", "test"])
+    process = image_s.popen(["/bin/grep", "test"], text=True)
 
     assert isinstance(process, ContreeProcessSync)
 
@@ -79,6 +81,7 @@ def test_popen_env_variables_s(image_s: ContreeImageSync):
         "echo $TEST_VAR && echo $ANOTHER_VAR",
         shell=True,
         env={"TEST_VAR": "test_value", "ANOTHER_VAR": "another_value"},
+        text=True,
     )
 
     assert isinstance(process, ContreeProcessSync)

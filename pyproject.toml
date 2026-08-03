@@ -22,7 +22,8 @@ dependencies = [
     "cattrs",
     "aiofiles",
     "httpx", # todo move to httpx when transport will be supported
-    "typing-extensions; python_version < '3.13'"
+    "typing-extensions; python_version < '3.13'",
+    "async-timeout; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -48,10 +49,13 @@ dev = [
     "ty~=0.0.51",
     "ruff",
     "typing-extensions",
+    "async-timeout",
+    "click",
+    "pyyaml",
 ]
 
 dev-security = [
-    "semgrep>=1.0",
+"semgrep>=1.0",
 ]
 
 httpx = [
@@ -218,7 +222,11 @@ extend-ignore = [
 ]
 
 "contree_sdk/_internals/utils/**" = [
-    "PLR2004",
+    "PLR2004", # magic-value-comparison
+]
+
+"contree_sdk/sdk/exceptions/**" = [
+    "RUF027", # missing-f-string-syntax
 ]
 
 "examples/**" = [
@@ -230,6 +238,7 @@ extend-ignore = [
     "S106",     # hardcoded-password-func-arg
 ]
 "tests/**" = [
+    "ASYNC240",# blocking-path-method-in-async-function
     "D",       # pydocstyle
     "DOC",     # pydoclint
     "PERF",    # perflint

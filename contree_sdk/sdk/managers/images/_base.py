@@ -269,20 +269,20 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
                 timeout=round(timeout),
             )
         )
-        _, image_info = await self._client._wait_operation(
+        operation_result, _ = await self._client._wait_operation(
             operation_uuid=operation_uuid,
-            result_type=ImageImportRequest,
             timeout=timeout,
+            spid=None,
         )
-        if image_info.image is None:
+        if operation_result.result_image_uuid is None:
             raise FailedOperationError(
                 operation_uuid=operation_uuid,
                 error="Image import returned no image uuid",
             )
         return self._image_by_data(
             ContreeImageModel(
-                uuid=image_info.image,
-                tag=image_info.tag,
+                uuid=operation_result.result_image_uuid,
+                tag=new_tag,
             )
         )
 

@@ -3,8 +3,13 @@ from .api import (
     ApiTimeoutError,
     ContreeApiError,
     ContreeTransportError,
+    EventStreamError,
+    EventStreamInterruptedError,
     ForbiddenError,
+    GoneError,
+    MalformedEventError,
     NotFoundError,
+    TooEarlyError,
     UnprocessableEntityError,
 )
 from .base import ContreeError
@@ -16,13 +21,7 @@ from .image import (
     ContreeImageStateError,
     DisposableImageRunError,
 )
-from .operation import (
-    CancelledOperationError,
-    FailedOperationError,
-    OperationError,
-    OperationTimedOutError,
-    WrongOperationTypeError,
-)
+from .operation import CancelledOperationError, FailedOperationError, OperationError, OperationTimedOutError
 from .other import UnknownContreeError
 
 
@@ -39,12 +38,16 @@ __all__ = [
     "ContreeImageStateError",
     "ContreeTransportError",
     "DisposableImageRunError",
+    "EventStreamError",
+    "EventStreamInterruptedError",
     "FailedOperationError",
     "ForbiddenError",
+    "GoneError",
+    "MalformedEventError",
     "NotFoundError",
     "OperationError",
     "OperationTimedOutError",
+    "TooEarlyError",
     "UnknownContreeError",
     "UnprocessableEntityError",
-    "WrongOperationTypeError",
 ]

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
+from contree_sdk._internals.io.operation_waiter import OutputChunk
+from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk._internals.utils.typing import keep_signature
-from contree_sdk._internals.utils.wrapper import coro_sync
+from contree_sdk._internals.utils.wrapper import coro_iter_sync, coro_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import _ImageLikeBase
 from contree_sdk.sdk.objects.subprocess import ContreeProcessSync
-from contree_sdk.utils.io_wrap import IO_TYPES
 
 
 _T = TypeVar("_T", bound="_ImageLikeSync")
@@ -25,6 +27,13 @@ class _ImageLikeSync(_ImageLikeBase):
 
         """
         return coro_sync(self._await())
+
+    def __iter__(self) -> Iterator[OutputChunk]:
+        return coro_iter_sync(self._iter_output())
+
+    @keep_signature(_ImageLikeBase._start)
+    def start(self: _T) -> _T:
+        return coro_sync(self._start())
 
     def ls(self, path: str | PurePosixPath = "/") -> list[ImageFileSync | ImageDirectorySync]:
         """List files and directories at the given path.
@@ -68,10 +77,10 @@ class _ImageLikeSync(_ImageLikeBase):
         self,
         args: list[str] | str | None = None,
         *,
-        stdin: IO_TYPES | None = None,
-        input: IO_TYPES | None = None,  # noqa: A002
-        stdout: IO_TYPES | None = None,
-        stderr: IO_TYPES | None = None,
+        stdin: INPUT_TYPES | None = None,
+        input: INPUT_TYPES | None = None,  # noqa: A002
+        stdout: OUTPUT_REQUEST_TYPES | None = None,
+        stderr: OUTPUT_REQUEST_TYPES | None = None,
         shell: bool = False,
         cwd: str | None = None,
         timeout: float | None = None,
@@ -104,7 +113,7 @@ class _ImageLikeSync(_ImageLikeBase):
         elif args:
             run_params["command"], *run_params["args"] = args
 
-        output_type = str if text else text
+        output_type = str if text else bytes
 
         return ContreeProcessSync(
             self.run(  # ty: ignore[no-matching-overload]
@@ -112,8 +121,8 @@ class _ImageLikeSync(_ImageLikeBase):
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
-                stdout=stdout or output_type,
-                stderr=stderr or output_type,
+                stdout=stdout if stdout is not None else output_type,
+                stderr=stderr if stderr is not None else output_type,
                 **run_params,
             ),
             check=check,
