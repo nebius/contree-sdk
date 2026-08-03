@@ -1,5 +1,6 @@
-from asyncio import Queue
+from asyncio import Queue, create_task, sleep, wait_for
 from io import BytesIO, StringIO
+from threading import get_ident
 
 import pytest
 
@@ -20,6 +21,16 @@ class _AsyncSink:
 
     async def write(self, data: bytes):
         self.parts.append(data)
+
+
+class _ThreadRecordingQueue(Queue):
+    def __init__(self):
+        super().__init__()
+        self.put_thread_ids: list[int] = []
+
+    def put_nowait(self, item):
+        self.put_thread_ids.append(get_ident())
+        return super().put_nowait(item)
 
 
 async def test_bytes_writer_gets_raw_bytes():
@@ -125,6 +136,20 @@ async def test_writer_to_queue_skips_empty_and_finalizes_with_eof():
 
     assert queue.get_nowait() == b"data"
     assert queue.get_nowait() is EOF
+
+
+async def test_writer_to_queue_delivers_to_already_waiting_consumer_on_event_loop_thread():
+    queue = _ThreadRecordingQueue()
+    wrapper = WriterWrapper(WriterToQueue(queue=queue))
+    consumer = create_task(queue.get())
+    await sleep(0)
+
+    assert not consumer.done()
+
+    await wrapper.write(b"delayed")
+
+    assert await wait_for(consumer, timeout=1) == b"delayed"
+    assert queue.put_thread_ids == [get_ident()]
 
 
 async def test_finalize_sends_eof_through_wrapper():
