@@ -39,7 +39,7 @@ repos:
     hooks:
       - id: ty
         name: ty
-        entry: bash -lc 'exec uv run python scripts/ty_baseline.py check' --
+        entry: bash -lc 'exec uv run --extra dev --extra examples python scripts/ty_baseline.py check' --
         language: system
         pass_filenames: false
         files: (?x)^(.*\.py|\.ty/.*|(?:.*/)?pyproject\.toml)$
