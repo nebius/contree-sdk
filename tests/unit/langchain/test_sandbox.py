@@ -2,6 +2,9 @@ from unittest.mock import AsyncMock, sentinel
 
 import pytest
 
+
+pytest.importorskip("deepagents", reason="deepagents requires Python 3.11 or newer")
+
 from contree_sdk.langchain.sandbox import ContreeSandbox
 from contree_sdk.sdk.objects.image import ContreeImage
 
