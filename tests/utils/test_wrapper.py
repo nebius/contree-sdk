@@ -1,13 +1,13 @@
 import asyncio
 from asyncio import sleep
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from datetime import datetime
-from threading import Thread
+from threading import Barrier, Event, Thread
 from time import perf_counter
 
 import pytest
 
-from contree_sdk._internals.utils.wrapper import coro_iter_sync, coro_sync, to_sync
+from contree_sdk._internals.utils.wrapper import AsyncWrapper, _WrapperContext, coro_iter_sync, coro_sync, to_sync
 
 
 _wait_time = 0.01
@@ -31,6 +31,68 @@ def test_basic():
 def test_exception():
     with pytest.raises(RuntimeError):
         fake_task_sync(3, ex=RuntimeError("Some error"))
+
+
+@pytest.mark.parametrize("exception", [None, RuntimeError("Some error")])
+def test_completed_future_is_not_retained(exception):
+    wrapper = AsyncWrapper()
+
+    if exception is None:
+        assert wrapper.wrap(fake_task(3)) == 5
+    else:
+        with pytest.raises(RuntimeError):
+            wrapper.wrap(fake_task(3, ex=exception))
+
+    assert wrapper._context._snapshot_futures() == ()
+
+
+def test_cancelled_future_is_not_retained():
+    wrapper = AsyncWrapper()
+    started = Event()
+    stopped = Event()
+
+    async def wait_until_cancelled():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    future = wrapper._coro_to_future(wait_until_cancelled())
+    assert started.wait(timeout=1)
+
+    assert future.cancel()
+    with pytest.raises(CancelledError):
+        future.result()
+
+    assert stopped.wait(timeout=1)
+    assert wrapper._context._snapshot_futures() == ()
+
+
+def test_concurrent_close_and_cancellation_do_not_mutate_iteration():
+    context = _WrapperContext()
+    futures = [Future() for _ in range(100)]
+    for future in futures:
+        context._track_future(future)
+
+    start = Barrier(2)
+
+    def close_context():
+        start.wait()
+        context.close()
+
+    def cancel_futures():
+        start.wait()
+        for future in futures:
+            future.cancel()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        close_job = executor.submit(close_context)
+        cancel_job = executor.submit(cancel_futures)
+        close_job.result()
+        cancel_job.result()
+
+    assert context._snapshot_futures() == ()
 
 
 def test_multiple_threads():

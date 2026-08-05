@@ -29,7 +29,21 @@ class _WrapperContext:
         self.futures: set[Future] = set()
         self._loop: AbstractEventLoop | None = None
         self._lock: Lock = Lock()
+        self._futures_lock: Lock = Lock()
         self._start_event: Event = Event()
+
+    def _track_future(self, future: Future) -> None:
+        with self._futures_lock:
+            self.futures.add(future)
+        future.add_done_callback(self._discard_future)
+
+    def _discard_future(self, future: Future) -> None:
+        with self._futures_lock:
+            self.futures.discard(future)
+
+    def _snapshot_futures(self) -> tuple[Future, ...]:
+        with self._futures_lock:
+            return tuple(self.futures)
 
     def ensure_running(self) -> AbstractEventLoop:
         with self._lock:
@@ -60,7 +74,7 @@ class _WrapperContext:
             self.thread = None
 
     def close(self):
-        for future in self.futures:
+        for future in self._snapshot_futures():
             future.cancel()
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._close)
@@ -81,7 +95,7 @@ class AsyncWrapper:
 
     def _coro_to_future(self, coro: Awaitable[T]) -> Future[T]:
         future = asyncio.run_coroutine_threadsafe(_await(coro), self._context.loop)
-        self._context.futures.add(future)
+        self._context._track_future(future)
         return future
 
     def decorator(self, func: Callable[P, Awaitable[T]]) -> Callable[P, T]:
@@ -98,6 +112,9 @@ class AsyncWrapper:
         except (KeyboardInterrupt, StopAsyncIteration):
             future.cancel()
             raise
+        finally:
+            if future.done():
+                self._context._discard_future(future)
 
     def wrap_iter(self, coro_iter: AsyncIterable[Y]) -> Iterator[Y]:
         async_iter = aiter(coro_iter)
