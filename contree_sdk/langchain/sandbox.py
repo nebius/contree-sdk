@@ -21,10 +21,10 @@ class ContreeSandbox(BaseSandbox):
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         uploads = {path: data for path, data in files if path.startswith("/")}
-        uploaded = await gather(*(self._session.client.files._upload_bytes_file(data) for data in uploads.values()))
-
-        async with self._lock:
-            await self._session._apply_files(dict(zip(uploads, uploaded, strict=True)))
+        if uploads:
+            uploaded = await gather(*(self._session.client.files._upload_bytes_file(data) for data in uploads.values()))
+            async with self._lock:
+                await self._session._apply_files(dict(zip(uploads, uploaded, strict=True)))
         return [FileUploadResponse(path=path, error=None if path in uploads else "invalid_path") for path, *_ in files]
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
