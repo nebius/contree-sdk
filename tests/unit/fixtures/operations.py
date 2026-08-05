@@ -18,6 +18,9 @@ from contree_sdk.utils.models.stream import StreamEncoding
 from tests.unit.fixtures.utils import r
 
 
+OPERATION_COST = 12.34
+
+
 @dataclass
 class ProcessState:
     continued: bool
@@ -133,6 +136,30 @@ def add_operation_responses(
         )
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, stdout_content, stderr_content)
     add_events_responses(httpx_mock, operation_id, *frames, is_reusable=True)
+    add_operation_status_response(httpx_mock, operation_id, image_uuid, OPERATION_COST)
+
+
+def add_operation_status_response(
+    httpx_mock: HTTPXMock,
+    operation_id: str,
+    image_uuid: UUID,
+    cost: float,
+):
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(f".*/operations/{operation_id}$"),
+        json={
+            "uuid": operation_id,
+            "kind": "instance",
+            "status": "SUCCESS",
+            "metadata": {
+                "command": "true",
+                "image": str(image_uuid),
+                "result": {"resources": {"cost": cost}},
+            },
+        },
+        is_optional=True,
+    )
 
 
 @pytest.fixture
@@ -148,6 +175,7 @@ def api_fake_streamed_run(
     add_events_responses(strict_httpx, operation_id, *frames)
     add_events_responses(strict_httpx, operation_id, *frames)
     add_events_responses(strict_httpx, operation_id, *frames[1:])
+    add_operation_status_response(strict_httpx, operation_id, result_image_uuid, OPERATION_COST)
     return strict_httpx
 
 

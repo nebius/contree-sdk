@@ -326,6 +326,7 @@ class _ImageLikeBase:
         if self._state_data is not executing:
             return self
 
+        cost = await self._client._get_compat_operation_cost(executing.waiter.operation_id)
         view = executing.waiter.process_view()
         finalized = executing.outputs.finalize(view)
         result = ContreeResult.from_result(
@@ -333,6 +334,7 @@ class _ImageLikeBase:
             stdout=finalized.stdout,
             stderr=finalized.stderr,
             truncated=view.truncated,
+            cost=cost,
         )
         self._set_state(_Succeeded(request=executing.request, result=result))
         new_uuid = operation_data.result_image_uuid

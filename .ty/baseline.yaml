@@ -3,7 +3,7 @@ contree_sdk/_internals/utils/deprecation.py:
 contree_sdk/_internals/utils/typing.py:
   unresolved-attribute: 3
 contree_sdk/sdk/objects/image_like/_base.py:
-  invalid-argument-type: 3
+  invalid-argument-type: 1
 contree_sdk/sdk/objects/subprocess/_base.py:
   invalid-argument-type: 2
 examples/branching/branching_simple_sync.py:

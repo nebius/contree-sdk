@@ -11,7 +11,14 @@ from uuid import UUID
 from weakref import WeakValueDictionary
 
 from contree_client.base import ContreeAsyncClient
-from contree_client.models import EventDataCompletion, EventDataExit, ImageImportRegistry
+from contree_client.models import (
+    EventDataCompletion,
+    EventDataExit,
+    ImageImportRegistry,
+    InstanceResult,
+    InstanceResultResources,
+    OperationInstanceMetadata,
+)
 
 from contree_sdk._internals.client.provider import TransportProvider
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter
@@ -19,7 +26,7 @@ from contree_sdk._internals.lib.helpers import convert_data_to_type
 from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
-from contree_sdk.sdk.exceptions import UnknownContreeError
+from contree_sdk.sdk.exceptions import ContreeError, UnknownContreeError
 from contree_sdk.sdk.exceptions.api import (
     ApiTimeoutError,
     ContreeTransportError,
@@ -155,6 +162,34 @@ class _ContreeBase:
         if not isinstance(response.uuid, str):
             raise UnknownContreeError(exception=ValueError(f"spawn response has no operation uuid: {response}"))
         return UUID(response.uuid)
+
+    async def _get_compat_operation_cost(self, operation_uuid: UUID) -> float | None:
+        """Fetch cost through a temporary compatibility request.
+
+        Remove this compatibility request when terminal event data exposes the
+        server-calculated cost directly.
+
+        Returns:
+            The server-calculated cost, or ``None`` when it is unavailable.
+
+        """
+        try:
+            operation = await self._api.get_operation_status(str(operation_uuid))
+        except ContreeError as exc:
+            logger.warning("Could not retrieve cost for operation %s: %s", operation_uuid, exc)
+            return None
+
+        metadata = operation.metadata
+        if not isinstance(metadata, OperationInstanceMetadata):
+            return None
+        result = metadata.result
+        if not isinstance(result, InstanceResult):
+            return None
+        resources = result.resources
+        if not isinstance(resources, InstanceResultResources):
+            return None
+        cost = resources.cost
+        return float(cost) if isinstance(cost, (int, float)) else None
 
     async def _get_operation_waiter(self, operation_uuid: UUID | str) -> OperationWaiter:
         if isinstance(operation_uuid, str):

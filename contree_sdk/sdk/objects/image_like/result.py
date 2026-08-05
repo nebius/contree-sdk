@@ -27,6 +27,7 @@ class ContreeResult:
         stdout: OUTPUT_TYPES | None,
         stderr: OUTPUT_TYPES | None,
         truncated: dict[str, EventDataTruncated],
+        cost: float | None,
     ) -> ContreeResult:
         return cls(
             exit_code=raw_result.code,
@@ -34,6 +35,6 @@ class ContreeResult:
             stderr=stderr,
             elapsed_time=timedelta(milliseconds=raw_result.duration_ms),
             truncated=truncated,
-            cost=raw_result.resources.to_dict().get("cost"),
+            cost=cost,
             _raw=raw_result,
         )
