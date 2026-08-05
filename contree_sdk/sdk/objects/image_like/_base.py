@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from asyncio import create_task, gather, to_thread
 from collections.abc import AsyncGenerator, Iterable
+from contextlib import aclosing
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, TypeVar, overload
+from typing import TYPE_CHECKING, BinaryIO, TypeVar, cast, overload
 from uuid import UUID
 
 from contree_client.models import FileSpec
@@ -282,6 +283,7 @@ class _ImageLikeBase:
             timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
         self._client._warn_if_timeout_exceeds_limit(timeout, "instance_max_timeout")
 
+        truncate_output_at = req.truncate_output_at or self._client.config.default_truncate_output_at
         operation_uuid = await self._client._start_spawn(
             command=req.command,
             image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
@@ -294,10 +296,11 @@ class _ImageLikeBase:
             timeout=round(timeout),
             stdin=stdin,
             files=files,
-            truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
+            truncate_output_at=truncate_output_at,
             preserve_env=req.preserve_env,
         )
         waiter = await self._client._get_operation_waiter(operation_uuid)
+        waiter._set_output_limit(truncate_output_at)
         await outputs.connect(waiter)
         return self._copy_with_state(_Executing(request=req, waiter=waiter, outputs=outputs, timeout=timeout))
 
@@ -381,8 +384,12 @@ class _ImageLikeBase:
         image_path = PurePosixPath(image_path)
         if local_path is None:
             local_path = image_path.name
-        with await to_thread(open, local_path, "wb") as file:
-            await to_thread(file.write, await self._read_file(image_path))
+        file = cast(BinaryIO, await to_thread(open, local_path, "wb"))
+        with file:
+            chunks = self._client._api.inspect_image_download_stream(await self._resolved_uuid(), str(image_path))
+            async with aclosing(chunks):
+                async for chunk in chunks:
+                    await to_thread(file.write, chunk)
         return Path(local_path)
 
     def __repr__(self):

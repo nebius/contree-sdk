@@ -114,6 +114,44 @@ async def test_download_file(
     await _test_download_file(fake_image, tmp_file, random_data)
 
 
+async def test_download_streams_chunks_while_read_stays_buffered(fake_image: ContreeImage, tmp_path, mocker):
+    async def chunks(*_args):
+        for chunk in (b"first", b"second", b"third"):
+            yield chunk
+
+    stream_download = mocker.patch.object(fake_image._client._api, "inspect_image_download_stream", side_effect=chunks)
+    buffered_download = mocker.patch.object(fake_image._client._api, "inspect_image_download", return_value=b"buffered")
+    target = tmp_path / "downloaded"
+
+    assert await fake_image.download("/output.txt", target) == target
+    assert target.read_bytes() == b"firstsecondthird"
+    stream_download.assert_called_once_with(str(fake_image.uuid), "/output.txt")
+    buffered_download.assert_not_awaited()
+
+    assert await fake_image.read("/output.txt") == b"buffered"
+    buffered_download.assert_awaited_once_with(str(fake_image.uuid), "/output.txt")
+
+
+async def test_download_closes_stream_when_local_write_fails(fake_image: ContreeImage, tmp_path, mocker):
+    stream_closed = False
+
+    async def chunks(*_args):
+        nonlocal stream_closed
+        try:
+            yield b"data"
+        finally:
+            stream_closed = True
+
+    mocker.patch.object(fake_image._client._api, "inspect_image_download_stream", side_effect=chunks)
+    open_file = mocker.patch("builtins.open", mocker.mock_open())
+    open_file.return_value.write.side_effect = OSError("disk full")
+
+    with pytest.raises(OSError, match="disk full"):
+        await fake_image.download("/output.txt", tmp_path / "downloaded")
+
+    assert stream_closed
+
+
 def test_download_file_s(
     api_fake_inspect_download: HTTPXMock, tmp_file, fake_image_s: ContreeImageSync, random_data: bytes
 ):
