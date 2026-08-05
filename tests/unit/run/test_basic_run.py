@@ -50,6 +50,17 @@ async def test_run_result_exposes_cost(fake_image, resource_usage, api_fake_run:
     assert result.result.cost is None
 
 
+async def test_run_applies_request_output_limit_locally(fake_image, api_fake_run: HTTPXMock):
+    result = await fake_image.run(shell="true", truncate_output_at=5)
+
+    assert result.stdout == "my in"
+    assert result.stderr == "this "
+    assert result.result.truncated["stdout"].bytes_dropped == 19
+    assert result.result.truncated["stderr"].bytes_dropped == 10
+    [request_body] = _instance_request_bodies(api_fake_run)
+    assert request_body["truncate_output_at"] == 5
+
+
 async def test_run_clears_source_tag(fake_image, result_image_uuid, api_fake_run: HTTPXMock):
     assert fake_image.tag is not None
 

@@ -138,6 +138,34 @@ async def test_writer_to_queue_skips_empty_and_finalizes_with_eof():
     assert queue.get_nowait() is EOF
 
 
+async def test_writer_to_queue_applies_backpressure_when_full():
+    queue = Queue(maxsize=1)
+    writer = WriterToQueue(queue=queue)
+    await writer.write(b"first")
+
+    pending_write = create_task(writer.write(b"second"))
+    await sleep(0)
+    assert not pending_write.done()
+
+    assert queue.get_nowait() == b"first"
+    await wait_for(pending_write, timeout=1)
+    assert queue.get_nowait() == b"second"
+
+
+async def test_writer_to_queue_close_unblocks_pending_write():
+    queue = Queue(maxsize=1)
+    writer = WriterToQueue(queue=queue)
+    await writer.write(b"first")
+    pending_write = create_task(writer.write(b"second"))
+    await sleep(0)
+
+    writer.close()
+
+    await wait_for(pending_write, timeout=1)
+    await writer.finalize()
+    assert queue.empty()
+
+
 async def test_writer_to_queue_delivers_to_already_waiting_consumer_on_event_loop_thread():
     queue = _ThreadRecordingQueue()
     wrapper = WriterWrapper(WriterToQueue(queue=queue))

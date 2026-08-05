@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from asyncio import Queue, to_thread
+from asyncio import Queue, QueueEmpty, to_thread
 from codecs import getincrementaldecoder
+from contextlib import suppress
 from functools import partial
 from inspect import iscoroutinefunction
 from io import IOBase, TextIOBase
@@ -15,13 +16,26 @@ EOF = object()
 class WriterToQueue:
     def __init__(self, queue: Queue):
         self._queue = queue
+        self._closed = False
 
     async def write(self, data: bytes):
-        if data:
-            self._queue.put_nowait(data)
+        if data and not self._closed:
+            await self._queue.put(data)
+            if self._closed:
+                with suppress(QueueEmpty):
+                    self._queue.get_nowait()
 
     async def finalize(self):
-        self._queue.put_nowait(EOF)
+        if not self._closed:
+            await self._queue.put(EOF)
+
+    def close(self) -> None:
+        self._closed = True
+        try:
+            while True:
+                self._queue.get_nowait()
+        except QueueEmpty:
+            pass
 
 
 class WriterWrapper:

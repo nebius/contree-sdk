@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 
 StreamName = Literal["stderr", "stdout"]
+_STREAM_NAMES: tuple[StreamName, StreamName] = ("stdout", "stderr")
 EventDataT = TypeVar("EventDataT")
 
 
@@ -82,7 +83,9 @@ class OperationWaiter:
     def __init__(self, client: _ContreeBase, operation_id: UUID):
         self.operation_id = operation_id
         self._client = client
-        self._output_by_spid = defaultdict(lambda: defaultdict(bytes))
+        self._output_limit = client.config.default_truncate_output_at
+        self._output_by_spid = defaultdict(lambda: defaultdict(bytearray))
+        self._local_output_dropped: dict[int | None, dict[StreamName, int]] = defaultdict(lambda: defaultdict(int))
         # IO objects by spid and stream name
         self._readers_by_spid: dict[tuple[int | None, str], list[WriterWrapper]] = defaultdict(list)
 
@@ -93,6 +96,9 @@ class OperationWaiter:
         self._exits: dict[int | None, EventDataExit] = {}
         self._truncated: dict[int | None, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.completion: EventDataCompletion | None = None
+
+    def _set_output_limit(self, limit: int) -> None:
+        self._output_limit = limit
 
     async def _load_events(self):
         async with self._streaming_lock:
@@ -115,7 +121,10 @@ class OperationWaiter:
             spid = _unset_to_none(event.spid)
             if event.type in {OperationEventType.STDERR, OperationEventType.STDOUT}:
                 value = _event_data(event, EventDataStream, MalformedEventError).as_bytes()
-                self._output_by_spid[spid][event.type] += value
+                buffer = self._output_by_spid[spid][event.type]
+                retained = min(len(value), max(self._output_limit - len(buffer), 0))
+                buffer.extend(value[:retained])
+                self._local_output_dropped[spid][event.type] += len(value) - retained
                 for reader in self._readers_by_spid[spid, event.type]:
                     await reader.write(value)
             elif event.type == OperationEventType.EXIT:
@@ -136,13 +145,19 @@ class OperationWaiter:
 
     async def iter_chunks(self, spid: int):
         queues: dict[StreamName, Queue] = {}
-        for key in ("stdout", "stderr"):
-            queue = Queue()
-            queues[key] = queue
-            await self.connect_output(output=WriterToQueue(queue=queue), stream_name=key, spid=spid)
-        tasks = {create_task(queue.get()): key for key, queue in queues.items()}
+        queue_writers: dict[StreamName, WriterToQueue] = {}
+        wrappers: dict[StreamName, WriterWrapper] = {}
+        tasks = {}
 
         try:
+            for key in _STREAM_NAMES:
+                queue = Queue(maxsize=1)
+                queues[key] = queue
+                queue_writer = WriterToQueue(queue=queue)
+                queue_writers[key] = queue_writer
+                tasks[create_task(queue.get())] = key
+                wrappers[key] = await self.connect_output(output=queue_writer, stream_name=key, spid=spid)
+
             while tasks:
                 done, _ = await asyncio.wait(
                     tasks,
@@ -162,27 +177,46 @@ class OperationWaiter:
 
                     tasks[create_task(queues[key].get())] = key
         finally:
+            for writer in queue_writers.values():
+                writer.close()
+
             for task in tasks:
                 task.cancel()
 
             await gather(*tasks, return_exceptions=True)
+
+            async with self._processing_lock:
+                for key, wrapper in wrappers.items():
+                    with suppress(ValueError):
+                        self._readers_by_spid[spid, key].remove(wrapper)
 
     async def connect_output(self, *, output: AsyncWritable | Writable, spid: int, stream_name: str):
         wrapper = WriterWrapper(output)
 
         async with self._processing_lock:
             if self._output_by_spid[spid][stream_name]:
-                await wrapper.write(self._output_by_spid[spid][stream_name])
+                await wrapper.write(bytes(self._output_by_spid[spid][stream_name]))
             if self._finished_event.is_set():
                 await wrapper.finalize()
-                return
-            self._readers_by_spid[spid, stream_name].append(wrapper)
+            else:
+                self._readers_by_spid[spid, stream_name].append(wrapper)
+            return wrapper
 
     def process_view(self, spid: int = MAIN_SPID) -> ProcessView:
+        truncated = dict(self._truncated[spid])
+        for stream_name, bytes_dropped in self._local_output_dropped[spid].items():
+            if not bytes_dropped:
+                continue
+            server_truncation = truncated.get(stream_name)
+            truncated[stream_name] = EventDataTruncated(
+                stream=stream_name,
+                bytes_emitted=len(self._output_by_spid[spid][stream_name]),
+                bytes_dropped=bytes_dropped + (server_truncation.bytes_dropped if server_truncation else 0),
+            )
         return ProcessView(
             exit=self._exits.get(spid),
-            outputs={name: self._output_by_spid[spid][name] for name in ("stdout", "stderr")},
-            truncated=dict(self._truncated[spid]),
+            outputs={name: bytes(self._output_by_spid[spid][name]) for name in _STREAM_NAMES},
+            truncated=truncated,
         )
 
     @overload
