@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asyncio import get_running_loop
+from asyncio import AbstractEventLoop, get_running_loop
 from contextlib import aclosing
 from functools import wraps
 from inspect import isasyncgenfunction, iscoroutinefunction
@@ -65,6 +65,11 @@ class TranslatingClient:
 
         return iterate
 
+    async def close(self) -> None:
+        """Close the wrapped contree-client transport."""
+        with wrap_api_call(self._inner):
+            await self._inner.close()
+
 
 class TransportProvider:
     """Lazily creates and caches contree-client transports.
@@ -88,14 +93,37 @@ class TransportProvider:
         self._auth = auth
         self._transport_timeout = transport_timeout
         self._identity = build_user_agent()
-        self._clients: dict[object, ContreeAsyncClient] = {}
+        self._clients: dict[AbstractEventLoop | None, ContreeAsyncClient] = {}
 
     def get(self) -> ContreeAsyncClient:
-        key = None if issubclass(self._transport_class, ContreeSyncClient) else get_running_loop()
+        self._prune_closed_loops()
+        key = self._current_key()
         client = self._clients.get(key)
         if client is None:
             client = self._clients[key] = self._create()
         return client
+
+    async def aclose(self) -> None:
+        """Close and evict the transport for the current event loop."""
+        self._prune_closed_loops()
+        key = self._current_key()
+        client = self._clients.get(key)
+        if client is None:
+            return
+
+        await client.close()
+        if self._clients.get(key) is client:
+            del self._clients[key]
+
+    def _current_key(self) -> AbstractEventLoop | None:
+        if issubclass(self._transport_class, ContreeSyncClient):
+            return None
+        return get_running_loop()
+
+    def _prune_closed_loops(self) -> None:
+        for loop in tuple(self._clients):
+            if loop is not None and loop.is_closed():
+                self._clients.pop(loop, None)
 
     def _create(self) -> ContreeAsyncClient:
         client = self._transport_class(

@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+from types import TracebackType
+
+from typing_extensions import Self
+
 from contree_sdk._internals.utils.typing import keep_signature
 from contree_sdk.sdk.client._base import _ContreeBase
 from contree_sdk.sdk.managers.files._async import FilesManager
@@ -19,3 +25,18 @@ class Contree(_ContreeBase):
 
     async def get_token_info(self, refresh: bool = False) -> WhoAmI:
         return await self._get_token_info(refresh=refresh)
+
+    async def aclose(self) -> None:
+        """Close the transport associated with the current event loop."""
+        await self._transport.aclose()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.aclose()

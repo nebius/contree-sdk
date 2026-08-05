@@ -1,5 +1,7 @@
-from collections.abc import Iterator
+from asyncio import get_running_loop, new_event_loop
+from collections.abc import AsyncGenerator, Callable, Iterator
 from dataclasses import replace
+from typing import cast
 
 import pytest
 from contree_client.base import ContreeAsyncClient, ContreeSyncClient
@@ -7,6 +9,7 @@ from contree_client.runtime import RequestSpec, ResponseData
 from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
+from contree_sdk._internals.client.provider import TranslatingClient
 from contree_sdk._internals.client.transport import SyncTransportBridge, SyncTransportMode, resolve_transport_class
 from contree_sdk.config import ContreeConfig
 
@@ -29,6 +32,28 @@ class StubSyncClient(ContreeSyncClient):
 
     def close(self) -> None:
         self.closed = True
+
+
+class StubAsyncClient(ContreeAsyncClient):
+    UA_TRANSPORT_LIBRARY = "stub"
+    retryable_errors = (ConnectionError,)
+    nonretryable_errors = (TimeoutError,)
+
+    def __init__(self) -> None:
+        super().__init__("stub-token", base_url="https://stub.contree.endpoint")
+        self.close_calls = 0
+        self.on_close: Callable[[], None] | None = None
+
+    async def request(self, spec: RequestSpec) -> ResponseData:
+        return ResponseData(status=200, headers={}, body=b"ok")
+
+    async def stream(self, spec: RequestSpec, auto_decompress: bool = True) -> AsyncGenerator[bytes, None]:
+        yield b"first"
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        if self.on_close is not None:
+            self.on_close()
 
 
 @pytest.mark.parametrize("prefer_sync", [False, True])
@@ -91,6 +116,59 @@ def test_async_facade_uses_native_async_backend(fake_contree_config: ContreeConf
     provider = Contree(config=fake_contree_config)._transport
 
     assert issubclass(provider._transport_class, ContreeAsyncClient)
+
+
+async def test_async_facade_context_closes_transport_before_eviction(fake_contree_config: ContreeConfig):
+    contree = Contree(config=fake_contree_config)
+    key = get_running_loop()
+    transport = StubAsyncClient()
+    translating_transport = cast(ContreeAsyncClient, TranslatingClient(transport))
+    contree._transport._clients[key] = translating_transport
+
+    def assert_transport_is_still_cached() -> None:
+        assert contree._transport._clients.get(key) is translating_transport
+
+    transport.on_close = assert_transport_is_still_cached
+
+    async with contree as active:
+        assert active is contree
+
+    assert transport.close_calls == 1
+    assert key not in contree._transport._clients
+
+    await contree.aclose()
+    assert transport.close_calls == 1
+
+
+def test_sync_facade_context_closes_transport(fake_contree_config: ContreeConfig):
+    contree = ContreeSync(config=fake_contree_config)
+    transport = StubAsyncClient()
+    contree._transport._clients[None] = transport
+
+    with contree as active:
+        assert active is contree
+
+    assert transport.close_calls == 1
+    assert None not in contree._transport._clients
+
+    contree.close()
+    assert transport.close_calls == 1
+
+
+async def test_provider_prunes_clients_for_closed_event_loops(fake_contree_config: ContreeConfig, monkeypatch):
+    provider = Contree(config=fake_contree_config)._transport
+    stale_loop = new_event_loop()
+    stale_transport = StubAsyncClient()
+    current_transport = StubAsyncClient()
+    stale_loop.close()
+    provider._clients[stale_loop] = stale_transport
+    monkeypatch.setattr(provider, "_create", lambda: current_transport)
+
+    assert provider.get() is current_transport
+    assert stale_loop not in provider._clients
+    assert stale_transport.close_calls == 0
+
+    await provider.aclose()
 
 
 def test_sync_facade_thread_mode_end_to_end(
