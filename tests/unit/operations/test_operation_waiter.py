@@ -1,7 +1,8 @@
-from asyncio import CancelledError, create_task, gather, sleep, wait_for
+from asyncio import CancelledError, Event, create_task, gather, sleep, wait_for
 from dataclasses import replace
+from datetime import timedelta
 from io import BytesIO
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from contree_client.models import EventResources
@@ -246,6 +247,39 @@ async def test_multiple_waiters_share_result(
     assert first == second
     events_requests = [request for request in strict_httpx.get_requests() if request.url.path.endswith("/events")]
     assert len(events_requests) == 1
+
+
+async def test_concurrent_operations_do_not_share_stream_retry_state(fake_contree: Contree, operation_id: str):
+    first_waiter = await fake_contree._get_operation_waiter(operation_id)
+    second_waiter = await fake_contree._get_operation_waiter(uuid4())
+    assert first_waiter._stream_retrier is not second_waiter._stream_retrier
+
+    first_waiter._stream_retrier.retry_interval_min = timedelta(0)
+    first_waiter._stream_retrier.retry_interval_max = timedelta(0)
+    retry_started = Event()
+    release_retry = Event()
+    attempts = 0
+
+    async def hold_retried_stream() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise EventStreamInterruptedError(error="test retry")
+        retry_started.set()
+        await release_retry.wait()
+
+    async def complete_other_stream() -> None:
+        return None
+
+    first_task = create_task(first_waiter._stream_retrier(hold_retried_stream))
+    try:
+        await wait_for(retry_started.wait(), timeout=1)
+        await wait_for(second_waiter._stream_retrier(complete_other_stream), timeout=1)
+    finally:
+        release_retry.set()
+        await first_task
+
+    assert attempts == 2
 
 
 async def test_cancelling_one_waiter_cancels_all(fake_contree: Contree, operation_id: str, strict_httpx: HTTPXMock):

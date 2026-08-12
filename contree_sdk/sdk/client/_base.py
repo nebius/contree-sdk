@@ -27,14 +27,7 @@ from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.auth import IAMAuth
 from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.exceptions import ContreeError, UnknownContreeError
-from contree_sdk.sdk.exceptions.api import (
-    ApiTimeoutError,
-    ContreeTransportError,
-    EventStreamInterruptedError,
-    NotFoundError,
-    TooEarlyError,
-    TooManyRequestsError,
-)
+from contree_sdk.sdk.exceptions.api import ApiTimeoutError, TooManyRequestsError
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.auth import WhoAmI
 
@@ -90,14 +83,6 @@ class _ContreeBase:
         self._config = config
         self._token_info: WhoAmI | None = None
         start_exceptions = [TooManyRequestsError, ApiTimeoutError]
-        stream_exceptions = [
-            TooManyRequestsError,
-            ApiTimeoutError,
-            ContreeTransportError,
-            NotFoundError,
-            TooEarlyError,
-            EventStreamInterruptedError,
-        ]
         import_timeout = config.operation_import_timeout or config.operation_timeout
         spawn_timeout = config.operation_run_timeout or config.operation_timeout
         self._import_retrier = CircuitRetrier(
@@ -105,9 +90,6 @@ class _ContreeBase:
         )
         self._spawn_retrier = CircuitRetrier(
             exceptions=start_exceptions, retry_timeout=timedelta(seconds=spawn_timeout)
-        )
-        self._default_retrier = CircuitRetrier(
-            exceptions=stream_exceptions, retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout))
         )
         self._waiters: WeakValueDictionary[UUID, OperationWaiter] = WeakValueDictionary()
         self._waiters_lock = Lock()

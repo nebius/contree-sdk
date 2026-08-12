@@ -6,6 +6,7 @@ from asyncio import Event, Lock, Queue, create_task, gather, shield
 from collections import defaultdict
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import timedelta
 from sys import version_info
 from types import EllipsisType
 from typing import TYPE_CHECKING, Literal, TypeVar, overload
@@ -21,6 +22,7 @@ from contree_client.models import (
 
 from contree_sdk._internals.io.typing import AsyncWritable, Writable
 from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
+from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
     ContreeApiError,
@@ -31,6 +33,7 @@ from contree_sdk.sdk.exceptions import (
     NotFoundError,
     OperationTimedOutError,
 )
+from contree_sdk.sdk.exceptions.api import ApiTimeoutError, ContreeTransportError, TooEarlyError, TooManyRequestsError
 from contree_sdk.utils.models.operation import OperationEventType, OperationStatus
 
 
@@ -84,6 +87,19 @@ class OperationWaiter:
         self.operation_id = operation_id
         self._client = client
         self._output_limit = client.config.default_truncate_output_at
+        import_timeout = client.config.operation_import_timeout or client.config.operation_timeout
+        spawn_timeout = client.config.operation_run_timeout or client.config.operation_timeout
+        self._stream_retrier = CircuitRetrier(
+            exceptions=[
+                TooManyRequestsError,
+                ApiTimeoutError,
+                ContreeTransportError,
+                NotFoundError,
+                TooEarlyError,
+                EventStreamInterruptedError,
+            ],
+            retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout)),
+        )
         self._output_by_spid = defaultdict(lambda: defaultdict(bytearray))
         self._local_output_dropped: dict[int | None, dict[StreamName, int]] = defaultdict(lambda: defaultdict(int))
         # IO objects by spid and stream name
@@ -231,10 +247,9 @@ class OperationWaiter:
     async def wait_for_result(
         self, *, operation_timeout: float | None = None, spid: int | None = MAIN_SPID
     ) -> tuple[EventDataCompletion, EventDataExit | None]:
-        retrier = self._client._default_retrier
         try:
             async with self._operation_canceller(), timeout(operation_timeout):
-                await retrier(self._load_events)
+                await self._stream_retrier(self._load_events)
         except (TimeoutError, asyncio.TimeoutError) as e:
             raise OperationTimedOutError(operation_uuid=self.operation_id) from e
 
