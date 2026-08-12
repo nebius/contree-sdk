@@ -654,11 +654,11 @@ wheels = [
 
 [[package]]
 name = "contree-client"
-version = "0.2.0"
+version = "0.2.1.dev0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/14/c3/f724379ecb910493e7b42d1749005b2ba1130c310a0a3e2e1e43e96cb35a/contree_client-0.2.0.tar.gz", hash = "sha256:6901b41a2dbd0c0bb6b27b404e2f8066ced6e1cdf4c4ce946745eb9c3bce7144", size = 144489, upload-time = "2026-07-27T14:58:17.367Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/d3/eee9db7e2c4e328ae9b49b14d480268d9e07edda85ec7e8a9411ab86f59c/contree_client-0.2.1.dev0.tar.gz", hash = "sha256:fb8c4dc9b73b2d76ff115c977c8564b60e80de244835110e2e6eba401e3b1bf9", size = 147862, upload-time = "2026-08-12T14:58:57.253Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/d2/465c250ad33cd728a22c5968f7bb9becb3ff97f4068d53fa77b9fd32a0ae/contree_client-0.2.0-py3-none-any.whl", hash = "sha256:d085351d32944511196cd5b8caea98cf362a8fa64b3581c51e234a1131e4fadd", size = 108094, upload-time = "2026-07-27T14:58:16.078Z" },
+    { url = "https://files.pythonhosted.org/packages/63/dd/9c36655418293762e49baae8ad6ccb8a031c56bc6ad1d1b51f531fb90ee5/contree_client-0.2.1.dev0-py3-none-any.whl", hash = "sha256:d46fe30e4ee69836bb65cc2378c50c14d26461bb468bd2a8ae62d4600e2cbfec", size = 109946, upload-time = "2026-08-12T14:58:55.884Z" },
 ]
 
 [package.optional-dependencies]
@@ -785,7 +785,7 @@ requires-dist = [
     { name = "async-timeout", marker = "extra == 'dev'" },
     { name = "cattrs" },
     { name = "click", marker = "extra == 'dev'" },
-    { name = "contree-client", specifier = "~=0.2.0" },
+    { name = "contree-client", specifier = "~=0.2.1.dev0" },
     { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'aiohttp'" },
     { name = "contree-client", extras = ["httpx"], marker = "extra == 'httpx'" },
     { name = "contree-client", extras = ["requests"], marker = "extra == 'requests'" },
