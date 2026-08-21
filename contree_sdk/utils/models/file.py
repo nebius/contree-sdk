@@ -24,7 +24,7 @@ class UploadFileSpec:
     source: str | Path | bytes | UploadedFile
 
     @classmethod
-    def _prepare_files(
+    def prepare_files(
         cls,
         files: list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec],
         default_image_path: str = "/",

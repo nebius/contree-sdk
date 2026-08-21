@@ -18,10 +18,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "strenum",
-    "cattrs",
-    "aiofiles",
-    "httpx", # todo move to httpx when transport will be supported
+    "contree-client[httpx]>=0.2.1",
     "typing-extensions; python_version < '3.13'",
     "async-timeout; python_version < '3.11'",
 ]
@@ -31,10 +28,8 @@ dev = [
     # for tests
     "pytest>=8.4.1",
     "pytest-asyncio",
-    "pytest-httpx",
     "pytest-mock",
     "pytest-xdist",
-    "pytest-httpbin",
     "pytest-cov",
     "pytest-html",
     "rich",
@@ -58,8 +53,6 @@ dev-security = [
 "semgrep>=1.0",
 ]
 
-httpx = [
-]
 langchain = [
     "deepagents; python_version >= '3.11'",
 ]
@@ -225,8 +218,8 @@ extend-ignore = [
     "PLR2004", # magic-value-comparison
 ]
 
-"contree_sdk/sdk/exceptions/**" = [
-    "RUF027", # missing-f-string-syntax
+"contree_sdk/store/sqlite.py" = [
+    "PLR0904", # too-many-public-methods: paired async/sync methods for every Store operation
 ]
 
 "examples/**" = [
