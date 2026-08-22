@@ -42,6 +42,7 @@ dev = [
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
     "contree-sdk[async]",
+    "contree-sdk[examples]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -63,12 +64,13 @@ langchain = [
     "deepagents; python_version >= '3.11'",
 ]
 
+examples = [
+    "langchain-openai",
+    "mini-swe-agent>=2.2.0",
+]
+
 docs = [
     "contree-docs",
-]
-examples = [
-    "mini-swe-agent",
-    "langchain-openai"
 ]
 
 [tool.uv]

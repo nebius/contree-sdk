@@ -1,26 +1,28 @@
-from contree_sdk import Contree
+from asyncio import run
+
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
 
 
-async def main(client: Contree, image_tag: str):
-    image = await client.images.use(image_tag, strict=True)
-    print(f"Original: {image.uuid=}, {image.tag=}")
+async def main(client: ContreeAsyncClientBase, image_uuid: str):
+    await client.update_image_tag(image_uuid, "my-custom-tag:v1")
+    print(f"Tagged {image_uuid} as my-custom-tag:v1")
 
-    tagged = await image.tag_as("my-custom-tag:v1")
-    print(f"After tag_as: {tagged.uuid=}, {tagged.tag=}")
+    resolved = await client.resolve_image("tag:my-custom-tag:v1")
+    print(f"Resolves back to: {resolved=}")
 
-    untagged = await tagged.untag()
-    print(f"After untag: {untagged.uuid=}, {untagged.tag=}")
+    await client.delete_image_tag(image_uuid, tag="my-custom-tag:v1")
+    print("Tag removed")
 
-    result = await image.run(shell="echo hello", tag="my-result:v1", disposable=False)
-    print(f"Run result: {result.uuid=}, {result.tag=}")
+
+async def run_with_first_tagged_image() -> None:
+    client = ContreeAsyncClient.from_profile()
+    images = await client.list_images(tagged=True, limit=1)
+    image_uuid = images.images[0].uuid
+    if not isinstance(image_uuid, str):
+        raise TypeError("expected image uuid in list_images response")
+    await main(client=client, image_uuid=image_uuid)
 
 
 if __name__ == "__main__":
-    import asyncio
-
-    async def _run():
-        client = Contree()
-        images = await client.images(number=1, tagged=True)
-        await main(client=client, image_tag=images[0].tag)
-
-    asyncio.run(_run())
+    run(run_with_first_tagged_image())

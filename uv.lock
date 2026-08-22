@@ -682,7 +682,9 @@ dev = [
     { name = "contree-client", extra = ["aiohttp"] },
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
     { name = "dprint-py" },
+    { name = "langchain-openai" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11'" },
+    { name = "mini-swe-agent" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -722,12 +724,13 @@ requires-dist = [
     { name = "contree-client", extras = ["httpx"], specifier = ">=0.2.1" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["async"], marker = "extra == 'dev'" },
+    { name = "contree-sdk", extras = ["examples"], marker = "extra == 'dev'" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
     { name = "deepagents", marker = "python_full_version >= '3.11' and extra == 'langchain'" },
     { name = "dprint-py", marker = "extra == 'dev'" },
     { name = "langchain-openai", marker = "extra == 'examples'" },
     { name = "langchain-tests", marker = "python_full_version >= '3.11' and extra == 'dev'", specifier = ">=1.1.9" },
-    { name = "mini-swe-agent", marker = "extra == 'examples'" },
+    { name = "mini-swe-agent", marker = "extra == 'examples'", specifier = ">=2.2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
@@ -745,7 +748,7 @@ requires-dist = [
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
     { name = "typing-extensions", marker = "extra == 'dev'" },
 ]
-provides-extras = ["async", "dev", "dev-security", "langchain", "docs", "examples"]
+provides-extras = ["async", "dev", "dev-security", "langchain", "examples", "docs"]
 
 [[package]]
 name = "coverage"

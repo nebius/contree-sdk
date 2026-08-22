@@ -1,19 +1,32 @@
-from contree_sdk import ContreeSync
+from types import EllipsisType
+
+from contree_client.models import InstanceResult
+from contree_client.sync import ContreeClient
+from contree_client.types import ContreeSyncClient
+
+from contree_sdk.session import ContreeSession
 
 
-def main(client: ContreeSync):
-    base = client.images.use("alpine:latest")
+def stdout_text(result: InstanceResult) -> str:
+    stream = result.stdout
+    if isinstance(stream, EllipsisType):
+        raise TypeError("command produced no stdout")
+    return stream.as_text()
 
-    child = base.run(shell='echo "$RANDOM" > /tmp/random.txt', disposable=False).wait()
-    print(f"Child created from base, UUID: {child.uuid}\n")
 
-    for i, letter in enumerate(["A", "B", "C"], 1):
-        gc = child.run(
+def main(client: ContreeSyncClient):
+    session = ContreeSession(client, image="tag:alpine:latest")
+
+    session.run(shell='echo "$RANDOM" > /tmp/random.txt', disposable=False)
+    print(f"Base commit, image: {session.image_uuid}\n")
+
+    for letter in ("A", "B", "C"):
+        result = session.run(
             shell=f"echo '{letter}' >> /tmp/random.txt && cat /tmp/random.txt",
             disposable=False,
-        ).wait()
-        print(f"Grandchild {i}: {gc.stdout.strip()}")
+        )
+        print(f"After {letter}: {stdout_text(result).strip()}")
 
 
 if __name__ == "__main__":
-    main(client=ContreeSync())
+    main(client=ContreeClient.from_profile())

@@ -1,61 +1,64 @@
+from pathlib import Path
 from tempfile import NamedTemporaryFile
+from types import EllipsisType
 
-from contree_sdk import ContreeSync
+from contree_client.models import InstanceResult
+from contree_client.sync import ContreeClient
+from contree_client.types import ContreeSyncClient
+
+from contree_sdk.session import ContreeSession
 
 
-def main(client: ContreeSync):
-    image = client.images.use("busybox:latest")
-    print(f"Using {image=}")
+def stdout_text(result: InstanceResult) -> str:
+    stream = result.stdout
+    if isinstance(stream, EllipsisType):
+        raise TypeError("command produced no stdout")
+    return stream.as_text()
 
-    print("\nExample 1: Local file upload to image")
+
+def exit_code(result: InstanceResult) -> int:
+    state = result.state
+    if isinstance(state, EllipsisType) or isinstance(state.exit_code, EllipsisType):
+        raise TypeError("command produced no exit code")
+    return state.exit_code
+
+
+def main(client: ContreeSyncClient):
+    session = ContreeSession(client, image="tag:busybox:latest")
+
+    print("\nExample 1: Upload a local file by path")
     with NamedTemporaryFile(mode="w", suffix=".txt") as test_file:
         test_file.write("some txt file\nsecond line\n\nlast line\n")
         test_file.flush()
 
-        result = image.run(shell=f"cat /{test_file.name.split('/')[-1]} | grep line", files=[test_file.name]).wait()
-        print(f"Run with local file: {result.stdout=}, {result.exit_code=}")
+        result = session.run(shell=f"cat /{Path(test_file.name).name} | grep line", files=[test_file.name])
+        print(f"Run with local file: {stdout_text(result)=}, {exit_code(result)=}")
 
-    print("\nExample 2: Upload file via contree.files and use in image")
-    with NamedTemporaryFile(mode="w", suffix=".sh") as script_file:
-        script_file.write("#!/bin/sh\necho 'Hello from uploaded script'\necho 'Working directory:'\npwd\n")
-        script_file.flush()
+    print("\nExample 2: Upload inline content to a specific path")
+    result = session.run(
+        shell="sh /file.sh",
+        files={"/file.sh": b"#!/bin/sh\necho 'Hello from uploaded script'\npwd\n"},
+    )
+    print(f"Run with inline file: {stdout_text(result)=}, {exit_code(result)=}")
 
-        uploaded_file = client.files.upload(script_file.name)
-        print(f"Uploaded file: {uploaded_file=}")
+    print("\nExample 3: stdin from a local file")
+    with NamedTemporaryFile(mode="w", suffix=".txt") as input_file:
+        input_file.write("apple\nbanana\ncherry\ndate\nfig\n")
+        input_file.flush()
 
-        result = image.run(shell="sh /file.sh", files={"file.sh": uploaded_file}).wait()
-        print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
-
-    print("\nExample 3: Bake files into a new image with apply_files")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as f:
-        f.write("hello from baked file\n")
-        f.flush()
-        baked = image.apply_files({"baked.txt": f.name})
-        result = baked.run(shell="cat /baked.txt").wait()
-        print(f"File is present in new image: {result.stdout=}")
+        result = session.run(shell="cat | grep 'a' | sort", stdin=Path(input_file.name))
+        print(f"Filter and sort result: {stdout_text(result)=}, {exit_code(result)=}")
 
     print("\nExample 4: Multiple files working together")
-    with (
-        NamedTemporaryFile(mode="w", suffix=".txt") as data_file,
-        NamedTemporaryFile(mode="w", suffix=".sh") as script_file,
-    ):
-        data_file.write("apple\nbanana\ncherry\ndate\n")
-        data_file.flush()
-
-        script_file.write(
-            "#!/bin/bash\necho 'Processing data:'\ncat /data.txt | grep -E '^[ab]'"
-            "\necho 'Found items starting with a or b'"
-        )
-        script_file.flush()
-
-        result = image.run(
-            shell="chmod +x /script.sh && sh /script.sh",
-            files={"data.txt": data_file.name, "script.sh": script_file.name},
-        ).wait()
-        print(f"Multiple files result: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
+    result = session.run(
+        shell="chmod +x /script.sh && sh /script.sh",
+        files={
+            "/data.txt": b"apple\nbanana\ncherry\ndate\n",
+            "/script.sh": b"#!/bin/sh\necho 'Processing data:'\ngrep -E '^[ab]' /data.txt\n",
+        },
+    )
+    print(f"Multiple files result: {stdout_text(result)=}, {exit_code(result)=}")
 
 
 if __name__ == "__main__":
-    main(
-        client=ContreeSync(),
-    )
+    main(client=ContreeClient.from_profile())
