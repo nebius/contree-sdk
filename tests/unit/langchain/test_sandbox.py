@@ -1,4 +1,5 @@
 import base64
+import threading
 
 import pytest
 from contree_client.models import FileResponse
@@ -7,6 +8,7 @@ from contree_client.testing import ContreeClient
 
 pytest.importorskip("deepagents")
 
+import contree_sdk.langchain.sandbox as sandbox_module
 from contree_sdk.langchain import ContreeSandbox
 from contree_sdk.session import ContreeSession
 from contree_sdk.store import SyncMemoryStore
@@ -30,6 +32,16 @@ def test_id_contains_session_id(sandbox: ContreeSandbox):
     assert sandbox.session.session_id in sandbox.id
 
 
+def test_init_raises_friendly_error_when_deepagents_unavailable(client: ContreeClient, monkeypatch: pytest.MonkeyPatch):
+    # on Python < 3.11 `deepagents` can't be installed at all; ContreeSandbox()
+    # must fail with a clear message instead of a bare ModuleNotFoundError
+    monkeypatch.setattr(sandbox_module, "DEEPAGENTS_AVAILABLE", False)
+    session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
+
+    with pytest.raises(ImportError, match="deepagents"):
+        ContreeSandbox(session=session)
+
+
 def test_execute_combines_stdout_and_stderr(client: ContreeClient, sandbox: ContreeSandbox):
     client.mock("spawn_instance", spawn_response())
     client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="err\n"))
@@ -39,6 +51,42 @@ def test_execute_combines_stdout_and_stderr(client: ContreeClient, sandbox: Cont
     assert response.output == "out\nerr\n"
     assert response.exit_code == 0
     assert response.truncated is False
+
+
+def test_execute_reports_truncated_when_stdout_or_stderr_truncated(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="", stdout_truncated=True))
+
+    response = sandbox.execute("echo hi")
+
+    assert response.truncated is True
+
+
+def test_concurrent_execute_calls_are_serialized_into_a_linear_history(client: ContreeClient, sandbox: ContreeSandbox):
+    # two agent tool calls can invoke execute() on separate OS threads against the
+    # same session at once (deepagents bridges aexecute() via asyncio.to_thread) -
+    # without ContreeSandbox's own lock both could read session.image_uuid before
+    # either commits, forking history instead of chaining run2 after run1
+    client.mock("spawn_instance", spawn_response(operation_uuid="op-1"))
+    client.mock("spawn_instance", spawn_response(operation_uuid="op-2"))
+    client.mock("wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-uuid-1"))
+    client.mock("wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-uuid-2"))
+
+    threads = [threading.Thread(target=sandbox.execute, args=(cmd,)) for cmd in ("echo one", "echo two")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    entries, _ = sandbox.session.history()
+    assert [entry.kind for entry in entries] == ["init", "run", "run"]
+    init_entry, run_a, run_b = entries
+    # a proper serialization chains run_b after run_a; a race would leave both
+    # run entries as siblings of init_entry instead
+    assert run_b.parent_id == run_a.id
+    assert run_a.parent_id == init_entry.id
+    assert sandbox.session.tip_id == run_b.id
+    assert sandbox.session.image_uuid == run_b.image_uuid
 
 
 def test_execute_reports_nonzero_exit_code(client: ContreeClient, sandbox: ContreeSandbox):

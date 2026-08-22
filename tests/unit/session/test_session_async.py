@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from contree_client.models import OperationStatus
 from contree_client.testing import ContreeAsyncClient
@@ -28,6 +30,24 @@ async def test_construct_resolves_image_and_seeds_history(client: ContreeAsyncCl
 def test_construct_requires_image_or_session_id(client: ContreeAsyncClient):
     with pytest.raises(ValueError):
         ContreeAsyncSession(client)
+
+
+async def test_concurrent_ensure_ready_creates_only_one_init_entry(client: ContreeAsyncClient):
+    # two concurrent first calls (e.g. two concurrent .run()s on a fresh session)
+    # must not both observe ready=False and each append their own "init" root
+    store = AsyncMemoryStore()
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=store)
+
+    async def slow_resolve_image(image: str) -> str:
+        await asyncio.sleep(0)
+        return "img-uuid-0"
+
+    client.resolve_image = slow_resolve_image  # ty: ignore[invalid-assignment]
+
+    await asyncio.gather(session.ensure_ready(), session.ensure_ready())
+
+    entries, _ = await session.history()
+    assert [entry.kind for entry in entries] == ["init"]
 
 
 async def test_construct_resumes_from_existing_session(client: ContreeAsyncClient):

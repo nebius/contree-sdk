@@ -22,6 +22,8 @@ def operation_response(
     exit_code: int = 0,
     stdout: str = "hi\n",
     stderr: str = "",
+    stdout_truncated: bool = False,
+    stderr_truncated: bool = False,
     status: OperationStatus = OperationStatus.SUCCESS,
     error: str | None = None,
     with_result: bool = True,
@@ -37,8 +39,8 @@ def operation_response(
             image=image_uuid,
             result=InstanceResult(
                 state=InstanceResultState(exit_code=exit_code),
-                stdout=StreamRepr(value=stdout, encoding="ascii"),
-                stderr=StreamRepr(value=stderr, encoding="ascii"),
+                stdout=StreamRepr(value=stdout, encoding="ascii", truncated=stdout_truncated),
+                stderr=StreamRepr(value=stderr, encoding="ascii", truncated=stderr_truncated),
             )
             if with_result
             else ...,

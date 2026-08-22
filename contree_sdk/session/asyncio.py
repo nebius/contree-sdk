@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asyncio import gather, to_thread
+from asyncio import Lock, gather, to_thread
 from collections.abc import Iterable
 from datetime import timedelta
 from math import ceil
@@ -50,22 +50,29 @@ class ContreeAsyncSession:
         self.image_uuid: str | None = None
         self.tip_id: int | None = None
         self.ready = False
+        self.init_lock = Lock()
 
     async def ensure_ready(self) -> None:
+        # double-checked locking: two concurrent first calls (e.g. two concurrent
+        # .run()s on a fresh session) must not both observe ready=False and each
+        # append their own "init" root entry to the store
         if self.ready:
             return
-        tip = await self.store.tip(self.session_id)
-        if tip is not None:
-            self.image_uuid = tip.image_uuid
-            self.tip_id = tip.id
-        elif self.image is not None:
-            resolved = await self.client.resolve_image(self.image)
-            entry = await self.store.append(self.session_id, image_uuid=resolved, parent_id=None, kind="init")
-            self.image_uuid = entry.image_uuid
-            self.tip_id = entry.id
-        else:
-            raise ValueError(f"session {self.session_id!r} has no history and no image was given")
-        self.ready = True
+        async with self.init_lock:
+            if self.ready:
+                return
+            tip = await self.store.tip(self.session_id)
+            if tip is not None:
+                self.image_uuid = tip.image_uuid
+                self.tip_id = tip.id
+            elif self.image is not None:
+                resolved = await self.client.resolve_image(self.image)
+                entry = await self.store.append(self.session_id, image_uuid=resolved, parent_id=None, kind="init")
+                self.image_uuid = entry.image_uuid
+                self.tip_id = entry.id
+            else:
+                raise ValueError(f"session {self.session_id!r} has no history and no image was given")
+            self.ready = True
 
     async def upload_file(self, file: UploadFileSpec) -> FileSpec:
         source = file.source

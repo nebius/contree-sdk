@@ -26,12 +26,9 @@ Integration is available via `contree-sdk[langchain]`, which provides `ContreeSa
    pip install "contree-sdk[langchain]"
    ```
 
-2. Set up ConTree credentials (see {doc}`../python_sdk/getting-started` for all options):
-
-   ```bash
-   export CONTREE_TOKEN="your-contree-token"
-   export CONTREE_URL="https://your-instance.of.contree"
-   ```
+2. Set up ConTree credentials. The example above uses `ContreeClient.from_profile()`, which
+   reads a saved CLI profile (or `CONTREE_PROFILE`); see {doc}`../python_sdk/getting-started`
+   for that and the other construction options, including `CONTREE_TOKEN`/`CONTREE_URL`.
 
 3. Set up your LLM provider credentials (e.g. for Nebius AI Studio, used by the example above):
 
