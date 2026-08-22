@@ -3,8 +3,8 @@
 Sessions
 ========
 
-.. automodule:: contree_sdk.sdk.objects.session
-   :members: ContreeSession, ContreeSessionSync
+.. automodule:: contree_sdk.session
+   :members: ContreeSession, ContreeAsyncSession
    :inherited-members:
    :undoc-members:
    :member-order: bysource

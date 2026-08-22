@@ -4,29 +4,11 @@ icon: layer-group
 
 # Working with Images
 
-ConTree SDK provides several ways to reference and import container images. For full API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
+Image management (resolving, importing, tagging, listing) is provided by the `contree_client` package that `contree-sdk` builds on. A `ContreeSession` accepts any resolvable image reference directly, so most workflows never need to touch these APIs — this page covers the cases where you do.
 
-## Using Images by Tag
+## Resolving and Importing
 
-The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
-
-````{tab} Async
-```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
-```
-````
-
-````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
-```
-````
-
-## Pulling Images
-
-For resolving a tag/UUID to an image upfront, use `images.use(strict=True)`. For importing images from external registries, use `images.oci()`:
+`client.resolve_image(ref)` resolves a `"tag:..."` reference or UUID to an image UUID, raising `NotFoundError` if it isn't imported yet. `client.import_image(registry, tag=...)` starts an import operation from an external registry; `client.wait_operation(operation_uuid)` waits for it to finish and reports the resulting image UUID.
 
 ````{tab} Async
 ```{literalinclude} ../../examples/images/pull_image.py
@@ -36,8 +18,6 @@ For resolving a tag/UUID to an image upfront, use `images.use(strict=True)`. For
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci` for all parameters.
 ````
 
 ````{tab} Sync
@@ -48,40 +28,11 @@ See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contr
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci` for all parameters.
 ````
-
-### Methods
-
-````{tab} Async
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManager.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.import_from`(ref) — always imports from an external registry
-````
-
-````{tab} Sync
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.import_from`(ref) — always imports from an external registry
-````
-
-:::{danger}
-`import_from` always triggers a new import operation and should only be used when you explicitly need to re-import. In most cases, prefer `images.oci()`, which returns an existing image if already imported. If no import is needed at all, use `images.use()`.
-:::
-
-### What `ref` can be
-
-- UUID — reference an existing image by its UUID, e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
-- OCI tag — reference by image tag, e.g. `"ubuntu:latest"`
-- OCI full URL — full reference including registry host, e.g. `"docker://ghcr.io/owner/image:tag"`
-- {class}`~contree_sdk.utils.oci.OCIReference` — programmatic OCI reference object
 
 ## Tagging Images
 
-You can assign or remove a tag on any image using `tag_as()` and `untag()`. Tags are unique across all images — assigning an existing tag to a new image moves it automatically.
+`client.update_image_tag(image_uuid, tag)` assigns a tag; `client.delete_image_tag(image_uuid, tag=...)` removes one. Tags are unique — assigning an existing tag to a new image moves it automatically.
 
 ````{tab} Async
 ```{literalinclude} ../../examples/images/tag_image.py
@@ -91,8 +42,6 @@ You can assign or remove a tag on any image using `tag_as()` and `untag()`. Tags
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImage.untag` for details.
 ````
 
 ````{tab} Sync
@@ -103,29 +52,11 @@ See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.tag_as` and {meth}`~contr
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.untag` for details.
-````
-
-You can also tag the result of a `run()` directly by passing `tag=` to the call — the resulting image will be tagged after execution completes:
-
-````{tab} Async
-```python
-result = await image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False)
-print(result.tag)  # "myapp:ready"
-```
-````
-
-````{tab} Sync
-```python
-result = image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False).wait()
-print(result.tag)  # "myapp:ready"
-```
 ````
 
 ## Listing Images
 
-View all available images in your ConTree instance:
+`client.list_images(*, limit=None, offset=None, tagged=False, tag=None, uuid=None, since=None, until=None)` returns an `ImageListResponse` with an `.images` list.
 
 ````{tab} Async
 ```{literalinclude} ../../examples/images/list_images.py
@@ -135,8 +66,6 @@ View all available images in your ConTree instance:
 :dedent: 4
 :start-after: def main(
 ```
-
-See {class}`~contree_sdk.sdk.managers.images.ImagesManager` for filtering and iteration options.
 ````
 
 ````{tab} Sync
@@ -147,6 +76,14 @@ See {class}`~contree_sdk.sdk.managers.images.ImagesManager` for filtering and it
 :dedent: 4
 :start-after: def main(
 ```
-
-See {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync` for filtering and iteration options.
 ````
+
+## Using an Image in a Session
+
+Once you have a tag or UUID, hand it to `ContreeSession`/`ContreeAsyncSession` directly — resolution happens lazily on the first `.run()` call, so no separate "use" step is needed:
+
+```python
+session = ContreeSession(client, image="tag:python:3.11-slim")
+```
+
+See {doc}`getting-started` for the full session walkthrough.

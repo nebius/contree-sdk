@@ -5,45 +5,25 @@ icon: robot
 # Mini-SWE-Agent Integration
 
 [Mini-SWE-Agent](https://mini-swe-agent.com/latest/) is a lightweight software engineering agent.
-The ConTree integration enables it to execute code in isolated, reproducible containers. Every command in Mini-SWE-Agent is executed in a fresh shell session, which makes it perfectly suitable for ConTree.
+The ConTree integration enables it to execute code in isolated, reproducible containers.
 
-Integration is available via [ContreeEnvironment](https://mini-swe-agent.com/latest/reference/environments/contree/) starting from [mini-swe-agent v2.2.0](https://github.com/SWE-agent/mini-swe-agent/releases/tag/v2.2.0).
+:::{warning}
+As of mini-swe-agent 2.4.6 (the latest release at the time of writing), its bundled
+`ContreeEnvironment` (`minisweagent.environments.extra.contree`) still targets the pre-redesign
+contree-sdk API — it imports `ContreeSync`, `contree_sdk.config.ContreeConfig`, and
+`contree_sdk.sdk.objects.image.ContreeImageSync`, none of which exist in this contree-sdk release.
+**This integration does not currently work.** The fix needs to land upstream in
+[mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent), porting `ContreeEnvironment` onto
+`contree_sdk.session.ContreeSession` — see {doc}`langchain` for what that shape looks like for
+another framework's sandbox interface.
+:::
 
-## Using ContreeEnvironment
+## Setup
 
-```{literalinclude} ../../examples/mini_swe_agent/mini_swe_agent_basic.py
-:language: python
-:linenos:
-```
-
-## Running with SWE-bench
-
-### Setup
-
-1. Install the dependencies:
-
-   ```bash
-   pip install "mini-swe-agent[contree]"
-   ```
-
-2. Set up Nebius IAM token and base URL:
-
-   ```bash
-   export NEBIUS_API_KEY="your-nebius-iam-token"
-   export NEBIUS_PROJECT_ID="your-project-id"
-   export CONTREE_BASE_URL="your-given-base-url-for-contree"
-   ```
-
-### Usage
-
-Run mini-swe-agent like with any other environment:
+Once mini-swe-agent's `ContreeEnvironment` is updated, the integration is expected to be installed via its own extra:
 
 ```bash
-mini-extra swebench \
-    --subset verified \
-    --split test \
-    --workers 100
-    --environment-class contree
+pip install "mini-swe-agent[contree]"
 ```
 
-It can be specified both through cli parameter or by setting `environment_class` to `contree` in your swebench.yaml config
+`contree-sdk[examples]` also pulls in `mini-swe-agent` for running the examples in this repository.
