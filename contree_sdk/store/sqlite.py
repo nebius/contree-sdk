@@ -3,11 +3,20 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
-from asyncio import to_thread
+from asyncio import Lock
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from contree_sdk.store.base import HistoryEntry, Store
+from contree_sdk.store.base import AsyncStore, HistoryEntry, SyncStore
+
+
+try:
+    import aiosqlite
+
+    AIOSQLITE_AVAILABLE = True
+except ImportError:
+    AIOSQLITE_AVAILABLE = False
 
 
 DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
@@ -43,7 +52,7 @@ CREATE INDEX IF NOT EXISTS ix_history_parent ON session_history(parent_id);
 """
 
 
-def entry_from_row(row: sqlite3.Row) -> HistoryEntry:
+def entry_from_row(row: Any) -> HistoryEntry:
     return HistoryEntry(
         id=row["id"],
         session_id=row["session_id"],
@@ -57,16 +66,12 @@ def entry_from_row(row: sqlite3.Row) -> HistoryEntry:
     )
 
 
-class SQLiteStore(Store):
+class SyncSQLiteStore(SyncStore):
     """SQLite-backed Store: one file holds many sessions, keyed by session_id.
 
     WAL journal mode + a busy timeout make the file safe to share across
-    *processes*. Within this process, every async method hands its blocking
-    work to `asyncio.to_thread`, which may run each call on a different
-    worker thread - the connection is opened with `check_same_thread=False`
-    to allow that, and `rlock` (a real `threading.RLock`, not an
-    `asyncio.Lock`, since worker threads are plain OS threads, not
-    coroutines) serializes actual access to it across those threads.
+    *processes*. `check_same_thread=False` plus a `threading.RLock` make one
+    instance safe to share across *threads* within this process too.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -100,7 +105,10 @@ class SQLiteStore(Store):
             raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
         return entry_from_row(row)
 
-    def active_branch_sync(self, session_id: str) -> str | None:
+    def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
+        return self.get_entry_row(session_id, history_id)
+
+    def active_branch(self, session_id: str) -> str | None:
         with self.rlock:
             row = self.conn.execute(
                 "SELECT active_branch FROM session_state WHERE session_id = ?",
@@ -116,20 +124,20 @@ class SQLiteStore(Store):
             ).fetchone()
         return None if row is None else row["id"]
 
-    def append_sync(
+    def append(
         self,
         session_id: str,
         *,
         image_uuid: str,
         parent_id: int | None,
-        kind: str,
-        title: str,
-        operation_uuid: str | None,
-        exit_code: int | None,
-        branch: str | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
     ) -> HistoryEntry:
         with self.rlock:
-            branch_name = branch or self.active_branch_sync(session_id) or "main"
+            branch_name = branch or self.active_branch(session_id) or "main"
             cursor = self.conn.execute(
                 """
                 INSERT INTO session_history
@@ -160,49 +168,19 @@ class SQLiteStore(Store):
             self.conn.commit()
             return self.get_entry_row(session_id, new_id)
 
-    async def append(
-        self,
-        session_id: str,
-        *,
-        image_uuid: str,
-        parent_id: int | None,
-        kind: str = "",
-        title: str = "",
-        operation_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-    ) -> HistoryEntry:
-        return await to_thread(
-            self.append_sync,
-            session_id,
-            image_uuid=image_uuid,
-            parent_id=parent_id,
-            kind=kind,
-            title=title,
-            operation_uuid=operation_uuid,
-            exit_code=exit_code,
-            branch=branch,
-        )
-
-    async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
-        return await to_thread(self.get_entry_row, session_id, history_id)
-
-    def tip_sync(self, session_id: str, branch: str | None) -> HistoryEntry | None:
+    def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         with self.rlock:
-            branch_name = branch or self.active_branch_sync(session_id)
+            branch_name = branch or self.active_branch(session_id)
             if branch_name is None:
                 return None
             row = self.branch_tip_row(session_id, branch_name)
             return None if row is None else self.get_entry_row(session_id, row["history_id"])
 
-    async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
-        return await to_thread(self.tip_sync, session_id, branch)
-
-    def navigate_sync(self, session_id: str, target: int) -> HistoryEntry:
+    def navigate(self, session_id: str, target: int) -> HistoryEntry:
         if target == 0:
             raise ValueError("navigation target must not be 0")
         with self.rlock:
-            branch = self.active_branch_sync(session_id)
+            branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
             if target > 0:
@@ -229,19 +207,16 @@ class SQLiteStore(Store):
             self.conn.commit()
             return self.get_entry_row(session_id, current_id)
 
-    async def navigate(self, session_id: str, target: int) -> HistoryEntry:
-        return await to_thread(self.navigate_sync, session_id, target)
-
-    async def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
+    def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
         if steps < 1:
             raise ValueError("rollback steps must be >= 1")
-        return await self.navigate(session_id, -steps)
+        return self.navigate(session_id, -steps)
 
-    def navigate_forward_sync(self, session_id: str, steps: int) -> HistoryEntry:
+    def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
         if steps < 1:
             raise ValueError("forward steps must be >= 1")
         with self.rlock:
-            branch = self.active_branch_sync(session_id)
+            branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
             tip_row = self.branch_tip_row(session_id, branch)
@@ -264,12 +239,9 @@ class SQLiteStore(Store):
             self.conn.commit()
             return self.get_entry_row(session_id, current_id)
 
-    async def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
-        return await to_thread(self.navigate_forward_sync, session_id, steps)
-
-    def create_branch_sync(self, session_id: str, name: str, from_branch: str | None) -> None:
+    def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
         with self.rlock:
-            source = from_branch or self.active_branch_sync(session_id)
+            source = from_branch or self.active_branch(session_id)
             if source is None:
                 raise ValueError(f"no active session {session_id!r}")
             row = self.branch_tip_row(session_id, source)
@@ -284,10 +256,7 @@ class SQLiteStore(Store):
             )
             self.conn.commit()
 
-    async def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
-        await to_thread(self.create_branch_sync, session_id, name, from_branch)
-
-    def switch_branch_sync(self, session_id: str, name: str) -> HistoryEntry:
+    def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
         with self.rlock:
             row = self.branch_tip_row(session_id, name)
             if row is None:
@@ -300,12 +269,9 @@ class SQLiteStore(Store):
             self.conn.commit()
             return self.get_entry_row(session_id, row["history_id"])
 
-    async def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
-        return await to_thread(self.switch_branch_sync, session_id, name)
-
-    def list_branches_sync(self, session_id: str) -> list[tuple[str, bool]]:
+    def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
         with self.rlock:
-            active = self.active_branch_sync(session_id)
+            active = self.active_branch(session_id)
             if active is None:
                 return []
             rows = self.conn.execute(
@@ -314,12 +280,9 @@ class SQLiteStore(Store):
             ).fetchall()
             return [(row["branch_name"], row["branch_name"] == active) for row in rows]
 
-    async def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
-        return await to_thread(self.list_branches_sync, session_id)
-
-    def delete_branch_sync(self, session_id: str, name: str) -> None:
+    def delete_branch(self, session_id: str, name: str) -> None:
         with self.rlock:
-            if name == self.active_branch_sync(session_id):
+            if name == self.active_branch(session_id):
                 raise ValueError("cannot delete the active branch")
             cursor = self.conn.execute(
                 "DELETE FROM session_branches WHERE session_id = ? AND branch_name = ?",
@@ -329,21 +292,12 @@ class SQLiteStore(Store):
                 raise ValueError(f"branch {name!r} does not exist")
             self.conn.commit()
 
-    async def delete_branch(self, session_id: str, name: str) -> None:
-        await to_thread(self.delete_branch_sync, session_id, name)
-
-    async def active_branch(self, session_id: str) -> str | None:
-        return await to_thread(self.active_branch_sync, session_id)
-
-    def list_sessions_sync(self) -> list[str]:
+    def list_sessions(self) -> list[str]:
         with self.rlock:
             rows = self.conn.execute("SELECT session_id FROM session_state ORDER BY session_id").fetchall()
         return [row["session_id"] for row in rows]
 
-    async def list_sessions(self) -> list[str]:
-        return await to_thread(self.list_sessions_sync)
-
-    def find_session_sync(self, name: str) -> str:
+    def find_session(self, name: str) -> str:
         with self.rlock:
             rows = self.conn.execute(
                 "SELECT session_id FROM session_state WHERE session_id LIKE ?",
@@ -361,10 +315,7 @@ class SQLiteStore(Store):
             raise ValueError(f"ambiguous session {name!r}: matches {matches}")
         return rows[0]["session_id"]
 
-    async def find_session(self, name: str) -> str:
-        return await to_thread(self.find_session_sync, name)
-
-    def delete_session_sync(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str) -> bool:
         with self.rlock:
             row = self.conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,)).fetchone()
             if row is None:
@@ -375,10 +326,7 @@ class SQLiteStore(Store):
             self.conn.commit()
             return True
 
-    async def delete_session(self, session_id: str) -> bool:
-        return await to_thread(self.delete_session_sync, session_id)
-
-    def history_dag_sync(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
+    def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         with self.rlock:
             rows = self.conn.execute(
                 "SELECT * FROM session_history WHERE session_id = ? ORDER BY id",
@@ -394,5 +342,326 @@ class SQLiteStore(Store):
             branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
         return entries, branch_map
 
+
+async def branch_tip_row_async(conn: Any, session_id: str, branch: str) -> Any:
+    cursor = await conn.execute(
+        "SELECT history_id FROM session_branches WHERE session_id = ? AND branch_name = ?",
+        (session_id, branch),
+    )
+    return await cursor.fetchone()
+
+
+async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> HistoryEntry:
+    cursor = await conn.execute(
+        "SELECT * FROM session_history WHERE id = ? AND session_id = ?",
+        (history_id, session_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
+    return entry_from_row(row)
+
+
+async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
+    cursor = await conn.execute(
+        "SELECT active_branch FROM session_state WHERE session_id = ?",
+        (session_id,),
+    )
+    row = await cursor.fetchone()
+    return row["active_branch"] if row else None
+
+
+async def latest_child_id_async(conn: Any, session_id: str, parent_id: int) -> int | None:
+    cursor = await conn.execute(
+        "SELECT id FROM session_history WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
+        (parent_id, session_id),
+    )
+    row = await cursor.fetchone()
+    return None if row is None else row["id"]
+
+
+class AsyncSQLiteStore(AsyncStore):
+    """SQLite-backed Store using aiosqlite: one file holds many sessions, keyed by session_id.
+
+    The connection opens lazily on first use, since `aiosqlite.connect()` is
+    itself a coroutine and can't run in `__init__`. `lock` (an `asyncio.Lock`,
+    not reentrant) serializes whole operations rather than individual
+    statements - unlike `SyncSQLiteStore`'s `threading.RLock`, so internal
+    helpers here never re-acquire it. Requires the `contree-sdk[async]` extra.
+    """
+
+    def __init__(self, db_path: str | Path) -> None:
+        if not AIOSQLITE_AVAILABLE:
+            raise ImportError('AsyncSQLiteStore requires aiosqlite; install it via `pip install "contree-sdk[async]"`')
+        self.db_path = Path(db_path)
+        self.conn: aiosqlite.Connection | None = None
+        self.connect_lock = Lock()
+        self.lock = Lock()
+
+    async def ensure_connection(self) -> aiosqlite.Connection:
+        if self.conn is not None:
+            return self.conn
+        async with self.connect_lock:
+            if self.conn is not None:
+                return self.conn
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = await aiosqlite.connect(str(self.db_path), timeout=DB_TIMEOUT)
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            await conn.execute(f"PRAGMA busy_timeout={int(DB_TIMEOUT * 1000)}")
+            await conn.executescript(SCHEMA)
+            self.conn = conn
+            return conn
+
+    async def close(self) -> None:
+        if self.conn is not None:
+            await self.conn.close()
+            self.conn = None
+
+    async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            return await get_entry_row_async(conn, session_id, history_id)
+
+    async def active_branch(self, session_id: str) -> str | None:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            return await active_branch_row_async(conn, session_id)
+
+    async def append(
+        self,
+        session_id: str,
+        *,
+        image_uuid: str,
+        parent_id: int | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> HistoryEntry:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            branch_name = branch or await active_branch_row_async(conn, session_id) or "main"
+            cursor = await conn.execute(
+                """
+                INSERT INTO session_history
+                    (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+            )
+            new_id = cursor.lastrowid
+            if new_id is None:
+                raise RuntimeError("INSERT into session_history did not report a row id")
+            await conn.execute(
+                """
+                INSERT INTO session_branches (session_id, branch_name, history_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
+                """,
+                (session_id, branch_name, new_id),
+            )
+            await conn.execute(
+                """
+                INSERT INTO session_state (session_id, active_branch, updated_at)
+                VALUES (?, 'main', strftime('%Y-%m-%dT%H:%M:%S','now'))
+                ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+                """,
+                (session_id,),
+            )
+            await conn.commit()
+            return await get_entry_row_async(conn, session_id, new_id)
+
+    async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            branch_name = branch or await active_branch_row_async(conn, session_id)
+            if branch_name is None:
+                return None
+            row = await branch_tip_row_async(conn, session_id, branch_name)
+            return None if row is None else await get_entry_row_async(conn, session_id, row["history_id"])
+
+    async def navigate(self, session_id: str, target: int) -> HistoryEntry:
+        if target == 0:
+            raise ValueError("navigation target must not be 0")
+        conn = await self.ensure_connection()
+        async with self.lock:
+            branch = await active_branch_row_async(conn, session_id)
+            if branch is None:
+                raise ValueError(f"no active session {session_id!r}")
+            if target > 0:
+                current_id = target
+                await get_entry_row_async(conn, session_id, current_id)
+            else:
+                tip_row = await branch_tip_row_async(conn, session_id, branch)
+                if tip_row is None:
+                    raise ValueError(f"no active session {session_id!r}")
+                current_id = tip_row["history_id"]
+                for step in range(-target):
+                    entry = await get_entry_row_async(conn, session_id, current_id)
+                    if entry.parent_id is None:
+                        raise ValueError(f"cannot go back {-target} steps: only {step} ancestors available")
+                    current_id = entry.parent_id
+            await conn.execute(
+                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                (current_id, session_id, branch),
+            )
+            await conn.execute(
+                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.commit()
+            return await get_entry_row_async(conn, session_id, current_id)
+
+    async def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
+        if steps < 1:
+            raise ValueError("rollback steps must be >= 1")
+        return await self.navigate(session_id, -steps)
+
+    async def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
+        if steps < 1:
+            raise ValueError("forward steps must be >= 1")
+        conn = await self.ensure_connection()
+        async with self.lock:
+            branch = await active_branch_row_async(conn, session_id)
+            if branch is None:
+                raise ValueError(f"no active session {session_id!r}")
+            tip_row = await branch_tip_row_async(conn, session_id, branch)
+            if tip_row is None:
+                raise ValueError(f"no active session {session_id!r}")
+            current_id = tip_row["history_id"]
+            for step in range(steps):
+                child_id = await latest_child_id_async(conn, session_id, current_id)
+                if child_id is None:
+                    raise ValueError(f"cannot go forward {steps} steps: only {step} children available")
+                current_id = child_id
+            await conn.execute(
+                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                (current_id, session_id, branch),
+            )
+            await conn.execute(
+                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                (session_id,),
+            )
+            await conn.commit()
+            return await get_entry_row_async(conn, session_id, current_id)
+
+    async def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            source = from_branch or await active_branch_row_async(conn, session_id)
+            if source is None:
+                raise ValueError(f"no active session {session_id!r}")
+            row = await branch_tip_row_async(conn, session_id, source)
+            if row is None:
+                raise ValueError(f"source branch {source!r} does not exist")
+            existing = await branch_tip_row_async(conn, session_id, name)
+            if existing is not None:
+                raise ValueError(f"branch {name!r} already exists")
+            await conn.execute(
+                "INSERT INTO session_branches (session_id, branch_name, history_id) VALUES (?, ?, ?)",
+                (session_id, name, row["history_id"]),
+            )
+            await conn.commit()
+
+    async def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            row = await branch_tip_row_async(conn, session_id, name)
+            if row is None:
+                raise ValueError(f"branch {name!r} does not exist")
+            await conn.execute(
+                "UPDATE session_state SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
+                "WHERE session_id = ?",
+                (name, session_id),
+            )
+            await conn.commit()
+            return await get_entry_row_async(conn, session_id, row["history_id"])
+
+    async def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            active = await active_branch_row_async(conn, session_id)
+            if active is None:
+                return []
+            cursor = await conn.execute(
+                "SELECT branch_name FROM session_branches WHERE session_id = ? ORDER BY branch_name",
+                (session_id,),
+            )
+            rows = await cursor.fetchall()
+            return [(row["branch_name"], row["branch_name"] == active) for row in rows]
+
+    async def delete_branch(self, session_id: str, name: str) -> None:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            if name == await active_branch_row_async(conn, session_id):
+                raise ValueError("cannot delete the active branch")
+            cursor = await conn.execute(
+                "DELETE FROM session_branches WHERE session_id = ? AND branch_name = ?",
+                (session_id, name),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"branch {name!r} does not exist")
+            await conn.commit()
+
+    async def list_sessions(self) -> list[str]:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute("SELECT session_id FROM session_state ORDER BY session_id")
+            rows = await cursor.fetchall()
+        return [row["session_id"] for row in rows]
+
+    async def find_session(self, name: str) -> str:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute(
+                "SELECT session_id FROM session_state WHERE session_id LIKE ?",
+                (f"%_{name}",),
+            )
+            rows = list(await cursor.fetchall())
+            if not rows:
+                cursor = await conn.execute(
+                    "SELECT session_id FROM session_state WHERE session_id = ?",
+                    (name,),
+                )
+                rows = list(await cursor.fetchall())
+        if not rows:
+            raise ValueError(f"session {name!r} not found")
+        if len(rows) > 1:
+            matches = ", ".join(row["session_id"] for row in rows)
+            raise ValueError(f"ambiguous session {name!r}: matches {matches}")
+        return rows[0]["session_id"]
+
+    async def delete_session(self, session_id: str) -> bool:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,))
+            row = await cursor.fetchone()
+            if row is None:
+                return False
+            await conn.execute("DELETE FROM session_branches WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_history WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_state WHERE session_id = ?", (session_id,))
+            await conn.commit()
+            return True
+
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        return await to_thread(self.history_dag_sync, session_id)
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute(
+                "SELECT * FROM session_history WHERE session_id = ? ORDER BY id",
+                (session_id,),
+            )
+            rows = await cursor.fetchall()
+            entries = [entry_from_row(row) for row in rows]
+            branch_cursor = await conn.execute(
+                "SELECT history_id, branch_name FROM session_branches WHERE session_id = ?",
+                (session_id,),
+            )
+            branch_rows = await branch_cursor.fetchall()
+        branch_map: dict[int, list[str]] = {}
+        for row in branch_rows:
+            branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
+        return entries, branch_map

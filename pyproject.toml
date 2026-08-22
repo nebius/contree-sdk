@@ -24,6 +24,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+async = [
+    "aiosqlite>=0.20",
+    "contree-client[aiohttp]",
+]
+
 dev = [
     # for tests
     "pytest>=8.4.1",
@@ -36,6 +41,7 @@ dev = [
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
+    "contree-sdk[async]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -220,6 +226,10 @@ extend-ignore = [
 
 "contree_sdk/store/sqlite.py" = [
     "PLR0904", # too-many-public-methods: paired async/sync methods for every Store operation
+]
+
+"contree_sdk/session/{sync,asyncio}.py" = [
+    "PLR0913", # too-many-arguments: mirrors contree_client.spawn_instance's rich kwarg surface
 ]
 
 "examples/**" = [

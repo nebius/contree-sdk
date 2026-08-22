@@ -14,7 +14,7 @@ from contree_client.models import (
 from contree_client.testing import ContreeAsyncClient as MockAsyncClient
 from contree_client.testing import ContreeClient as MockSyncClient
 
-from contree_sdk.store import SQLiteStore
+from contree_sdk.store import SyncSQLiteStore
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
@@ -76,7 +76,7 @@ def api_fake_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("contree_client.sync.ContreeClient", lambda *args, **kwargs: client)
 
     db_path = tmp_path / "contree-example.db"
-    monkeypatch.setattr("contree_sdk.store.SQLiteStore", lambda *args, **kwargs: SQLiteStore(db_path))
+    monkeypatch.setattr("contree_sdk.store.SyncSQLiteStore", lambda *args, **kwargs: SyncSQLiteStore(db_path))
 
 
 @pytest.fixture

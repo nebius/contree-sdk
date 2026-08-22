@@ -19,7 +19,7 @@ from contree_sdk.session.base import (
     stream_repr_for_stdin,
     validate_command,
 )
-from contree_sdk.store import HistoryEntry, MemoryStore, Store
+from contree_sdk.store import AsyncMemoryStore, AsyncStore, HistoryEntry
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 
 
@@ -37,13 +37,13 @@ class ContreeAsyncSession:
         *,
         image: str | None = None,
         session_id: str | None = None,
-        store: Store | None = None,
+        store: AsyncStore | None = None,
         cwd: str | None = None,
     ) -> None:
         if image is None and session_id is None:
             raise ValueError("either image or session_id must be provided")
         self.client = client
-        self.store = store or MemoryStore()
+        self.store = store or AsyncMemoryStore()
         self.session_id = session_id or new_session_id()
         self.image = image
         self.cwd = cwd
@@ -100,6 +100,7 @@ class ContreeAsyncSession:
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        branch: str | None = None,
     ) -> InstanceResult:
         resolved_command = validate_command(command, shell)
         await self.ensure_ready()
@@ -142,6 +143,7 @@ class ContreeAsyncSession:
                 title=resolved_command,
                 operation_uuid=operation_uuid,
                 exit_code=exit_code_of(result),
+                branch=branch,
             )
             self.tip_id = entry.id
             self.image_uuid = entry.image_uuid

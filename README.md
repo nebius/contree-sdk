@@ -141,15 +141,20 @@ make rtd-dev
 
 A **`ContreeSession`** is a durable pointer into an image's history. `.run()` returns `contree-client`'s `InstanceResult` as-is — no SDK-invented result type — so `result.stdout`/`.stderr` (decode with `.as_text()`/`.as_bytes()`) and `result.state.exit_code` are exactly what the API returned (`FailedOperationError` is raised instead if the operation itself failed with no result at all). Every non-disposable `.run()` call also appends a new entry to a **`Store`** (the image UUID it produced, the command, the exit code) and moves the session's pointer forward — like a commit advancing a Git branch.
 
+`Store` and `Cache` (used by the Docker builder) ship as matched sync/async
+pairs — `SyncStore`/`AsyncStore`, `SyncCache`/`AsyncCache` — so `ContreeSession`
+(sync) never blocks on hidden async bridging, and `ContreeAsyncSession` never
+blocks the event loop. Pick the one that matches your client.
+
 Two `Store` implementations ship with the SDK:
 
-- **`MemoryStore`** (the default when `store=` is omitted) — history lives only for the lifetime of the Python process.
-- **`SQLiteStore(path)`** — history is written to a SQLite file (WAL mode), so a session survives process restarts and can be shared across processes.
+- **`SyncMemoryStore`/`AsyncMemoryStore`** (the default when `store=` is omitted) — history lives only for the lifetime of the Python process.
+- **`SyncSQLiteStore`/`AsyncSQLiteStore(path)`** — history is written to a SQLite file (WAL mode), so a session survives process restarts and can be shared across processes. The async variant requires the `contree-sdk[async]` extra (`aiosqlite`).
 
 ```python fixture:api_fake_store fixture:name:test_sessions_and_store
 from contree_client.sync import ContreeClient
 from contree_sdk.session import ContreeSession
-from contree_sdk.store import SQLiteStore
+from contree_sdk.store import SyncSQLiteStore
 
 
 def main():
@@ -159,7 +164,7 @@ def main():
 
         # durable history, shared across processes via one SQLite file
         sqlite_session = ContreeSession(
-            client, image="tag:python:3.11-slim", store=SQLiteStore("/tmp/contree-example.db")
+            client, image="tag:python:3.11-slim", store=SyncSQLiteStore("/tmp/contree-example.db")
         )
 
         result = sqlite_session.run(shell="echo first > /tmp/marker.txt", disposable=False)
@@ -200,17 +205,17 @@ main()
 
 ### Resuming a session
 
-Pass the same `session_id` and `Store` again to pick up exactly where a session left off — even from a different process, as long as the `Store` is a `SQLiteStore` pointed at the same file.
+Pass the same `session_id` and `Store` again to pick up exactly where a session left off — even from a different process, as long as the `Store` is a `SyncSQLiteStore` pointed at the same file.
 
 ```python fixture:api_fake_resume fixture:name:test_resume_session
 from contree_client.sync import ContreeClient
 from contree_sdk.session import ContreeSession
-from contree_sdk.store import MemoryStore
+from contree_sdk.store import SyncMemoryStore
 
 
 def main():
     with ContreeClient(token="fake-token") as client:
-        store = MemoryStore()
+        store = SyncMemoryStore()
 
         first = ContreeSession(client, image="tag:python:3.11-slim", store=store, session_id="my-session")
         first.run(shell="echo hi > /tmp/state.txt", disposable=False)

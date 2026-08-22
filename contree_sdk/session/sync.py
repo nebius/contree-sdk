@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from contree_sdk._internals.io.typing import INPUT_TYPES
 from contree_sdk._internals.io.wiring import read_input_sync
-from contree_sdk._internals.utils.wrapper import coro_sync
 from contree_sdk.session.base import (
     RunFiles,
     exit_code_of,
@@ -19,7 +18,7 @@ from contree_sdk.session.base import (
     stream_repr_for_stdin,
     validate_command,
 )
-from contree_sdk.store import HistoryEntry, MemoryStore, Store
+from contree_sdk.store import HistoryEntry, SyncMemoryStore, SyncStore
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 
 
@@ -37,23 +36,23 @@ class ContreeSession:
         *,
         image: str | None = None,
         session_id: str | None = None,
-        store: Store | None = None,
+        store: SyncStore | None = None,
         cwd: str | None = None,
     ) -> None:
         if image is None and session_id is None:
             raise ValueError("either image or session_id must be provided")
         self.client = client
-        self.store = store or MemoryStore()
+        self.store = store or SyncMemoryStore()
         self.session_id = session_id or new_session_id()
         self.cwd = cwd
 
-        tip = coro_sync(self.store.tip(self.session_id))
+        tip = self.store.tip(self.session_id)
         if tip is not None:
             self.image_uuid = tip.image_uuid
             self.tip_id = tip.id
         elif image is not None:
             resolved = client.resolve_image(image)
-            entry = coro_sync(self.store.append(self.session_id, image_uuid=resolved, parent_id=None, kind="init"))
+            entry = self.store.append(self.session_id, image_uuid=resolved, parent_id=None, kind="init")
             self.image_uuid = entry.image_uuid
             self.tip_id = entry.id
         else:
@@ -91,6 +90,7 @@ class ContreeSession:
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        branch: str | None = None,
     ) -> InstanceResult:
         resolved_command = validate_command(command, shell)
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
@@ -124,16 +124,15 @@ class ContreeSession:
             result_image_uuid = require_str(
                 operation.result_image_uuid, "operation succeeded but reported no result image"
             )
-            entry = coro_sync(
-                self.store.append(
-                    self.session_id,
-                    image_uuid=result_image_uuid,
-                    parent_id=self.tip_id,
-                    kind="run",
-                    title=resolved_command,
-                    operation_uuid=operation_uuid,
-                    exit_code=exit_code_of(result),
-                )
+            entry = self.store.append(
+                self.session_id,
+                image_uuid=result_image_uuid,
+                parent_id=self.tip_id,
+                kind="run",
+                title=resolved_command,
+                operation_uuid=operation_uuid,
+                exit_code=exit_code_of(result),
+                branch=branch,
             )
             self.tip_id = entry.id
             self.image_uuid = entry.image_uuid
@@ -145,29 +144,29 @@ class ContreeSession:
         self.image_uuid = entry.image_uuid
 
     def create_branch(self, name: str, *, from_branch: str | None = None) -> None:
-        coro_sync(self.store.create_branch(self.session_id, name, from_branch=from_branch))
+        self.store.create_branch(self.session_id, name, from_branch=from_branch)
 
     def switch_branch(self, name: str) -> None:
-        entry = coro_sync(self.store.switch_branch(self.session_id, name))
+        entry = self.store.switch_branch(self.session_id, name)
         self.refresh_from_entry(entry)
 
     def list_branches(self) -> list[tuple[str, bool]]:
-        return coro_sync(self.store.list_branches(self.session_id))
+        return self.store.list_branches(self.session_id)
 
     def delete_branch(self, name: str) -> None:
-        coro_sync(self.store.delete_branch(self.session_id, name))
+        self.store.delete_branch(self.session_id, name)
 
     def rollback(self, steps: int = 1) -> None:
-        entry = coro_sync(self.store.rollback(self.session_id, steps))
+        entry = self.store.rollback(self.session_id, steps)
         self.refresh_from_entry(entry)
 
     def navigate(self, target: int) -> None:
-        entry = coro_sync(self.store.navigate(self.session_id, target))
+        entry = self.store.navigate(self.session_id, target)
         self.refresh_from_entry(entry)
 
     def navigate_forward(self, steps: int = 1) -> None:
-        entry = coro_sync(self.store.navigate_forward(self.session_id, steps))
+        entry = self.store.navigate_forward(self.session_id, steps)
         self.refresh_from_entry(entry)
 
     def history(self) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        return coro_sync(self.store.history_dag(self.session_id))
+        return self.store.history_dag(self.session_id)

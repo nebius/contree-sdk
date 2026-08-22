@@ -4,7 +4,7 @@ from contree_client.testing import ContreeAsyncClient
 
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.session import ContreeAsyncSession
-from contree_sdk.store import MemoryStore
+from contree_sdk.store import AsyncMemoryStore
 from tests.unit.session.factories import operation_response, spawn_response
 
 
@@ -16,7 +16,7 @@ def client() -> ContreeAsyncClient:
 
 
 async def test_construct_resolves_image_and_seeds_history(client: ContreeAsyncClient):
-    store = MemoryStore()
+    store = AsyncMemoryStore()
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=store)
 
     await session.ensure_ready()
@@ -31,7 +31,7 @@ def test_construct_requires_image_or_session_id(client: ContreeAsyncClient):
 
 
 async def test_construct_resumes_from_existing_session(client: ContreeAsyncClient):
-    store = MemoryStore()
+    store = AsyncMemoryStore()
     first = ContreeAsyncSession(client, image="tag:python:3.11", store=store, session_id="my-session")
     await first.ensure_ready()
 
@@ -44,7 +44,7 @@ async def test_construct_resumes_from_existing_session(client: ContreeAsyncClien
 async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     client.mock("wait_operation", operation_response())
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="echo hi")
 
@@ -58,7 +58,7 @@ async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClien
 async def test_run_non_disposable_advances_history_and_pointer(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="echo hi", disposable=False)
 
@@ -73,7 +73,7 @@ async def test_run_non_disposable_advances_history_and_pointer(client: ContreeAs
 async def test_run_nonzero_exit_code_is_not_an_error(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="false")
 
@@ -87,20 +87,20 @@ async def test_run_operation_failure_without_result_raises(client: ContreeAsyncC
         "wait_operation",
         operation_response(status=OperationStatus.FAILED, error="vm could not start", with_result=False),
     )
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     with pytest.raises(FailedOperationError):
         await session.run(shell="echo hi")
 
 
 async def test_run_requires_command_or_shell(client: ContreeAsyncClient):
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
     with pytest.raises(ValueError):
         await session.run()
 
 
 async def test_run_rejects_both_command_and_shell(client: ContreeAsyncClient):
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
     with pytest.raises(ValueError):
         await session.run(command="echo hi", shell="echo hi")
 
@@ -108,7 +108,7 @@ async def test_run_rejects_both_command_and_shell(client: ContreeAsyncClient):
 async def test_branch_and_rollback_update_live_pointer(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1"))
-    session = ContreeAsyncSession(client, image="tag:python:3.11", store=MemoryStore())
+    session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
     await session.run(shell="echo hi", disposable=False)
 
     await session.create_branch("feature")
