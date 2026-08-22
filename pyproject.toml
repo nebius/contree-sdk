@@ -232,6 +232,11 @@ extend-ignore = [
     "PLR0913", # too-many-arguments: mirrors contree_client.spawn_instance's rich kwarg surface
 ]
 
+"contree_sdk/docker/url_fetch.py" = [
+    "PLW0717", # too-many-statements-in-try-clause: optional aiohttp/httpx fallback chain, each branch is one cohesive implementation
+    "RUF029",  # unused-async: the no-client-available fallback keeps the same async signature as its siblings
+]
+
 "examples/**" = [
     "ASYNC230", # blocking-open-call-in-async-function
     "RUF059",   # unused-unpacked-variable
