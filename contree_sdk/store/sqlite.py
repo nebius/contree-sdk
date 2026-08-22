@@ -4,7 +4,9 @@ import os
 import sqlite3
 import threading
 from asyncio import Lock
-from datetime import datetime
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +24,11 @@ except ImportError:
 DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS session_history (
+CREATE TABLE IF NOT EXISTS session_history_v1 (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id     TEXT NOT NULL,
     image_uuid     TEXT NOT NULL,
-    parent_id      INTEGER REFERENCES session_history(id),
+    parent_id      INTEGER REFERENCES session_history_v1(id),
     kind           TEXT NOT NULL DEFAULT '',
     title          TEXT NOT NULL DEFAULT '',
     operation_uuid TEXT,
@@ -34,25 +36,33 @@ CREATE TABLE IF NOT EXISTS session_history (
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
 );
 
-CREATE TABLE IF NOT EXISTS session_branches (
+CREATE TABLE IF NOT EXISTS session_branches_v1 (
     session_id  TEXT NOT NULL,
     branch_name TEXT NOT NULL,
-    history_id  INTEGER NOT NULL REFERENCES session_history(id),
+    history_id  INTEGER NOT NULL REFERENCES session_history_v1(id),
     PRIMARY KEY (session_id, branch_name)
 );
 
-CREATE TABLE IF NOT EXISTS session_state (
+CREATE TABLE IF NOT EXISTS session_state_v1 (
     session_id    TEXT PRIMARY KEY,
     active_branch TEXT NOT NULL DEFAULT 'main',
     updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
 );
 
-CREATE INDEX IF NOT EXISTS ix_history_session ON session_history(session_id);
-CREATE INDEX IF NOT EXISTS ix_history_parent ON session_history(parent_id);
+CREATE INDEX IF NOT EXISTS ix_history_v1_session ON session_history_v1(session_id);
+CREATE INDEX IF NOT EXISTS ix_history_v1_parent ON session_history_v1(parent_id);
 """
 
 
+def escape_like(value: str) -> str:
+    # escape SQL LIKE's own wildcards so a literal `_`/`%` in a session_id suffix
+    # doesn't get treated as "match any single/any run of characters"
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def entry_from_row(row: Any) -> HistoryEntry:
+    # column values are naive UTC (SQLite's strftime('%Y-%m-%dT%H:%M:%S','now')), so
+    # attach tzinfo explicitly to match MemoryStore's datetime.now(timezone.utc)
     return HistoryEntry(
         id=row["id"],
         session_id=row["session_id"],
@@ -62,7 +72,7 @@ def entry_from_row(row: Any) -> HistoryEntry:
         title=row["title"],
         operation_uuid=row["operation_uuid"],
         exit_code=row["exit_code"],
-        created_at=datetime.fromisoformat(row["created_at"]),
+        created_at=datetime.fromisoformat(row["created_at"]).replace(tzinfo=timezone.utc),
     )
 
 
@@ -72,6 +82,12 @@ class SyncSQLiteStore(SyncStore):
     WAL journal mode + a busy timeout make the file safe to share across
     *processes*. `check_same_thread=False` plus a `threading.RLock` make one
     instance safe to share across *threads* within this process too.
+
+    No in-place schema migrations: tables are named `session_history_v1`,
+    `session_branches_v1`, `session_state_v1`. A future schema change bumps
+    the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1` tables in
+    place - old data under the previous suffix is abandoned, not migrated
+    forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -88,17 +104,27 @@ class SyncSQLiteStore(SyncStore):
     def close(self) -> None:
         self.conn.close()
 
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        # roll back on ANY exception mid-write, so a failed write never leaves this
+        # connection's next statement silently continuing inside a half-done transaction
+        try:
+            yield
+        except BaseException:
+            self.conn.rollback()
+            raise
+
     def branch_tip_row(self, session_id: str, branch: str) -> sqlite3.Row | None:
         with self.rlock:
             return self.conn.execute(
-                "SELECT history_id FROM session_branches WHERE session_id = ? AND branch_name = ?",
+                "SELECT history_id FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
                 (session_id, branch),
             ).fetchone()
 
     def get_entry_row(self, session_id: str, history_id: int) -> HistoryEntry:
         with self.rlock:
             row = self.conn.execute(
-                "SELECT * FROM session_history WHERE id = ? AND session_id = ?",
+                "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
                 (history_id, session_id),
             ).fetchone()
         if row is None:
@@ -111,7 +137,7 @@ class SyncSQLiteStore(SyncStore):
     def active_branch(self, session_id: str) -> str | None:
         with self.rlock:
             row = self.conn.execute(
-                "SELECT active_branch FROM session_state WHERE session_id = ?",
+                "SELECT active_branch FROM session_state_v1 WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
         return row["active_branch"] if row else None
@@ -119,7 +145,7 @@ class SyncSQLiteStore(SyncStore):
     def latest_child_id(self, session_id: str, parent_id: int) -> int | None:
         with self.rlock:
             row = self.conn.execute(
-                "SELECT id FROM session_history WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id FROM session_history_v1 WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
                 (parent_id, session_id),
             ).fetchone()
         return None if row is None else row["id"]
@@ -136,11 +162,11 @@ class SyncSQLiteStore(SyncStore):
         exit_code: int | None = None,
         branch: str | None = None,
     ) -> HistoryEntry:
-        with self.rlock:
+        with self.rlock, self.transaction():
             branch_name = branch or self.active_branch(session_id) or "main"
             cursor = self.conn.execute(
                 """
-                INSERT INTO session_history
+                INSERT INTO session_history_v1
                     (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -148,10 +174,10 @@ class SyncSQLiteStore(SyncStore):
             )
             new_id = cursor.lastrowid
             if new_id is None:
-                raise RuntimeError("INSERT into session_history did not report a row id")
+                raise RuntimeError("INSERT into session_history_v1 did not report a row id")
             self.conn.execute(
                 """
-                INSERT INTO session_branches (session_id, branch_name, history_id)
+                INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
                 VALUES (?, ?, ?)
                 ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
                 """,
@@ -159,11 +185,11 @@ class SyncSQLiteStore(SyncStore):
             )
             self.conn.execute(
                 """
-                INSERT INTO session_state (session_id, active_branch, updated_at)
-                VALUES (?, 'main', strftime('%Y-%m-%dT%H:%M:%S','now'))
+                INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
+                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
                 ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
                 """,
-                (session_id,),
+                (session_id, branch_name),
             )
             self.conn.commit()
             return self.get_entry_row(session_id, new_id)
@@ -179,7 +205,7 @@ class SyncSQLiteStore(SyncStore):
     def navigate(self, session_id: str, target: int) -> HistoryEntry:
         if target == 0:
             raise ValueError("navigation target must not be 0")
-        with self.rlock:
+        with self.rlock, self.transaction():
             branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -197,11 +223,11 @@ class SyncSQLiteStore(SyncStore):
                         raise ValueError(f"cannot go back {-target} steps: only {step} ancestors available")
                     current_id = entry.parent_id
             self.conn.execute(
-                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
                 (current_id, session_id, branch),
             )
             self.conn.execute(
-                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
             self.conn.commit()
@@ -215,7 +241,7 @@ class SyncSQLiteStore(SyncStore):
     def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
         if steps < 1:
             raise ValueError("forward steps must be >= 1")
-        with self.rlock:
+        with self.rlock, self.transaction():
             branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -229,18 +255,18 @@ class SyncSQLiteStore(SyncStore):
                     raise ValueError(f"cannot go forward {steps} steps: only {step} children available")
                 current_id = child_id
             self.conn.execute(
-                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
                 (current_id, session_id, branch),
             )
             self.conn.execute(
-                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
             self.conn.commit()
             return self.get_entry_row(session_id, current_id)
 
     def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
-        with self.rlock:
+        with self.rlock, self.transaction():
             source = from_branch or self.active_branch(session_id)
             if source is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -251,18 +277,18 @@ class SyncSQLiteStore(SyncStore):
             if existing is not None:
                 raise ValueError(f"branch {name!r} already exists")
             self.conn.execute(
-                "INSERT INTO session_branches (session_id, branch_name, history_id) VALUES (?, ?, ?)",
+                "INSERT INTO session_branches_v1 (session_id, branch_name, history_id) VALUES (?, ?, ?)",
                 (session_id, name, row["history_id"]),
             )
             self.conn.commit()
 
     def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
-        with self.rlock:
+        with self.rlock, self.transaction():
             row = self.branch_tip_row(session_id, name)
             if row is None:
                 raise ValueError(f"branch {name!r} does not exist")
             self.conn.execute(
-                "UPDATE session_state SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
+                "UPDATE session_state_v1 SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
                 "WHERE session_id = ?",
                 (name, session_id),
             )
@@ -275,17 +301,17 @@ class SyncSQLiteStore(SyncStore):
             if active is None:
                 return []
             rows = self.conn.execute(
-                "SELECT branch_name FROM session_branches WHERE session_id = ? ORDER BY branch_name",
+                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ? ORDER BY branch_name",
                 (session_id,),
             ).fetchall()
             return [(row["branch_name"], row["branch_name"] == active) for row in rows]
 
     def delete_branch(self, session_id: str, name: str) -> None:
-        with self.rlock:
+        with self.rlock, self.transaction():
             if name == self.active_branch(session_id):
                 raise ValueError("cannot delete the active branch")
             cursor = self.conn.execute(
-                "DELETE FROM session_branches WHERE session_id = ? AND branch_name = ?",
+                "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
                 (session_id, name),
             )
             if cursor.rowcount == 0:
@@ -294,20 +320,21 @@ class SyncSQLiteStore(SyncStore):
 
     def list_sessions(self) -> list[str]:
         with self.rlock:
-            rows = self.conn.execute("SELECT session_id FROM session_state ORDER BY session_id").fetchall()
+            rows = self.conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id").fetchall()
         return [row["session_id"] for row in rows]
 
     def find_session(self, name: str) -> str:
         with self.rlock:
+            exact = self.conn.execute(
+                "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
+                (name,),
+            ).fetchone()
+            if exact is not None:
+                return exact["session_id"]
             rows = self.conn.execute(
-                "SELECT session_id FROM session_state WHERE session_id LIKE ?",
-                (f"%_{name}",),
+                "SELECT session_id FROM session_state_v1 WHERE session_id LIKE ? ESCAPE '\\'",
+                (f"%\\_{escape_like(name)}",),
             ).fetchall()
-            if not rows:
-                rows = self.conn.execute(
-                    "SELECT session_id FROM session_state WHERE session_id = ?",
-                    (name,),
-                ).fetchall()
         if not rows:
             raise ValueError(f"session {name!r} not found")
         if len(rows) > 1:
@@ -316,25 +343,25 @@ class SyncSQLiteStore(SyncStore):
         return rows[0]["session_id"]
 
     def delete_session(self, session_id: str) -> bool:
-        with self.rlock:
-            row = self.conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,)).fetchone()
+        with self.rlock, self.transaction():
+            row = self.conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,)).fetchone()
             if row is None:
                 return False
-            self.conn.execute("DELETE FROM session_branches WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_history WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_state WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
             self.conn.commit()
             return True
 
     def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         with self.rlock:
             rows = self.conn.execute(
-                "SELECT * FROM session_history WHERE session_id = ? ORDER BY id",
+                "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
                 (session_id,),
             ).fetchall()
             entries = [entry_from_row(row) for row in rows]
             branch_rows = self.conn.execute(
-                "SELECT history_id, branch_name FROM session_branches WHERE session_id = ?",
+                "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
                 (session_id,),
             ).fetchall()
         branch_map: dict[int, list[str]] = {}
@@ -345,7 +372,7 @@ class SyncSQLiteStore(SyncStore):
 
 async def branch_tip_row_async(conn: Any, session_id: str, branch: str) -> Any:
     cursor = await conn.execute(
-        "SELECT history_id FROM session_branches WHERE session_id = ? AND branch_name = ?",
+        "SELECT history_id FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
         (session_id, branch),
     )
     return await cursor.fetchone()
@@ -353,7 +380,7 @@ async def branch_tip_row_async(conn: Any, session_id: str, branch: str) -> Any:
 
 async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> HistoryEntry:
     cursor = await conn.execute(
-        "SELECT * FROM session_history WHERE id = ? AND session_id = ?",
+        "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
         (history_id, session_id),
     )
     row = await cursor.fetchone()
@@ -364,7 +391,7 @@ async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> Hi
 
 async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
     cursor = await conn.execute(
-        "SELECT active_branch FROM session_state WHERE session_id = ?",
+        "SELECT active_branch FROM session_state_v1 WHERE session_id = ?",
         (session_id,),
     )
     row = await cursor.fetchone()
@@ -373,7 +400,7 @@ async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
 
 async def latest_child_id_async(conn: Any, session_id: str, parent_id: int) -> int | None:
     cursor = await conn.execute(
-        "SELECT id FROM session_history WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
+        "SELECT id FROM session_history_v1 WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
         (parent_id, session_id),
     )
     row = await cursor.fetchone()
@@ -388,6 +415,12 @@ class AsyncSQLiteStore(AsyncStore):
     not reentrant) serializes whole operations rather than individual
     statements - unlike `SyncSQLiteStore`'s `threading.RLock`, so internal
     helpers here never re-acquire it. Requires the `contree-sdk[async]` extra.
+
+    No in-place schema migrations: tables are named `session_history_v1`,
+    `session_branches_v1`, `session_state_v1`. A future schema change bumps
+    the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1` tables in
+    place - old data under the previous suffix is abandoned, not migrated
+    forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -419,6 +452,20 @@ class AsyncSQLiteStore(AsyncStore):
             await self.conn.close()
             self.conn = None
 
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        # roll back on ANY exception mid-write (including asyncio.CancelledError, a
+        # BaseException), so a cancelled/failed write never leaves this connection's
+        # next statement silently continuing inside a half-done transaction
+        conn = self.conn
+        if conn is None:
+            raise RuntimeError("transaction() requires an established connection")
+        try:
+            yield
+        except BaseException:
+            await conn.rollback()
+            raise
+
     async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         conn = await self.ensure_connection()
         async with self.lock:
@@ -442,11 +489,11 @@ class AsyncSQLiteStore(AsyncStore):
         branch: str | None = None,
     ) -> HistoryEntry:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             branch_name = branch or await active_branch_row_async(conn, session_id) or "main"
             cursor = await conn.execute(
                 """
-                INSERT INTO session_history
+                INSERT INTO session_history_v1
                     (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -454,10 +501,10 @@ class AsyncSQLiteStore(AsyncStore):
             )
             new_id = cursor.lastrowid
             if new_id is None:
-                raise RuntimeError("INSERT into session_history did not report a row id")
+                raise RuntimeError("INSERT into session_history_v1 did not report a row id")
             await conn.execute(
                 """
-                INSERT INTO session_branches (session_id, branch_name, history_id)
+                INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
                 VALUES (?, ?, ?)
                 ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
                 """,
@@ -465,11 +512,11 @@ class AsyncSQLiteStore(AsyncStore):
             )
             await conn.execute(
                 """
-                INSERT INTO session_state (session_id, active_branch, updated_at)
-                VALUES (?, 'main', strftime('%Y-%m-%dT%H:%M:%S','now'))
+                INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
+                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
                 ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
                 """,
-                (session_id,),
+                (session_id, branch_name),
             )
             await conn.commit()
             return await get_entry_row_async(conn, session_id, new_id)
@@ -487,7 +534,7 @@ class AsyncSQLiteStore(AsyncStore):
         if target == 0:
             raise ValueError("navigation target must not be 0")
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             branch = await active_branch_row_async(conn, session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -505,11 +552,11 @@ class AsyncSQLiteStore(AsyncStore):
                         raise ValueError(f"cannot go back {-target} steps: only {step} ancestors available")
                     current_id = entry.parent_id
             await conn.execute(
-                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
                 (current_id, session_id, branch),
             )
             await conn.execute(
-                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
             await conn.commit()
@@ -524,7 +571,7 @@ class AsyncSQLiteStore(AsyncStore):
         if steps < 1:
             raise ValueError("forward steps must be >= 1")
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             branch = await active_branch_row_async(conn, session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -538,11 +585,11 @@ class AsyncSQLiteStore(AsyncStore):
                     raise ValueError(f"cannot go forward {steps} steps: only {step} children available")
                 current_id = child_id
             await conn.execute(
-                "UPDATE session_branches SET history_id = ? WHERE session_id = ? AND branch_name = ?",
+                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
                 (current_id, session_id, branch),
             )
             await conn.execute(
-                "UPDATE session_state SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
+                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
             await conn.commit()
@@ -550,7 +597,7 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             source = from_branch or await active_branch_row_async(conn, session_id)
             if source is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -561,19 +608,19 @@ class AsyncSQLiteStore(AsyncStore):
             if existing is not None:
                 raise ValueError(f"branch {name!r} already exists")
             await conn.execute(
-                "INSERT INTO session_branches (session_id, branch_name, history_id) VALUES (?, ?, ?)",
+                "INSERT INTO session_branches_v1 (session_id, branch_name, history_id) VALUES (?, ?, ?)",
                 (session_id, name, row["history_id"]),
             )
             await conn.commit()
 
     async def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             row = await branch_tip_row_async(conn, session_id, name)
             if row is None:
                 raise ValueError(f"branch {name!r} does not exist")
             await conn.execute(
-                "UPDATE session_state SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
+                "UPDATE session_state_v1 SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
                 "WHERE session_id = ?",
                 (name, session_id),
             )
@@ -587,7 +634,7 @@ class AsyncSQLiteStore(AsyncStore):
             if active is None:
                 return []
             cursor = await conn.execute(
-                "SELECT branch_name FROM session_branches WHERE session_id = ? ORDER BY branch_name",
+                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ? ORDER BY branch_name",
                 (session_id,),
             )
             rows = await cursor.fetchall()
@@ -595,11 +642,11 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def delete_branch(self, session_id: str, name: str) -> None:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.transaction():
             if name == await active_branch_row_async(conn, session_id):
                 raise ValueError("cannot delete the active branch")
             cursor = await conn.execute(
-                "DELETE FROM session_branches WHERE session_id = ? AND branch_name = ?",
+                "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
                 (session_id, name),
             )
             if cursor.rowcount == 0:
@@ -609,7 +656,7 @@ class AsyncSQLiteStore(AsyncStore):
     async def list_sessions(self) -> list[str]:
         conn = await self.ensure_connection()
         async with self.lock:
-            cursor = await conn.execute("SELECT session_id FROM session_state ORDER BY session_id")
+            cursor = await conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id")
             rows = await cursor.fetchall()
         return [row["session_id"] for row in rows]
 
@@ -617,16 +664,17 @@ class AsyncSQLiteStore(AsyncStore):
         conn = await self.ensure_connection()
         async with self.lock:
             cursor = await conn.execute(
-                "SELECT session_id FROM session_state WHERE session_id LIKE ?",
-                (f"%_{name}",),
+                "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
+                (name,),
+            )
+            exact = await cursor.fetchone()
+            if exact is not None:
+                return exact["session_id"]
+            cursor = await conn.execute(
+                "SELECT session_id FROM session_state_v1 WHERE session_id LIKE ? ESCAPE '\\'",
+                (f"%\\_{escape_like(name)}",),
             )
             rows = list(await cursor.fetchall())
-            if not rows:
-                cursor = await conn.execute(
-                    "SELECT session_id FROM session_state WHERE session_id = ?",
-                    (name,),
-                )
-                rows = list(await cursor.fetchall())
         if not rows:
             raise ValueError(f"session {name!r} not found")
         if len(rows) > 1:
@@ -636,14 +684,14 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def delete_session(self, session_id: str) -> bool:
         conn = await self.ensure_connection()
-        async with self.lock:
-            cursor = await conn.execute("SELECT 1 FROM session_state WHERE session_id = ?", (session_id,))
+        async with self.lock, self.transaction():
+            cursor = await conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,))
             row = await cursor.fetchone()
             if row is None:
                 return False
-            await conn.execute("DELETE FROM session_branches WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_history WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_state WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
             await conn.commit()
             return True
 
@@ -651,13 +699,13 @@ class AsyncSQLiteStore(AsyncStore):
         conn = await self.ensure_connection()
         async with self.lock:
             cursor = await conn.execute(
-                "SELECT * FROM session_history WHERE session_id = ? ORDER BY id",
+                "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
                 (session_id,),
             )
             rows = await cursor.fetchall()
             entries = [entry_from_row(row) for row in rows]
             branch_cursor = await conn.execute(
-                "SELECT history_id, branch_name FROM session_branches WHERE session_id = ?",
+                "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
                 (session_id,),
             )
             branch_rows = await branch_cursor.fetchall()

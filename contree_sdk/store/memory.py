@@ -48,7 +48,7 @@ class SyncMemoryStore(SyncStore):
             self.entries[entry.id] = entry
             self.next_id += 1
             self.branches.setdefault(session_id, {})[branch_name] = entry.id
-            self.active_branches.setdefault(session_id, "main")
+            self.active_branches.setdefault(session_id, branch_name)
             return entry
 
     def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
@@ -157,9 +157,9 @@ class SyncMemoryStore(SyncStore):
         return sorted(self.active_branches)
 
     def find_session(self, name: str) -> str:
+        if name in self.active_branches:
+            return name
         matches = [session_id for session_id in self.active_branches if session_id.endswith(f"_{name}")]
-        if not matches:
-            matches = [session_id for session_id in self.active_branches if session_id == name]
         if not matches:
             raise ValueError(f"session {name!r} not found")
         if len(matches) > 1:
@@ -227,7 +227,7 @@ class AsyncMemoryStore(AsyncStore):
             self.entries[entry.id] = entry
             self.next_id += 1
             self.branches.setdefault(session_id, {})[branch_name] = entry.id
-            self.active_branches.setdefault(session_id, "main")
+            self.active_branches.setdefault(session_id, branch_name)
             return entry
 
     async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
@@ -336,9 +336,9 @@ class AsyncMemoryStore(AsyncStore):
         return sorted(self.active_branches)
 
     async def find_session(self, name: str) -> str:
+        if name in self.active_branches:
+            return name
         matches = [session_id for session_id in self.active_branches if session_id.endswith(f"_{name}")]
-        if not matches:
-            matches = [session_id for session_id in self.active_branches if session_id == name]
         if not matches:
             raise ValueError(f"session {name!r} not found")
         if len(matches) > 1:

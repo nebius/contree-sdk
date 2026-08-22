@@ -128,6 +128,24 @@ async def test_list_find_delete_sessions(async_store: AsyncStore):
     assert await async_store.list_sessions() == ["proj_beta"]
 
 
+async def test_find_session_prefers_exact_match_over_suffix_match(async_store: AsyncStore):
+    # "bar" is both an exact session_id and a suffix of "foobar" - the exact
+    # match must win, not whichever match a query happens to find first
+    await async_store.append("bar", image_uuid="img-0", parent_id=None)
+    await async_store.append("foobar", image_uuid="img-0", parent_id=None)
+
+    assert await async_store.find_session("bar") == "bar"
+
+
+async def test_find_session_does_not_treat_underscore_as_a_wildcard(async_store: AsyncStore):
+    # the suffix pattern is "_<name>" with a LITERAL underscore separator; before
+    # escaping, SQL's own "_" wildcard let ANY single character satisfy that slot
+    await async_store.append("fooXbar", image_uuid="img-0", parent_id=None)
+
+    with pytest.raises(ValueError):
+        await async_store.find_session("bar")
+
+
 async def test_history_dag_reports_branch_pointers(async_store: AsyncStore):
     root = await async_store.append("s1", image_uuid="img-0", parent_id=None)
     tip = await async_store.append("s1", image_uuid="img-1", parent_id=root.id)
