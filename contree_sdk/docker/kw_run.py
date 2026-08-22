@@ -46,8 +46,10 @@ class RunKeyword(DockerKeyword):
         return f"RUN {json.dumps(list(self.parts))}"
 
     def execute(self, ctx: BuildContext) -> None:
-        sub_parts = tuple(ctx.substitute(part) for part in self.parts)
-        contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(sub_parts))}"
+        # RUN is not one of Docker's ${VAR}-substituted instructions - the remote shell
+        # (or, for exec-form, whatever the argv itself invokes) expands $VAR at runtime
+        # using the process environment, so `self.parts` is sent verbatim.
+        contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(self.parts))}"
         chain = ctx.chain(contribution)
         branch_name = f"layer:{ctx.short_hash(chain)}"
 
@@ -57,7 +59,8 @@ class RunKeyword(DockerKeyword):
             return
 
         session = require_session(ctx.session)
-        command, args, shell = build_command(sub_parts, self.shell_form, ctx.user)
+        command, args, shell = build_command(self.parts, self.shell_form, ctx.user)
+        run_env = {**ctx.arg_values(), **ctx.env} or None
         cwd = ctx.workdir if ctx.workdir != "/" else None
         files = ctx.pending_files_payload() if ctx.pending else None
         timeout = ctx.timeout if ctx.timeout else None
@@ -65,7 +68,7 @@ class RunKeyword(DockerKeyword):
             result = session.run(
                 shell=command,
                 args=args,
-                env=ctx.env or None,
+                env=run_env,
                 cwd=cwd,
                 files=files,
                 disposable=False,
@@ -78,7 +81,7 @@ class RunKeyword(DockerKeyword):
             result = session.run(
                 command,
                 args=args,
-                env=ctx.env or None,
+                env=run_env,
                 cwd=cwd,
                 files=files,
                 disposable=False,
@@ -87,14 +90,13 @@ class RunKeyword(DockerKeyword):
                 truncate_output_at=65536,
                 timeout=timeout,
             )
-        check_success(result, sub_parts, self.shell_form)
+        check_success(result, self.parts, self.shell_form)
 
         ctx.parent_hash = chain
         ctx.pending.clear()
 
     async def execute_async(self, ctx: AsyncBuildContext) -> None:
-        sub_parts = tuple(ctx.substitute(part) for part in self.parts)
-        contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(sub_parts))}"
+        contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(self.parts))}"
         chain = ctx.chain(contribution)
         branch_name = f"layer:{ctx.short_hash(chain)}"
 
@@ -104,7 +106,8 @@ class RunKeyword(DockerKeyword):
             return
 
         session = require_session_async(ctx.session)
-        command, args, shell = build_command(sub_parts, self.shell_form, ctx.user)
+        command, args, shell = build_command(self.parts, self.shell_form, ctx.user)
+        run_env = {**ctx.arg_values(), **ctx.env} or None
         cwd = ctx.workdir if ctx.workdir != "/" else None
         files = ctx.pending_files_payload() if ctx.pending else None
         timeout = ctx.timeout if ctx.timeout else None
@@ -112,7 +115,7 @@ class RunKeyword(DockerKeyword):
             result = await session.run(
                 shell=command,
                 args=args,
-                env=ctx.env or None,
+                env=run_env,
                 cwd=cwd,
                 files=files,
                 disposable=False,
@@ -125,7 +128,7 @@ class RunKeyword(DockerKeyword):
             result = await session.run(
                 command,
                 args=args,
-                env=ctx.env or None,
+                env=run_env,
                 cwd=cwd,
                 files=files,
                 disposable=False,
@@ -134,7 +137,7 @@ class RunKeyword(DockerKeyword):
                 truncate_output_at=65536,
                 timeout=timeout,
             )
-        check_success(result, sub_parts, self.shell_form)
+        check_success(result, self.parts, self.shell_form)
 
         ctx.parent_hash = chain
         ctx.pending.clear()

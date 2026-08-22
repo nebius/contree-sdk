@@ -1,14 +1,19 @@
 """Fetch a URL for `ADD <url>` directives.
 
-`http_fetch` is a pluggable `(url, method, headers) -> (headers, body)`
+`http_fetch` is a pluggable `(url, method, headers) -> (status, headers, body)`
 callable so callers can swap in their own HTTP stack; the default
 implementation uses only the stdlib (`urllib.request`), no third-party
-dependency. Deduplication against a previously-uploaded file happens one
-layer up, in `contree_sdk.cache.SyncCache`/`AsyncCache`, keyed by the response `ETag`.
+dependency. The status code lets callers issue conditional GETs
+(`If-None-Match`/`If-Modified-Since`) and recognize a `304 Not Modified`
+response (empty body) without treating it as an error. Deduplication against
+a previously-uploaded file happens one layer up, in
+`contree_sdk.cache.SyncCache`/`AsyncCache`, keyed by the URL and validated by
+the response `ETag`/`Last-Modified`.
 """
 
 from __future__ import annotations
 
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import AsyncIterable, Iterable
@@ -17,9 +22,10 @@ from typing import TypeAlias
 
 USER_AGENT = "contree-sdk url-fetch"
 FETCH_TIMEOUT_DEFAULT = 300.0
+HTTP_NOT_MODIFIED = 304
 
-FetchResponse: TypeAlias = tuple[Iterable[tuple[str, str]], Iterable[bytes]]
-AsyncFetchResponse: TypeAlias = tuple[Iterable[tuple[str, str]], AsyncIterable[bytes]]
+FetchResponse: TypeAlias = tuple[int, Iterable[tuple[str, str]], Iterable[bytes]]
+AsyncFetchResponse: TypeAlias = tuple[int, Iterable[tuple[str, str]], AsyncIterable[bytes]]
 
 
 def http_fetch(url: str, method: str, headers: Iterable[tuple[str, str]]) -> FetchResponse:
@@ -28,8 +34,13 @@ def http_fetch(url: str, method: str, headers: Iterable[tuple[str, str]]) -> Fet
     request_headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     request_headers.update(headers)
     request = urllib.request.Request(url, method=method, headers=request_headers)  # noqa: S310
-    response = urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_DEFAULT)  # noqa: S310
-    return list(response.headers.items()), response
+    try:
+        response = urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_DEFAULT)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == HTTP_NOT_MODIFIED:
+            return exc.code, list(exc.headers.items()), iter(())
+        raise
+    return response.status, list(response.headers.items()), response
 
 
 def is_url(value: str) -> bool:
@@ -46,6 +57,9 @@ def url_basename(url: str, fallback: str = "downloaded") -> str:
 # alive for the body generator's lifetime (closing only once the caller has
 # fully drained it or abandoned iteration) - exiting the client's `async
 # with` block before that point would tear down the connection mid-stream.
+# Neither aiohttp's nor httpx's `raise_for_status()` treats a 3xx response
+# (including 304) as an error - only 4xx/5xx - so a 304 flows through with
+# its (empty) body and status code intact.
 try:
     import aiohttp
 
@@ -57,6 +71,7 @@ try:
         except BaseException:
             await session.close()
             raise
+        status = response.status
         response_headers = list(response.headers.items())
 
         async def body() -> AsyncIterable[bytes]:
@@ -66,7 +81,7 @@ try:
             finally:
                 await session.close()
 
-        return response_headers, body()
+        return status, response_headers, body()
 
 except ImportError:
     try:
@@ -81,6 +96,7 @@ except ImportError:
             except BaseException:
                 await client.aclose()
                 raise
+            status = response.status_code
             response_headers = list(response.headers.items())
 
             async def body() -> AsyncIterable[bytes]:
@@ -91,7 +107,7 @@ except ImportError:
                     await response.aclose()
                     await client.aclose()
 
-            return response_headers, body()
+            return status, response_headers, body()
 
     except ImportError:
 

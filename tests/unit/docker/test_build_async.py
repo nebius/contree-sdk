@@ -100,6 +100,30 @@ class TestCache:
 
         assert len(client.calls_for("spawn_instance")) == 2
 
+    async def test_failed_run_is_not_cached(self, tmp_path, client: ContreeAsyncClient):
+        # a RUN that fails still commits an image (the container ran, just exited nonzero) -
+        # a later identical build must re-run it, not silently reuse the failed layer
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN maybe-flaky\n")
+        client.mock("spawn_instance", spawn_response("op-1"))
+        client.mock("spawn_instance", spawn_response("op-2"))
+        client.mock(
+            "wait_operation",
+            operation_response(operation_uuid="op-1", result_image_uuid="img-failed", exit_code=1, stderr="boom"),
+        )
+        client.mock(
+            "wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0)
+        )
+
+        store = AsyncMemoryStore()
+        cache = AsyncMemoryCache()
+        with pytest.raises(DockerBuildError):
+            await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+
+        image = await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+
+        assert image == "img-ok"
+        assert len(client.calls_for("spawn_instance")) == 2
+
 
 class TestCopy:
     async def test_local_file_rides_next_run(self, tmp_path, client: ContreeAsyncClient):
@@ -157,7 +181,9 @@ class TestMultistage:
 
 
 class TestAddUrl:
-    async def test_etag_dedup_across_builds(self, tmp_path, client: ContreeAsyncClient):
+    async def test_etag_dedup_when_server_ignores_conditional_get(self, tmp_path, client: ContreeAsyncClient):
+        # server always answers 200 with a stable ETag (never honors If-None-Match) -
+        # fetch_url_async must still dedup the *upload* via the post-fetch ETag comparison
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
         client.mock("spawn_instance", spawn_response())
@@ -170,7 +196,7 @@ class TestAddUrl:
 
         async def fake_http_fetch_async(url, method, headers):
             calls["n"] += 1
-            return [("ETag", "abc123")], body()
+            return 200, [("ETag", "abc123")], body()
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -184,6 +210,48 @@ class TestAddUrl:
             tmp_path, session_id="sess-add", no_cache=True
         )
         assert calls["n"] == 2
+        # ETag cache hit: no additional ensure_file call for the URL body
+        assert len(client.calls_for("ensure_file")) == 1
+
+    async def test_conditional_get_sends_cached_etag_and_short_circuits_on_304(
+        self, tmp_path, client: ContreeAsyncClient
+    ):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
+        client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        requests = []
+
+        async def empty_body() -> AsyncIterator[bytes]:
+            return
+            yield b""
+
+        async def body() -> AsyncIterator[bytes]:
+            yield b"hello world"
+
+        async def fake_http_fetch_async(url, method, headers):
+            header_map = dict(headers)
+            requests.append(header_map)
+            if header_map.get("If-None-Match") == "abc123":
+                return 304, [], empty_body()
+            return 200, [("ETag", "abc123")], body()
+
+        store = AsyncMemoryStore()
+        cache = AsyncMemoryCache()
+        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+            tmp_path, session_id="sess-add"
+        )
+        assert len(requests) == 1
+        assert "If-None-Match" not in requests[0]
+        assert len(client.calls_for("ensure_file")) == 1
+
+        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+            tmp_path, session_id="sess-add", no_cache=True
+        )
+        assert len(requests) == 2
+        assert requests[1]["If-None-Match"] == "abc123"
+        # 304 short-circuit: no additional ensure_file call for the URL body
         assert len(client.calls_for("ensure_file")) == 1
 
 
@@ -200,6 +268,46 @@ class TestEnvWorkdirUser:
         assert call.args[0] == "su -s /bin/sh -c 'echo hi' 1000"
         assert call.kwargs["env"] == {"FOO": "bar"}
         assert call.kwargs["cwd"] == "/app"
+
+
+class TestRunSubstitution:
+    async def test_run_does_not_pre_expand_local_shell_variables(self, tmp_path, client: ContreeAsyncClient):
+        # RUN is not one of Docker's ${VAR}-substituted instructions - $x here is a local
+        # shell variable, not a declared ARG/ENV, and must reach the remote shell untouched
+        write_dockerfile(tmp_path, 'FROM tag:python:3.11\nRUN x=hello; echo "$x"\n')
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        await builder.build(tmp_path, session_id="sess")
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.args[0] == 'x=hello; echo "$x"'
+
+    async def test_declared_arg_reaches_run_env_without_promotion(self, tmp_path, client: ContreeAsyncClient):
+        # VERSION is a declared ARG, never promoted via ENV - Docker still exposes it to
+        # this RUN's process environment, so the remote shell (not us) expands $VERSION
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG VERSION=1.0\nRUN echo $VERSION\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        await builder.build(tmp_path, session_id="sess", build_args={"VERSION": "2.0"})
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.args[0] == "echo $VERSION"
+        assert call.kwargs["env"] == {"VERSION": "2.0"}
+
+    async def test_env_takes_priority_over_arg_of_same_name(self, tmp_path, client: ContreeAsyncClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG FOO=arg-value\nENV FOO=env-value\nRUN echo $FOO\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        await builder.build(tmp_path, session_id="sess")
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.kwargs["env"] == {"FOO": "env-value"}
 
 
 class TestArgCacheBusting:

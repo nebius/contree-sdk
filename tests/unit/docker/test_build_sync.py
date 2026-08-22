@@ -97,6 +97,30 @@ class TestCache:
 
         assert len(client.calls_for("spawn_instance")) == 2
 
+    def test_failed_run_is_not_cached(self, tmp_path, client: ContreeClient):
+        # a RUN that fails still commits an image (the container ran, just exited nonzero) -
+        # a later identical build must re-run it, not silently reuse the failed layer
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN maybe-flaky\n")
+        client.mock("spawn_instance", spawn_response("op-1"))
+        client.mock("spawn_instance", spawn_response("op-2"))
+        client.mock(
+            "wait_operation",
+            operation_response(operation_uuid="op-1", result_image_uuid="img-failed", exit_code=1, stderr="boom"),
+        )
+        client.mock(
+            "wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0)
+        )
+
+        store = SyncMemoryStore()
+        cache = SyncMemoryCache()
+        with pytest.raises(DockerBuildError):
+            ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+
+        image = ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+
+        assert image == "img-ok"
+        assert len(client.calls_for("spawn_instance")) == 2
+
 
 class TestCopy:
     def test_local_file_rides_next_run(self, tmp_path, client: ContreeClient):
@@ -170,7 +194,9 @@ class TestMultistage:
 
 
 class TestAddUrl:
-    def test_etag_dedup_across_builds(self, tmp_path, client: ContreeClient):
+    def test_etag_dedup_when_server_ignores_conditional_get(self, tmp_path, client: ContreeClient):
+        # server always answers 200 with a stable ETag (never honors If-None-Match) -
+        # fetch_url must still dedup the *upload* via the post-fetch ETag comparison
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
         client.mock("spawn_instance", spawn_response())
@@ -180,7 +206,7 @@ class TestAddUrl:
 
         def fake_http_fetch(url, method, headers):
             calls["n"] += 1
-            return [("ETag", "abc123")], [b"hello world"]
+            return 200, [("ETag", "abc123")], [b"hello world"]
 
         store = SyncMemoryStore()
         cache = SyncMemoryCache()
@@ -197,6 +223,38 @@ class TestAddUrl:
         # ETag cache hit: no additional ensure_file call for the URL body
         assert len(client.calls_for("ensure_file")) == 1
 
+    def test_conditional_get_sends_cached_etag_and_short_circuits_on_304(self, tmp_path, client: ContreeClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
+        client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        requests = []
+
+        def fake_http_fetch(url, method, headers):
+            header_map = dict(headers)
+            requests.append(header_map)
+            if header_map.get("If-None-Match") == "abc123":
+                return 304, [], []
+            return 200, [("ETag", "abc123")], [b"hello world"]
+
+        store = SyncMemoryStore()
+        cache = SyncMemoryCache()
+        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
+            tmp_path, session_id="sess-add"
+        )
+        assert len(requests) == 1
+        assert "If-None-Match" not in requests[0]
+        assert len(client.calls_for("ensure_file")) == 1
+
+        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
+            tmp_path, session_id="sess-add", no_cache=True
+        )
+        assert len(requests) == 2
+        assert requests[1]["If-None-Match"] == "abc123"
+        # 304 short-circuit: no additional ensure_file call for the URL body
+        assert len(client.calls_for("ensure_file")) == 1
+
 
 class TestEnvWorkdirUser:
     def test_env_workdir_user_thread_into_run(self, tmp_path, client: ContreeClient):
@@ -211,6 +269,46 @@ class TestEnvWorkdirUser:
         assert call.args[0] == "su -s /bin/sh -c 'echo hi' 1000"
         assert call.kwargs["env"] == {"FOO": "bar"}
         assert call.kwargs["cwd"] == "/app"
+
+
+class TestRunSubstitution:
+    def test_run_does_not_pre_expand_local_shell_variables(self, tmp_path, client: ContreeClient):
+        # RUN is not one of Docker's ${VAR}-substituted instructions - $x here is a local
+        # shell variable, not a declared ARG/ENV, and must reach the remote shell untouched
+        write_dockerfile(tmp_path, 'FROM tag:python:3.11\nRUN x=hello; echo "$x"\n')
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder.build(tmp_path, session_id="sess")
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.args[0] == 'x=hello; echo "$x"'
+
+    def test_declared_arg_reaches_run_env_without_promotion(self, tmp_path, client: ContreeClient):
+        # VERSION is a declared ARG, never promoted via ENV - Docker still exposes it to
+        # this RUN's process environment, so the remote shell (not us) expands $VERSION
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG VERSION=1.0\nRUN echo $VERSION\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder.build(tmp_path, session_id="sess", build_args={"VERSION": "2.0"})
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.args[0] == "echo $VERSION"
+        assert call.kwargs["env"] == {"VERSION": "2.0"}
+
+    def test_env_takes_priority_over_arg_of_same_name(self, tmp_path, client: ContreeClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG FOO=arg-value\nENV FOO=env-value\nRUN echo $FOO\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder.build(tmp_path, session_id="sess")
+
+        call = client.calls_for("spawn_instance")[0]
+        assert call.kwargs["env"] == {"FOO": "env-value"}
 
 
 class TestArgCacheBusting:

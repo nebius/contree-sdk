@@ -1,10 +1,13 @@
 """`ADD [--chown=...] [--chmod=...] SRC... DEST` - file/dir/URL variant of COPY.
 
 URL sources are fetched via the injectable `ctx.http_fetch`/`ctx.http_fetch_async`
-callable and cached by the response `ETag` (see `contree_sdk.cache.SyncCache`/
-`AsyncCache`), so a rebuild whose upstream is unchanged reuses the
-previously-uploaded file uuid without re-uploading. Local sources fall
-through to the same walker COPY uses.
+callable and cached by URL (see `contree_sdk.cache.SyncCache`/`AsyncCache`):
+a rebuild sends the previous response's `ETag`/`Last-Modified` back as
+`If-None-Match`/`If-Modified-Since`, so an upstream that hasn't changed
+answers `304 Not Modified` and the previously-uploaded file uuid is reused
+without re-uploading (`http_fetch`/`http_fetch_async`'s default
+implementations return an empty body for a 304, so no bytes are wasted
+either). Local sources fall through to the same walker COPY uses.
 """
 
 from __future__ import annotations
@@ -12,14 +15,14 @@ from __future__ import annotations
 import hashlib
 import posixpath
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
 
 from .context import AsyncBuildContext, BuildContext, PendingFile
 from .keyword import DockerKeyword
 from .kw_copy import format_copy_like, parse_chmod, parse_chown, parse_copy_like, stage_copy, stage_copy_async
-from .url_fetch import is_url, url_basename
+from .url_fetch import HTTP_NOT_MODIFIED, is_url, url_basename
 
 
 @dataclass(frozen=True, repr=False)
@@ -95,23 +98,61 @@ def split_sources(ctx: BuildContext | AsyncBuildContext, sources: tuple[str, ...
     return local_sources, url_sources
 
 
+URL_CACHE_NAMESPACE = "docker.fetch"
+
+
+def conditional_headers_for(cached: Any) -> list[tuple[str, str]]:
+    if not isinstance(cached, dict):
+        return []
+    headers: list[tuple[str, str]] = []
+    if cached.get("etag"):
+        headers.append(("If-None-Match", str(cached["etag"])))
+    if cached.get("last_modified"):
+        headers.append(("If-Modified-Since", str(cached["last_modified"])))
+    return headers
+
+
+def cached_uuid_sha256(cached: Any) -> tuple[str, str] | None:
+    if isinstance(cached, dict) and "uuid" in cached and "sha256" in cached:
+        return str(cached["uuid"]), str(cached["sha256"])
+    return None
+
+
+def unchanged_by_etag(cached: Any, etag: str | None) -> bool:
+    # a fallback for servers that don't honor If-None-Match and always answer 200:
+    # if the freshly-fetched ETag still matches the cached one, the content is unchanged
+    return bool(etag) and isinstance(cached, dict) and cached.get("etag") == etag
+
+
 def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
-    # fetch url, dedup by ETag via ctx.cache; returns (file_uuid, sha256)
-    headers, body = ctx.http_fetch(url, "GET", ())
+    # conditional GET against the previously cached ETag/Last-Modified for this URL;
+    # a 304 (empty body) reuses the cached (file_uuid, sha256) without re-uploading
+    cached = ctx.cache.get(url, namespace=URL_CACHE_NAMESPACE)
+
+    status, headers, body = ctx.http_fetch(url, "GET", conditional_headers_for(cached))
+    if status == HTTP_NOT_MODIFIED:
+        hit = cached_uuid_sha256(cached)
+        if hit is not None:
+            return hit
+
     content = b"".join(body)
     header_map = {key.lower(): value for key, value in headers}
     etag = header_map.get("etag")
-    cache_key = f"url:{etag}" if etag else None
+    last_modified = header_map.get("last-modified")
 
-    cached = ctx.cache.get(cache_key) if cache_key is not None else None
-    if isinstance(cached, dict) and "uuid" in cached and "sha256" in cached:
-        return str(cached["uuid"]), str(cached["sha256"])
+    if unchanged_by_etag(cached, etag):
+        hit = cached_uuid_sha256(cached)
+        if hit is not None:
+            return hit
 
     sha256 = hashlib.sha256(content).hexdigest()
     stored = ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
-    if cache_key is not None:
-        ctx.cache.set(cache_key, {"uuid": file_uuid, "sha256": sha256})
+    ctx.cache.set(
+        url,
+        {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
+        namespace=URL_CACHE_NAMESPACE,
+    )
     return file_uuid, sha256
 
 
@@ -134,22 +175,33 @@ def stage_urls(
 
 
 async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
-    headers, body = await ctx.http_fetch_async(url, "GET", ())
+    cached = await ctx.cache.get(url, namespace=URL_CACHE_NAMESPACE)
+
+    status, headers, body = await ctx.http_fetch_async(url, "GET", conditional_headers_for(cached))
+    if status == HTTP_NOT_MODIFIED:
+        hit = cached_uuid_sha256(cached)
+        if hit is not None:
+            return hit
+
     chunks = [chunk async for chunk in body]
     content = b"".join(chunks)
     header_map = {key.lower(): value for key, value in headers}
     etag = header_map.get("etag")
-    cache_key = f"url:{etag}" if etag else None
+    last_modified = header_map.get("last-modified")
 
-    cached = await ctx.cache.get(cache_key) if cache_key is not None else None
-    if isinstance(cached, dict) and "uuid" in cached and "sha256" in cached:
-        return str(cached["uuid"]), str(cached["sha256"])
+    if unchanged_by_etag(cached, etag):
+        hit = cached_uuid_sha256(cached)
+        if hit is not None:
+            return hit
 
     sha256 = hashlib.sha256(content).hexdigest()
     stored = await ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
-    if cache_key is not None:
-        await ctx.cache.set(cache_key, {"uuid": file_uuid, "sha256": sha256})
+    await ctx.cache.set(
+        url,
+        {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
+        namespace=URL_CACHE_NAMESPACE,
+    )
     return file_uuid, sha256
 
 

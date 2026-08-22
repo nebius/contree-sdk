@@ -120,11 +120,11 @@ class BuildContext:
         return {p.instance_path: upload_file_spec_for(p) for p in self.pending}
 
     def try_cache_hit(self, branch_name: str) -> str | None:
-        # cached image_uuid if `branch_name` exists and caching is enabled, else None
+        # cached image_uuid if `branch_name` exists, succeeded, and caching is enabled, else None
         if self.no_cache:
             return None
         tip = self.store.tip(self.session_id, branch=branch_name)
-        if tip is None:
+        if tip is None or tip.exit_code not in {None, 0}:
             return None
         if self.session is None:
             self.session = ContreeSession(
@@ -231,10 +231,11 @@ class AsyncBuildContext:
         return {p.instance_path: upload_file_spec_for(p) for p in self.pending}
 
     async def try_cache_hit(self, branch_name: str) -> str | None:
+        # cached image_uuid if `branch_name` exists, succeeded, and caching is enabled, else None
         if self.no_cache:
             return None
         tip = await self.store.tip(self.session_id, branch=branch_name)
-        if tip is None:
+        if tip is None or tip.exit_code not in {None, 0}:
             return None
         if self.session is None:
             self.session = ContreeAsyncSession(

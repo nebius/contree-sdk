@@ -5,6 +5,8 @@ import os
 import sqlite3
 import threading
 from asyncio import Lock
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +24,11 @@ except ImportError:
 DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS cache (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS cache_v1 (
+    namespace TEXT NOT NULL,
+    key       TEXT NOT NULL,
+    value     TEXT NOT NULL,
+    PRIMARY KEY (namespace, key)
 );
 """
 
@@ -35,6 +39,11 @@ class SyncSQLiteCache(SyncCache):
     WAL journal mode + a busy timeout make the file safe to share across
     *processes*. `check_same_thread=False` plus a `threading.RLock` make one
     instance safe to share across *threads* within this process too.
+
+    No in-place schema migrations: the table is named `cache_v1`. A future
+    schema change bumps the suffix (`cache_v2`, ...) instead of altering
+    `cache_v1` in place - old data under the previous suffix is abandoned,
+    not migrated forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -51,20 +60,32 @@ class SyncSQLiteCache(SyncCache):
     def close(self) -> None:
         self.conn.close()
 
-    def get(self, key: str) -> Any | None:
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        # roll back on ANY exception mid-write, so a failed write never leaves this
+        # connection's next statement silently continuing inside a half-done transaction
+        try:
+            yield
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def get(self, key: str, *, namespace: str = "default") -> Any | None:
         with self.rlock:
-            row = self.conn.execute("SELECT value FROM cache WHERE key = ?", (key,)).fetchone()
+            row = self.conn.execute(
+                "SELECT value FROM cache_v1 WHERE namespace = ? AND key = ?", (namespace, key)
+            ).fetchone()
         return None if row is None else json.loads(row["value"])
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any, *, namespace: str = "default") -> None:
         """Store `value` as JSON; it must be JSON-serializable."""
-        with self.rlock:
+        with self.rlock, self.transaction():
             self.conn.execute(
                 """
-                INSERT INTO cache (key, value) VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                INSERT INTO cache_v1 (namespace, key, value) VALUES (?, ?, ?)
+                ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value
                 """,
-                (key, json.dumps(value)),
+                (namespace, key, json.dumps(value)),
             )
             self.conn.commit()
 
@@ -75,6 +96,11 @@ class AsyncSQLiteCache(AsyncCache):
     The connection opens lazily on first use, since `aiosqlite.connect()` is
     itself a coroutine and can't run in `__init__`. Requires the
     `contree-sdk[async]` extra.
+
+    No in-place schema migrations: the table is named `cache_v1`. A future
+    schema change bumps the suffix (`cache_v2`, ...) instead of altering
+    `cache_v1` in place - old data under the previous suffix is abandoned,
+    not migrated forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -105,20 +131,35 @@ class AsyncSQLiteCache(AsyncCache):
             await self.conn.close()
             self.conn = None
 
-    async def get(self, key: str) -> Any | None:
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        # roll back on ANY exception mid-write (including asyncio.CancelledError, a
+        # BaseException), so a cancelled/failed write never leaves this connection's
+        # next statement silently continuing inside a half-done transaction
+        conn = self.conn
+        if conn is None:
+            raise RuntimeError("transaction() requires an established connection")
+        try:
+            yield
+        except BaseException:
+            await conn.rollback()
+            raise
+
+    async def get(self, key: str, *, namespace: str = "default") -> Any | None:
         conn = await self.ensure_connection()
-        cursor = await conn.execute("SELECT value FROM cache WHERE key = ?", (key,))
+        cursor = await conn.execute("SELECT value FROM cache_v1 WHERE namespace = ? AND key = ?", (namespace, key))
         row = await cursor.fetchone()
         return None if row is None else json.loads(row["value"])
 
-    async def set(self, key: str, value: Any) -> None:
+    async def set(self, key: str, value: Any, *, namespace: str = "default") -> None:
         """Store `value` as JSON; it must be JSON-serializable."""
         conn = await self.ensure_connection()
-        await conn.execute(
-            """
-            INSERT INTO cache (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            (key, json.dumps(value)),
-        )
-        await conn.commit()
+        async with self.transaction():
+            await conn.execute(
+                """
+                INSERT INTO cache_v1 (namespace, key, value) VALUES (?, ?, ?)
+                ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value
+                """,
+                (namespace, key, json.dumps(value)),
+            )
+            await conn.commit()

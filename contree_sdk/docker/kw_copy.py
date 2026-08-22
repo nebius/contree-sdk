@@ -167,23 +167,13 @@ def resolve_id(value: str) -> int:
         return 0
 
 
-# -- local file cache (host_path + inode + mtime + size -> uploaded uuid) --
+# -- local file cache (content sha256 -> uploaded uuid) --
+
+LOCAL_FILE_CACHE_NAMESPACE = "docker.copy"
 
 
-def abs_host_path(host_path: str) -> str:
-    return str(Path(host_path).resolve())
-
-
-def local_file_cache_key(host_path: str) -> str:
-    abs_path = Path(abs_host_path(host_path))
-    stat = abs_path.stat()
-    fingerprint = f"{abs_path}:{stat.st_ino}:{stat.st_mtime_ns}:{stat.st_size}"
-    digest = uuid.uuid5(uuid.NAMESPACE_URL, fingerprint)
-    return f"local_file:{digest}"
-
-
-def cached_local_uuid(ctx: BuildContext, mf: MappedFile) -> str | None:
-    cached = ctx.cache.get(local_file_cache_key(mf.host_path))
+def cached_local_uuid(ctx: BuildContext, sha256: str) -> str | None:
+    cached = ctx.cache.get(sha256, namespace=LOCAL_FILE_CACHE_NAMESPACE)
     if isinstance(cached, dict) and cached.get("uuid"):
         age = time.time() - cached.get("uploaded_at", 0)
         if age < MAX_CACHE_AGE:
@@ -191,27 +181,26 @@ def cached_local_uuid(ctx: BuildContext, mf: MappedFile) -> str | None:
     return None
 
 
-def record_local_uuid(ctx: BuildContext, mf: MappedFile, file_uuid: str) -> None:
-    ctx.cache.set(
-        local_file_cache_key(mf.host_path),
-        {"uuid": file_uuid, "uploaded_at": time.time(), "local_path": abs_host_path(mf.host_path)},
-    )
+def record_local_uuid(ctx: BuildContext, sha256: str, file_uuid: str) -> None:
+    ctx.cache.set(sha256, {"uuid": file_uuid, "uploaded_at": time.time()}, namespace=LOCAL_FILE_CACHE_NAMESPACE)
 
 
-def upload_files(ctx: BuildContext, files: list[MappedFile]) -> dict[str, str]:
-    # upload host files, returning host_path -> file_uuid
-    uploaded: dict[str, str] = {}
+def upload_files(ctx: BuildContext, files: list[MappedFile]) -> dict[str, tuple[str, str]]:
+    # upload host files, returning host_path -> (file_uuid, sha256) - the hash is content-addressed
+    # and computed once here, both to key the cache and to reuse as the PendingFile's own sha256
+    uploaded: dict[str, tuple[str, str]] = {}
     for mf in files:
-        cached = cached_local_uuid(ctx, mf)
+        sha256 = mf.sha256()
+        cached = cached_local_uuid(ctx, sha256)
         if cached:
-            uploaded[mf.host_path] = cached
-            record_local_uuid(ctx, mf, cached)
+            uploaded[mf.host_path] = (cached, sha256)
+            record_local_uuid(ctx, sha256, cached)
             continue
         with Path(mf.host_path).open("rb") as handle:
-            stored = ctx.client.ensure_file(handle)
+            stored = ctx.client.ensure_file(handle, sha256=sha256)
         file_uuid = str(stored.uuid)
-        uploaded[mf.host_path] = file_uuid
-        record_local_uuid(ctx, mf, file_uuid)
+        uploaded[mf.host_path] = (file_uuid, sha256)
+        record_local_uuid(ctx, sha256, file_uuid)
     return uploaded
 
 
@@ -234,7 +223,8 @@ def stage_copy(ctx: BuildContext, sources: tuple[str, ...], dest: str, chown: st
 
     uploaded = upload_files(ctx, mapped)
     for mf in mapped:
-        ctx.pending.append(pending_file_for(mf, file_uuid=uploaded[mf.host_path], sha256=mf.sha256()))
+        file_uuid, sha256 = uploaded[mf.host_path]
+        ctx.pending.append(pending_file_for(mf, file_uuid=file_uuid, sha256=sha256))
 
 
 def resolve_stage_image(ctx: BuildContext, ref: str) -> str:
@@ -392,8 +382,13 @@ async def resolve_stage_image_async(ctx: AsyncBuildContext, ref: str) -> str:
     return await resolve_or_import_async(ctx, ref)
 
 
-async def cached_local_uuid_async(ctx: AsyncBuildContext, mf: MappedFile) -> str | None:
-    cached = await ctx.cache.get(local_file_cache_key(mf.host_path))
+async def hash_mapped_file(mf: MappedFile) -> tuple[MappedFile, str]:
+    sha256 = await asyncio.to_thread(mf.sha256)
+    return mf, sha256
+
+
+async def cached_local_uuid_async(ctx: AsyncBuildContext, sha256: str) -> str | None:
+    cached = await ctx.cache.get(sha256, namespace=LOCAL_FILE_CACHE_NAMESPACE)
     if isinstance(cached, dict) and cached.get("uuid"):
         age = time.time() - cached.get("uploaded_at", 0)
         if age < MAX_CACHE_AGE:
@@ -401,37 +396,38 @@ async def cached_local_uuid_async(ctx: AsyncBuildContext, mf: MappedFile) -> str
     return None
 
 
-async def record_local_uuid_async(ctx: AsyncBuildContext, mf: MappedFile, file_uuid: str) -> None:
-    await ctx.cache.set(
-        local_file_cache_key(mf.host_path),
-        {"uuid": file_uuid, "uploaded_at": time.time(), "local_path": abs_host_path(mf.host_path)},
-    )
+async def record_local_uuid_async(ctx: AsyncBuildContext, sha256: str, file_uuid: str) -> None:
+    await ctx.cache.set(sha256, {"uuid": file_uuid, "uploaded_at": time.time()}, namespace=LOCAL_FILE_CACHE_NAMESPACE)
 
 
-async def upload_one_remote_async(ctx: AsyncBuildContext, mf: MappedFile) -> tuple[MappedFile, str]:
+async def upload_one_remote_async(ctx: AsyncBuildContext, mf: MappedFile, sha256: str) -> tuple[MappedFile, str, str]:
     content = await asyncio.to_thread(Path(mf.host_path).read_bytes)
-    stored = await ctx.client.ensure_file(content)
-    return mf, str(stored.uuid)
+    stored = await ctx.client.ensure_file(content, sha256=sha256)
+    return mf, str(stored.uuid), sha256
 
 
-async def upload_files_async(ctx: AsyncBuildContext, files: list[MappedFile]) -> dict[str, str]:
-    uploaded: dict[str, str] = {}
-    pending: list[MappedFile] = []
-    for mf in files:
-        cached = await cached_local_uuid_async(ctx, mf)
+async def upload_files_async(ctx: AsyncBuildContext, files: list[MappedFile]) -> dict[str, tuple[str, str]]:
+    # upload host files, returning host_path -> (file_uuid, sha256) - the hash is content-addressed
+    # and computed once here, both to key the cache and to reuse as the PendingFile's own sha256
+    hashed = await asyncio.gather(*(hash_mapped_file(mf) for mf in files))
+
+    uploaded: dict[str, tuple[str, str]] = {}
+    pending: list[tuple[MappedFile, str]] = []
+    for mf, sha256 in hashed:
+        cached = await cached_local_uuid_async(ctx, sha256)
         if cached:
-            uploaded[mf.host_path] = cached
-            await record_local_uuid_async(ctx, mf, cached)
+            uploaded[mf.host_path] = (cached, sha256)
+            await record_local_uuid_async(ctx, sha256, cached)
         else:
-            pending.append(mf)
+            pending.append((mf, sha256))
 
     if not pending:
         return uploaded
 
-    results = await asyncio.gather(*(upload_one_remote_async(ctx, mf) for mf in pending))
-    for mf, file_uuid in results:
-        uploaded[mf.host_path] = file_uuid
-        await record_local_uuid_async(ctx, mf, file_uuid)
+    results = await asyncio.gather(*(upload_one_remote_async(ctx, mf, sha256) for mf, sha256 in pending))
+    for mf, file_uuid, sha256 in results:
+        uploaded[mf.host_path] = (file_uuid, sha256)
+        await record_local_uuid_async(ctx, sha256, file_uuid)
     return uploaded
 
 
@@ -455,8 +451,8 @@ async def stage_copy_async(ctx: AsyncBuildContext, sources: tuple[str, ...], des
 
     uploaded = await upload_files_async(ctx, mapped)
     for mf in mapped:
-        sha256 = await asyncio.to_thread(mf.sha256)
-        ctx.pending.append(pending_file_for(mf, file_uuid=uploaded[mf.host_path], sha256=sha256))
+        file_uuid, sha256 = uploaded[mf.host_path]
+        ctx.pending.append(pending_file_for(mf, file_uuid=file_uuid, sha256=sha256))
 
 
 async def fetch_archive_async(
