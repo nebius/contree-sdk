@@ -4,6 +4,9 @@ import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeClient
 
+
+pytest.importorskip("deepagents")
+
 from contree_sdk.langchain import ContreeSandbox
 from contree_sdk.session import ContreeSession
 from contree_sdk.store import SyncMemoryStore
