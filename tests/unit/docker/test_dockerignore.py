@@ -1,12 +1,10 @@
-import re
-
 import pytest
 
-from contree_sdk.docker.dockerignore import is_ignored, parse_dockerignore, pattern_to_regex
+from contree_sdk.docker.dockerignore import ignored_pattern, is_ignored, parse_dockerignore
 from contree_sdk.docker.local_context import LocalContext
 
 
-# -- pattern_to_regex --
+# -- ignored_pattern --
 
 
 @pytest.mark.parametrize(
@@ -15,6 +13,7 @@ from contree_sdk.docker.local_context import LocalContext
         ("foo", "foo", True),
         ("foo", "bar", False),
         ("foo", "foo/bar", False),  # bare pattern, no subpath match
+        ("foo", "sub/foo", False),  # bare pattern is anchored to the context root, not any depth
         ("foo/", "foo/bar", True),
         ("foo/", "foo", True),  # trailing slash also matches the bare dir name
         ("*.log", "x.log", True),
@@ -31,11 +30,13 @@ from contree_sdk.docker.local_context import LocalContext
         ("a?b", "ab", False),
         ("file[12]", "file1", True),
         ("file[12]", "file3", False),
+        ("sub/secret.txt", "sub/secret.txt", True),
+        ("sub/secret.txt", "other/sub/secret.txt", False),  # a "/" in the pattern stays root-anchored
     ],
 )
-def test_pattern_to_regex_matches(pattern, subject, expected):
-    regex = pattern_to_regex(pattern)
-    assert bool(re.fullmatch(regex, subject)) is expected
+def test_ignored_pattern_matches(pattern, subject, expected):
+    regex = ignored_pattern(pattern)
+    assert bool(regex.fullmatch(subject)) is expected
 
 
 # -- parse_dockerignore --
@@ -84,6 +85,32 @@ def test_dockerignore_filters_dir_walk(tmp_path):
     assert paths == ["/app/app.py"]
 
 
+def test_dockerignore_bare_pattern_is_root_anchored(tmp_path):
+    # a bare pattern with no "/" only excludes the name at the context root, matching
+    # Docker's documented .dockerignore behavior - "**/secret.txt" is required for any depth
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "secret.txt").write_text("classified")
+    (tmp_path / "sub" / "app.py").write_text("ok")
+    (tmp_path / ".dockerignore").write_text("secret.txt\n")
+
+    local = LocalContext.from_dir(tmp_path)
+    mapped = local.collect(("sub",), "/app", uid=0, gid=0, mode_override=None)
+    paths = sorted(m.instance_path for m in mapped)
+    assert paths == ["/app/app.py", "/app/secret.txt"]
+
+
+def test_dockerignore_double_star_pattern_excludes_nested_file(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "secret.txt").write_text("classified")
+    (tmp_path / "sub" / "app.py").write_text("ok")
+    (tmp_path / ".dockerignore").write_text("**/secret.txt\n")
+
+    local = LocalContext.from_dir(tmp_path)
+    mapped = local.collect(("sub",), "/app", uid=0, gid=0, mode_override=None)
+    paths = sorted(m.instance_path for m in mapped)
+    assert paths == ["/app/app.py"]
+
+
 def test_dockerignore_blocks_file_source(tmp_path):
     (tmp_path / "secret.env").write_text("token=hi")
     (tmp_path / ".dockerignore").write_text("*.env\n")
@@ -122,6 +149,33 @@ def test_source_escaping_context_raises(tmp_path):
     local = LocalContext.from_dir(tmp_path)
     with pytest.raises(ValueError, match="escapes context"):
         local.collect(("../outside",), "/dst", uid=0, gid=0, mode_override=None)
+
+
+def test_source_escaping_context_via_sibling_prefix_raises(tmp_path):
+    # tmp_path.name + "-evil" shares tmp_path's string prefix but is NOT a subdirectory -
+    # a naive `str(host_path).startswith(str(root))` check would wrongly accept this.
+    sibling = tmp_path.parent / f"{tmp_path.name}-evil"
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("classified")
+
+    local = LocalContext.from_dir(tmp_path)
+    with pytest.raises(ValueError, match="escapes context"):
+        local.collect((f"../{tmp_path.name}-evil/secret.txt",), "/dst", uid=0, gid=0, mode_override=None)
+
+
+def test_symlink_escaping_context_is_skipped(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-target.txt"
+    outside.write_text("outside content")
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "safe.txt").write_text("safe")
+    (src_dir / "evil_link").symlink_to(outside)
+
+    local = LocalContext.from_dir(tmp_path)
+    mapped = local.collect(("src",), "/dst", uid=0, gid=0, mode_override=None)
+    paths = sorted(m.instance_path for m in mapped)
+    assert paths == ["/dst/safe.txt"]
 
 
 def test_missing_source_raises(tmp_path):

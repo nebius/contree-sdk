@@ -72,7 +72,7 @@ class LocalContext:
         mapped: list[MappedFile] = []
         for src in sources:
             host_path = (self.root / src).resolve()
-            if not str(host_path).startswith(str(self.root)):
+            if not host_path.is_relative_to(self.root):
                 raise ValueError(f"COPY/ADD source escapes context: {src!r}")
             mapped.extend(self.walk(host_path, dest, sources, uid, gid, mode_override))
         return mapped
@@ -111,7 +111,12 @@ class LocalContext:
                 if self.is_ignored(rel_file):
                     continue
                 full = os.path.join(root, name)
-                if not Path(full).is_file():
+                full_path = Path(full)
+                if full_path.is_symlink() and not full_path.resolve().is_relative_to(self.root):
+                    # a symlink pointing outside the build context - skip it rather than
+                    # silently uploading whatever host file it happens to point at
+                    continue
+                if not full_path.is_file():
                     continue
                 rel_to_source = os.path.relpath(full, str(host_path)).replace(os.sep, "/")
                 instance_path = f"{base.rstrip('/')}/{rel_to_source}"
