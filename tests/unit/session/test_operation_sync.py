@@ -1,4 +1,5 @@
 import io
+import queue
 from datetime import datetime, timezone
 
 import pytest
@@ -245,3 +246,36 @@ class TestRichMode:
         assert operation.terminal is True
         assert operation.consumer_thread is not None
         assert not operation.consumer_thread.is_alive()
+
+
+class TestClaimQueue:
+    # deterministic regression coverage for the pump()/run() race: pump() can observe
+    # a spid's events (including its own exit) before run() gets to register a queue
+    # for it, so claim_queue() must flush anything buffered rather than dropping it -
+    # exercised here directly, without depending on real thread timing to reproduce
+    def test_claim_queue_flushes_events_buffered_before_registration(self, client: ContreeClient):
+        operation = Operation(client, "op-1")
+        buffered = queue.Queue()
+        buffered.put(make_stream_event(1, "stdout", 2, "sub output\n"))
+        buffered.put(make_event(2, "exit", 2))
+        operation.pending_events[2] = buffered
+
+        subprocess_queue = operation.claim_queue(2)
+
+        first = subprocess_queue.get_nowait()
+        second = subprocess_queue.get_nowait()
+        assert first is not None
+        assert second is not None
+        assert first.id == 1
+        assert second.id == 2
+        assert 2 not in operation.pending_events
+        assert operation.queues[2] is subprocess_queue
+
+    def test_claim_queue_closes_handle_immediately_if_already_terminal(self, client: ContreeClient):
+        operation = Operation(client, "op-1")
+        operation.terminal = True
+
+        subprocess_queue = operation.claim_queue(2)
+
+        assert subprocess_queue.get_nowait() is None
+        assert 2 not in operation.queues

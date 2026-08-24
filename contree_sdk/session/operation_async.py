@@ -75,6 +75,11 @@ class AsyncOperation:
         self.files = files
         self.response: OperationResponse | None = None
         self.queues: dict[int, asyncio.Queue[OperationEvent | None]] = {}
+        # events for a spid `run()` hasn't registered a queue for yet - the pump
+        # task can race ahead of run() and observe a spid's events (including its
+        # own exit) before the caller gets a chance to claim them; buffering here and
+        # flushing on registration (see claim_queue()) closes that race
+        self.pending_events: dict[int, asyncio.Queue[OperationEvent]] = {}
         self.terminal = False
         self.terminal_event = asyncio.Event()
         self.consumer_task: asyncio.Task[None] | None = None
@@ -116,7 +121,8 @@ class AsyncOperation:
         # single background reader for the whole operation's event stream (unfiltered:
         # a server-side spid filter would also drop the operation-wide `completion`
         # event, since `completion` carries no spid at all), demultiplexed by spid
-        # into whichever queue `run()` registered for that spid
+        # into whichever queue `run()` registered for that spid - or buffered in
+        # pending_events if run() hasn't registered one yet (see __init__)
         try:
             async for event in self.client.follow_operation_events(self.uuid):
                 if event.type == "completion":
@@ -126,8 +132,11 @@ class AsyncOperation:
                     continue
                 async with self.lock:
                     target = self.queues.get(spid)
-                if target is not None:
-                    await target.put(event)
+                    if target is None:
+                        buffer = self.pending_events.setdefault(spid, asyncio.Queue())
+                        await buffer.put(event)
+                        continue
+                await target.put(event)
         finally:
             async with self.lock:
                 self.terminal = True
@@ -135,6 +144,22 @@ class AsyncOperation:
             self.terminal_event.set()
             for target in queues:
                 await target.put(None)
+
+    async def claim_queue(self, spid: int) -> asyncio.Queue[OperationEvent | None]:
+        # registers spid's queue, flushing anything pump() buffered for it before this
+        # call could run; if the operation already ended, closes the handle immediately
+        # so a subprocess whose exit raced ahead of this registration doesn't hang forever
+        subprocess_queue: asyncio.Queue[OperationEvent | None] = asyncio.Queue()
+        async with self.lock:
+            buffered = self.pending_events.pop(spid, None)
+            if buffered is not None:
+                while not buffered.empty():
+                    subprocess_queue.put_nowait(buffered.get_nowait())
+            if self.terminal:
+                subprocess_queue.put_nowait(None)
+            else:
+                self.queues[spid] = subprocess_queue
+        return subprocess_queue
 
     async def run(
         self,
@@ -162,10 +187,7 @@ class AsyncOperation:
             stdin=stdin_repr,
             truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
         )
-        subprocess_queue: asyncio.Queue[OperationEvent | None] = asyncio.Queue()
-        async with self.lock:
-            self.queues[spid] = subprocess_queue
-        return AsyncSubprocessHandle(self, spid, subprocess_queue)
+        return AsyncSubprocessHandle(self, spid, await self.claim_queue(spid))
 
     async def shutdown(self) -> None:
         # graceful-then-forceful: signal spid=1, give it shutdown_timeout to reach a

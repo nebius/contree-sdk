@@ -82,6 +82,11 @@ class Operation:
         self.files = files
         self.response: OperationResponse | None = None
         self.queues: dict[int, queue.Queue[OperationEvent | None]] = {}
+        # events for a spid `run()` hasn't registered a queue for yet - the pump
+        # thread can race ahead of run() and observe a spid's events (including its
+        # own exit) before the caller gets a chance to claim them; buffering here and
+        # flushing on registration (see claim_queue()) closes that race
+        self.pending_events: dict[int, queue.Queue[OperationEvent]] = {}
         self.terminal = False
         self.consumer_thread: threading.Thread | None = None
         self.lock = threading.Lock()
@@ -121,7 +126,8 @@ class Operation:
         # single background reader for the whole operation's event stream (unfiltered:
         # a server-side spid filter would also drop the operation-wide `completion`
         # event, since `completion` carries no spid at all), demultiplexed by spid
-        # into whichever queue `run()` registered for that spid
+        # into whichever queue `run()` registered for that spid - or buffered in
+        # pending_events if run() hasn't registered one yet (see __init__)
         try:
             for event in self.client.follow_operation_events(self.uuid):
                 if event.type == "completion":
@@ -131,14 +137,32 @@ class Operation:
                     continue
                 with self.lock:
                     target = self.queues.get(spid)
-                if target is not None:
-                    target.put(event)
+                    if target is None:
+                        self.pending_events.setdefault(spid, queue.Queue()).put(event)
+                        continue
+                target.put(event)
         finally:
             with self.lock:
                 self.terminal = True
                 queues = list(self.queues.values())
             for target in queues:
                 target.put(None)
+
+    def claim_queue(self, spid: int) -> queue.Queue[OperationEvent | None]:
+        # registers spid's queue, flushing anything pump() buffered for it before this
+        # call could run; if the operation already ended, closes the handle immediately
+        # so a subprocess whose exit raced ahead of this registration doesn't hang forever
+        subprocess_queue: queue.Queue[OperationEvent | None] = queue.Queue()
+        with self.lock:
+            buffered = self.pending_events.pop(spid, None)
+            if buffered is not None:
+                while not buffered.empty():
+                    subprocess_queue.put(buffered.get_nowait())
+            if self.terminal:
+                subprocess_queue.put(None)
+            else:
+                self.queues[spid] = subprocess_queue
+        return subprocess_queue
 
     def run(
         self,
@@ -164,10 +188,7 @@ class Operation:
             stdin=stdin_repr,
             truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
         )
-        subprocess_queue: queue.Queue[OperationEvent | None] = queue.Queue()
-        with self.lock:
-            self.queues[spid] = subprocess_queue
-        return SubprocessHandle(self, spid, subprocess_queue)
+        return SubprocessHandle(self, spid, self.claim_queue(spid))
 
     def shutdown(self) -> None:
         # graceful-then-forceful: signal spid=1, give it shutdown_timeout to reach a
