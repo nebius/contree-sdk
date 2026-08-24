@@ -125,6 +125,61 @@ class TestCache:
         assert len(client.calls_for("spawn_instance")) == 2
 
 
+class TestOnStep:
+    async def test_on_step_reports_cache_hit_across_rebuild(self, tmp_path, client: ContreeAsyncClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        store = AsyncMemoryStore()
+        cache = AsyncMemoryCache()
+        first_events = []
+        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+            tmp_path, session_id="sess", on_step=first_events.append
+        )
+        assert [event.cache_hit for event in first_events] == [False, False]
+        assert first_events[0].keyword.startswith("FROM")
+        assert first_events[1].image_before == first_events[0].image_after
+        assert first_events[1].image_after == "img-uuid-1"
+        assert all(event.error is None for event in first_events)
+
+        second_events = []
+        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+            tmp_path, session_id="sess", on_step=second_events.append
+        )
+        assert [event.cache_hit for event in second_events] == [True, True]
+
+    async def test_on_step_accepts_an_async_callback(self, tmp_path, client: ContreeAsyncClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+        events = []
+
+        async def on_step(event):
+            events.append(event)
+
+        await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache()).build(
+            tmp_path, session_id="sess", on_step=on_step
+        )
+        assert len(events) == 2
+
+    async def test_on_step_reports_error_and_reraises(self, tmp_path, client: ContreeAsyncClient):
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN boom\n")
+        client.mock("spawn_instance", spawn_response())
+        client.mock("wait_operation", operation_response(result_image_uuid="img-failed", exit_code=1, stderr="boom"))
+
+        events = []
+        with pytest.raises(DockerBuildError):
+            await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache()).build(
+                tmp_path, session_id="sess", on_step=events.append
+            )
+
+        assert len(events) == 2
+        assert events[1].error is not None
+        assert events[1].image_after is None
+
+
 class TestCopy:
     async def test_local_file_rides_next_run(self, tmp_path, client: ContreeAsyncClient):
         (tmp_path / "app.py").write_text("print(1)\n")

@@ -26,6 +26,19 @@ from .url_fetch import http_fetch_async as default_http_fetch_async
 BUILD_TIMEOUT_DEFAULT = 600
 
 
+@dataclass(frozen=True)
+class BuildStepEvent:
+    """Reported to `on_step` around each directive's `execute()`/`execute_async()` call."""
+
+    index: int
+    keyword: str
+    cache_hit: bool
+    image_before: str | None
+    image_after: str | None
+    duration: float
+    error: BaseException | None = None
+
+
 @dataclass
 class PendingFile:
     instance_path: str
@@ -68,6 +81,7 @@ class BuildContext:
     pending: list[PendingFile] = field(default_factory=list)
     no_cache: bool = False
     timeout: int = BUILD_TIMEOUT_DEFAULT
+    last_cache_hit: bool = False
 
     def arg_values(self) -> dict[str, str]:
         # effective value for every declared ARG (build-arg overrides default)
@@ -132,6 +146,7 @@ class BuildContext:
             )
         else:
             self.session.switch_branch(branch_name)
+        self.last_cache_hit = True
         return tip.image_uuid
 
     def commit_layer(
@@ -180,6 +195,7 @@ class AsyncBuildContext:
     pending: list[PendingFile] = field(default_factory=list)
     no_cache: bool = False
     timeout: int = BUILD_TIMEOUT_DEFAULT
+    last_cache_hit: bool = False
 
     def arg_values(self) -> dict[str, str]:
         return {name: self.build_args.get(name, self.arg_defaults.get(name, "")) for name in self.declared_args}
@@ -243,6 +259,7 @@ class AsyncBuildContext:
             )
         else:
             await self.session.switch_branch(branch_name)
+        self.last_cache_hit = True
         return tip.image_uuid
 
     async def commit_layer(

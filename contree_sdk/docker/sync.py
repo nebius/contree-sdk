@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import SyncMemoryStore, SyncStore
 
-from .context import BUILD_TIMEOUT_DEFAULT, BuildContext, resolve_build_paths
+from .context import BUILD_TIMEOUT_DEFAULT, BuildContext, BuildStepEvent, resolve_build_paths
 from .kw_run import RunKeyword
 from .local_context import LocalContext
 from .parser import make_session_key, parse_dockerfile, validate_first_directive
@@ -55,6 +56,7 @@ class ContreeDockerBuilder:
         no_cache: bool = False,
         timeout: int = BUILD_TIMEOUT_DEFAULT,
         session_id: str | None = None,
+        on_step: Callable[[BuildStepEvent], None] | None = None,
     ) -> str:
         context_dir, dockerfile_path = resolve_build_paths(context, dockerfile)
 
@@ -79,8 +81,30 @@ class ContreeDockerBuilder:
         )
         self.ctx = ctx
 
-        for directive in directives:
-            directive.execute(ctx)
+        for index, directive in enumerate(directives):
+            image_before = ctx.last_image or None
+            ctx.last_cache_hit = False
+            start = time.monotonic()
+            try:
+                directive.execute(ctx)
+            except BaseException as exc:
+                if on_step is not None:
+                    on_step(
+                        BuildStepEvent(index, repr(directive), False, image_before, None, time.monotonic() - start, exc)
+                    )
+                raise
+            if on_step is not None:
+                on_step(
+                    BuildStepEvent(
+                        index,
+                        repr(directive),
+                        ctx.last_cache_hit,
+                        image_before,
+                        ctx.last_image or None,
+                        time.monotonic() - start,
+                        None,
+                    )
+                )
         finalize_pending(ctx)
 
         if not ctx.last_image:
