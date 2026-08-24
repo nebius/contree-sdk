@@ -1,7 +1,5 @@
 contree_sdk/_internals/utils/typing.py:
   unresolved-attribute: 3
-tests/unit/session/test_session_async.py:
-  unresolved-attribute: 5
 tests/unit/session/test_session_sync.py:
   unresolved-attribute: 5
 tests/utils/marker.py:

@@ -1,5 +1,5 @@
 import pytest
-from contree_client.models import OperationStatus
+from contree_client.models import FileResponse, OperationStatus
 from contree_client.testing import ContreeClient
 
 from contree_sdk.exceptions import FailedOperationError
@@ -115,3 +115,37 @@ def test_branch_and_rollback_update_live_pointer(client: ContreeClient):
 
     session.rollback()
     assert session.image_uuid == "img-uuid-0"
+
+
+def test_set_cwd_and_set_env_persist_through_store(client: ContreeClient):
+    store = SyncMemoryStore()
+    session = ContreeSession(client, image="tag:python:3.11", store=store, session_id="s1")
+
+    session.set_cwd("/app")
+    session.set_env({"FOO": "1", "BAR": "2"})
+
+    assert session.cwd == "/app"
+    assert session.env == {"FOO": "1", "BAR": "2"}
+    metadata = store.get_session_metadata("s1")
+    assert metadata.cwd == "/app"
+    assert metadata.env == {"FOO": "1", "BAR": "2"}
+
+    session.set_env({"BAR": None})
+    assert session.env == {"FOO": "1"}
+    assert store.get_session_metadata("s1").env == {"FOO": "1"}
+
+    resumed = ContreeSession(client, store=store, session_id="s1")
+    assert resumed.cwd == "/app"
+    assert resumed.env == {"FOO": "1"}
+
+
+def test_run_non_disposable_with_files_records_them_on_the_entry(client: ContreeClient):
+    client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
+
+    session.run(shell="echo hi", disposable=False, files={"/app.txt": b"data"})
+
+    entries, _ = session.history()
+    assert entries[-1].files == ("/app.txt",)
