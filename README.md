@@ -6,13 +6,15 @@
 **SDK for ConTree: Sandboxes That Branch Like Git**.
 ConTree is a container runtime purpose-built to support research on SWE agents, providing **reproducible, versioned filesystem state** — like Git for container execution, accessible from Python.
 
+The low-level HTTP/API client lives in the separate [`contree-client`](https://pypi.org/project/contree-client/) package. `contree-sdk` builds `ContreeSession` — a durable, resumable session with a pluggable history `Store` — on top of it.
+
 👉 **[See full feature list and use cases in the documentation →](https://docs.contree.dev/sdk/)**
 
 ## 📥 Get Started
 
 ### Installation
 
-Install the SDK from a PyPi:
+Install the SDK from PyPI:
 
 ```bash
 pip install contree-sdk
@@ -21,51 +23,18 @@ pip install contree-sdk
 ### Quick Start
 
 <details open>
-<summary>🔀 Async Example</summary>
-
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_async_simple
-import asyncio
-from contree_sdk import Contree
-
-
-async def main():
-    # Get client
-    contree = Contree(token="fake-token")
-
-    # Use image by tag
-    image = await contree.images.use("ubuntu:latest")
-
-    # Run command
-    result = await image.run(shell='echo "Hello from Contree!"')
-
-    # Output result
-    print(result.stdout)
-
-
-asyncio.run(main())
-```
-
-</details>
-
-<details>
 <summary>🔁 Sync Example</summary>
 
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync_simple
-from contree_sdk import ContreeSync
+```python fixture:api_fake_quick_start_sync fixture:name:test_quick_start_sync
+from contree_client.sync import ContreeClient
+from contree_sdk.session import ContreeSession
 
 
 def main():
-    # Get client
-    contree = ContreeSync(token="fake-token")
-
-    # Use image by tag
-    image = contree.images.use("ubuntu:latest")
-
-    # Run command
-    result = image.run(shell='echo "Hello from Contree!"').wait()
-
-    # Output result
-    print(result.stdout)
+    with ContreeClient(token="fake-token") as client:
+        session = ContreeSession(client, image="tag:python:3.11-slim")
+        result = session.run(shell='echo "Hello from Contree!"')
+        print(result.stdout.as_text())
 
 
 main()
@@ -73,15 +42,31 @@ main()
 
 </details>
 
+<details>
+<summary>🔀 Async Example</summary>
+
+```python fixture:api_fake_quick_start_async fixture:name:test_quick_start_async
+import asyncio
+
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk.session import ContreeAsyncSession
+
+
+async def amain():
+    async with ContreeAsyncClient(token="fake-token") as client:
+        session = ContreeAsyncSession(client, image="tag:python:3.11-slim")
+        result = await session.run(shell='echo "Hello from Contree!"')
+        print(result.stdout.as_text())
+
+
+asyncio.run(amain())
+```
+
+</details>
+
 ## Examples
 
-Ready to explore more? Check out our comprehensive examples:
-
-- **[Session Management](https://github.com/nebius/contree-sdk/tree/main/examples/session)** - Working with persistent sessions and state management
-- **[Image Operations](https://docs.contree.dev/sdk/python_sdk/images.html)** - Advanced image pulling, versioning, and management
-- **[Branching Workflows](https://docs.contree.dev/sdk/python_sdk/branching.html)** - Complex workflow patterns with image branching
-
-Explore all examples in the [`examples/`](https://github.com/nebius/contree-sdk/tree/main/examples) directory
+Ready to explore more? Check out our comprehensive examples in the [`examples/`](https://github.com/nebius/contree-sdk/tree/main/examples) directory.
 
 ---
 
@@ -89,7 +74,7 @@ Explore all examples in the [`examples/`](https://github.com/nebius/contree-sdk/
 
 ### Prerequisites
 
-- Python 3.10 - 3.13
+- Python 3.10 - 3.14
 - [uv](https://docs.astral.sh/uv/) package manager
 
 ### Env setup
@@ -97,7 +82,7 @@ Explore all examples in the [`examples/`](https://github.com/nebius/contree-sdk/
 ```bash
 git clone git@github.com:nebius/contree-sdk.git
 cd contree-sdk
-uv sync
+uv sync --extra dev
 ```
 
 ### Running Checks
@@ -109,10 +94,10 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-Type checking with [basedpyright](https://docs.basedpyright.com/):
+Type checking with [ty](https://docs.astral.sh/ty/):
 
 ```bash
-uv run basedpyright
+make type-check
 ```
 
 ### Running Tests
@@ -140,369 +125,136 @@ make rtd-dev
   - [Running Checks](#running-checks)
   - [Running Tests](#running-tests)
   - [Documentation Dev Server](#documentation-dev-server)
-- [Quick Start (Advanced)](#-quick-start-advanced)
 - [Core Concepts](#-core-concepts)
-  - [Sessions and Versioning](#sessions-and-versioning)
-  - [Subprocess-like interface](#subprocess-like-interface)
-  - [Stable image UUID](#stable-image-uuid)
-  - [Async/sync clients and objects](#asyncsync-clients-and-objects)
-- [Advanced Usage](#advanced-usage)
-  - [Client configuration](#client-configuration)
-  - [Objects reusing](#objects-reusing)
+  - [Sessions and Store](#sessions-and-store)
+  - [Branching and rollback](#branching-and-rollback)
+  - [Resuming a session](#resuming-a-session)
   - [File uploading](#file-uploading)
+- [Framework integrations](#framework-integrations)
 - [License](#license)
-
----
-
----
-
-## 🚀 Quick Start (Advanced)
-
-<details open>
-<summary>🔀 Async Example</summary>
-
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_async
-import asyncio
-import stat
-
-from pathlib import PurePosixPath
-
-from contree_sdk import Contree
-from contree_sdk.utils.models.file import UploadFileSpec
-from contree_sdk.sdk.objects.image_fs import ImageFile
-
-
-async def amain():
-    # create client
-    contree = Contree(token="fake-token")
-
-    # list images
-    images = await contree.images()
-
-    # use image by tag (no API call, resolved at execution time)
-    ubuntu_image = await contree.images.use("ubuntu:latest")
-
-    # pulling image from a remote registry
-    busybox_image = await contree.images.oci("docker://docker.io/busybox:latest")
-
-    # running command
-    result0 = await ubuntu_image.run(
-        command="/app.sh",
-        args=("arg1", "arg2"),
-        stdin="input",
-        env=dict(http_proxy="http://10.20.30.40:1234"),
-        files=[
-            UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
-            UploadFileSpec(source="/local/files/data_ver1.csv", path=PurePosixPath("/data.csv")),
-        ],
-    )
-    print(result0.stdout)
-    print(result0.stderr)
-
-    # running next command
-    result1 = await result0.run(shell="echo output.csv | grep something")
-
-    # getting files and directories by path
-    items = await result1.ls("files/path")
-    print(len(items))
-
-    # iterating through files and directories by path
-    for item in await result1.ls("~"):
-        print(item.name, item.is_dir)
-        if item.is_file:
-            # download file
-            assert isinstance(item, ImageFile)
-            await item.download("/local/files/downloaded/")
-
-    # using session
-    session = busybox_image.session()
-    await session.run(
-        command="/bin/app",
-        files=[UploadFileSpec(source="/local/files/app", path="bin/app", mode=stat.S_IXUSR)],
-    )
-    res = await session.run(command="/bin/cat", args=("result.txt",))
-    print(res.stdout)
-
-    # downloading file from session
-    await session.download("/tmp/log.jsonl", "/local/logs/session_1.log")
-
-    # or simply reading from file
-    content = await session.read("/tmp/log.jsonl")
-    print(content.decode())
-
-
-asyncio.run(amain())
-```
-
-</details>
-
-<details>
-<summary>🔁 Sync Example</summary>
-
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync
-import stat
-
-from contree_sdk import ContreeSync
-from contree_sdk.utils.models.file import UploadFileSpec
-from contree_sdk.sdk.objects.image_fs import ImageFileSync
-
-
-def main():
-    # Create client
-    contree = ContreeSync(token="fake-token")
-
-    # list images
-    images = contree.images()
-
-    # Use image by tag (no API call, resolved at execution time)
-    ubuntu_image = contree.images.use("ubuntu:latest")
-
-    # Pulling image from a remote registry
-    busybox_image = contree.images.oci("docker://docker.io/busybox:latest")
-
-    # running command
-    result0 = ubuntu_image.run(
-        command="/app.sh",
-        args=("arg1", "arg2"),
-        stdin="input",
-        env=dict(http_proxy="http://10.20.30.40:1234"),
-        files=[
-            UploadFileSpec(source="/local/files/app.sh", mode=stat.S_IXUSR),
-            UploadFileSpec(source="/local/files/data_ver1.csv", path="/data.csv"),
-        ],
-    ).wait()
-    print(result0.stdout)
-    print(result0.stderr)
-
-    # running next command
-    result1 = result0.run(shell="echo output.csv | grep something").wait()
-
-    # getting files and directories by path
-    items = result1.ls("files/path")
-    print(len(items))
-
-    # iterating through files and directories by path
-    for item in result1.ls("~"):
-        print(item.name, item.is_dir)
-        if item.is_file:
-            assert isinstance(item, ImageFileSync)
-            # download file
-            item.download("/local/files/downloaded/")
-
-    # using session
-    session = busybox_image.session()
-    session.run(
-        command="/bin/app",
-        files=[UploadFileSpec(source="/local/files/app", path="/bin/app", mode=stat.S_IXUSR)],
-    ).wait()
-    res = session.run(command="cat", args=("result.txt",)).wait()
-    print(res.stdout)
-
-    # downloading file from session
-    session.download("/tmp/log.jsonl", "/local/logs/session_1.log")
-
-    # or simply reading from file
-    content = session.read("/tmp/log.jsonl")
-    print(content.decode())
-
-
-main()
-```
-
-</details>
 
 ---
 
 ## 🧠 Core Concepts
 
-### Sessions and Versioning
+### Sessions and Store
 
-> [!NOTE]
-> Sessions automatically track image versions after each command execution.
+A **`ContreeSession`** is a durable pointer into an image's history. `.run()` returns `contree-client`'s `InstanceResult` as-is — no SDK-invented result type — so `result.stdout`/`.stderr` (decode with `.as_text()`/`.as_bytes()`) and `result.state.exit_code` are exactly what the API returned (`FailedOperationError` is raised instead if the operation itself failed with no result at all). Every non-disposable `.run()` call also appends a new entry to a **`Store`** (the image UUID it produced, the command, the exit code) and moves the session's pointer forward — like a commit advancing a Git branch.
 
-A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
+`Store` and `Cache` (used by the Docker builder) ship as matched sync/async
+pairs — `SyncStore`/`AsyncStore`, `SyncCache`/`AsyncCache` — so `ContreeSession`
+(sync) never blocks on hidden async bridging, and `ContreeAsyncSession` never
+blocks the event loop. Pick the one that matches your client.
 
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_sessions_versioning
-import asyncio
-from contree_sdk import Contree
+Two `Store` implementations ship with the SDK:
 
+- **`SyncMemoryStore`/`AsyncMemoryStore`** (the default when `store=` is omitted) — history lives only for the lifetime of the Python process.
+- **`SyncSQLiteStore`/`AsyncSQLiteStore(path)`** — history is written to a SQLite file (WAL mode), so a session survives process restarts and can be shared across processes. The async variant requires the `contree-sdk[async]` extra (`aiosqlite`).
 
-async def amain():
-    contree = Contree(token="fake-token")
-
-    # Each command creates a new image version
-    image = await contree.images.use("busybox:latest")  # busybox:latest
-    result1 = await image.run(shell="apt update")  # some-uuid
-    result2 = await result1.run(shell="apt install python3")  # another-uuid
-
-    # Sessions work the same way
-    session = image.session()  # busybox:latest
-    await session.run(shell="touch /app/file1.txt")  # some-uuid
-    await session.run(shell="echo 'hello' > /app/file1.txt")  # another-uuid
+```python fixture:api_fake_store fixture:name:test_sessions_and_store
+from contree_client.sync import ContreeClient
+from contree_sdk.session import ContreeSession
+from contree_sdk.store import SyncSQLiteStore
 
 
-asyncio.run(amain())
+def main():
+    with ContreeClient(token="fake-token") as client:
+        # in-memory history (default)
+        memory_session = ContreeSession(client, image="tag:python:3.11-slim")
+
+        # durable history, shared across processes via one SQLite file
+        sqlite_session = ContreeSession(
+            client, image="tag:python:3.11-slim", store=SyncSQLiteStore("/tmp/contree-example.db")
+        )
+
+        result = sqlite_session.run(shell="echo first > /tmp/marker.txt", disposable=False)
+        print(result.state.exit_code)
+
+        entries, branches = sqlite_session.history()
+        print([entry.kind for entry in entries])
+
+
+main()
 ```
 
-### Subprocess-like interface
+### Branching and rollback
 
-Any session can provide Subprocess-like interface
+A session's history is a DAG, not just a line: you can branch off any point and roll back to an earlier state without losing the commits you moved away from.
 
-> [!WARNING]
-> **Async version**: Subprocess-like interface is not yet implemented for async clients. Use sync clients for this functionality.
+```python fixture:api_fake_branching fixture:name:test_branching
+from contree_client.sync import ContreeClient
+from contree_sdk.session import ContreeSession
 
-<details open>
-<summary>🔁 Sync examples</summary>
 
-Running command
+def main():
+    with ContreeClient(token="fake-token") as client:
+        session = ContreeSession(client, image="tag:python:3.11-slim", session_id="demo")
+        session.run(shell="echo base > /tmp/state.txt", disposable=False)
 
-```python fixture:session fixture:api_fake_popen_communicate fixture:name:test_popen_communicate
-proc = session.popen(
-    ["cat"],
-    text=True,
-)
-stdout, stderr = proc.communicate("a\nb\nc\n")
+        session.create_branch("experiment")
+        session.switch_branch("experiment")
+        session.run(shell="echo experiment >> /tmp/state.txt", disposable=False)
+
+        # back to the tip of main, the experiment branch is untouched
+        session.switch_branch("main")
+        print(session.list_branches())
+
+
+main()
 ```
 
-Shell example
+### Resuming a session
 
-```python fixture:session fixture:api_fake_popen_shell fixture:name:test_popen_shell
-import subprocess
+Pass the same `session_id` and `Store` again to pick up exactly where a session left off — even from a different process, as long as the `Store` is a `SyncSQLiteStore` pointed at the same file.
 
-proc = session.popen(
-    "echo hello && ls -la",
-    shell=True,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-)
-returncode = proc.wait()
-print(proc.stdout)
-```
-
-</details>
-
-### Stable image UUID
-
-Basically one UUID refers to one state of FS, so in case if after running commands on the image, no FS changes are detected, UUID stays the same.
-
-```python fixture:image fixture:api_fake_stable_uuid fixture:name:test_stable_image_uuid
-result0 = image.run("echo CHANGES > file.txt").wait()
-result1 = result0.run("sleep 5").wait()
-
-assert result1.uuid == result0.uuid
-```
-
-### Async/sync clients and objects
-
-Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
-For example
-
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_async_sync_clients
-import asyncio
-from contree_sdk import Contree, ContreeSync
+```python fixture:api_fake_resume fixture:name:test_resume_session
+from contree_client.sync import ContreeClient
+from contree_sdk.session import ContreeSession
+from contree_sdk.store import SyncMemoryStore
 
 
-async def amain():
-    contree_async = Contree(token="fake-token")
+def main():
+    with ContreeClient(token="fake-token") as client:
+        store = SyncMemoryStore()
 
-    # async client produces async-friendly images objects, so they can be used in async code
-    images = await contree_async.images()
-    await images[0].run(shell="some command")
+        first = ContreeSession(client, image="tag:python:3.11-slim", store=store, session_id="my-session")
+        first.run(shell="echo hi > /tmp/state.txt", disposable=False)
 
-
-asyncio.run(amain())
-
-contree_sync = ContreeSync(token="fake-token")
-
-# while sync client produces sync-friendly images objects, so they can be used in sync code
-images = contree_sync.images()
-images[0].run(shell="some command").wait()
-```
-
-> [!NOTE]
-> In sync Image-like object `.wait()` method is used as opposed to await keyword in async version
-
----
-
-## Advanced Usage
-
-### Client configuration
-
-You can create configuration object and use it later in client
-
-```python fixture:name:test_client_config
-from contree_sdk.auth import IAMAuth
-from contree_sdk.config import ContreeConfig
-from contree_sdk import Contree, ContreeSync
-
-config = ContreeConfig(
-    auth=IAMAuth(token="my-token", base_url="https://contree.host.com"),
-    transport_timeout=10.0,  # timeout for transport operations
-)
-
-client_async = Contree(config)
-client = ContreeSync(config)
-```
-
-#### Authentication
-
-The SDK resolves credentials in the following priority order:
-
-1. **Explicit values** passed to `IAMAuth` / `JWTAuth` constructors.
-2. **Environment variables** — field defaults like `NEBIUS_API_KEY` and `NEBIUS_PROJECT_ID` are substituted automatically if the corresponding variable is set.
-3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth` are read from `~/.config/contree/auth.ini` (or `$CONTREE_HOME` / `$XDG_CONFIG_HOME/contree`).
-
-The active profile is taken from the `[DEFAULT]` section of `auth.ini` and can be overridden with the `CONTREE_PROFILE` environment variable.
-
-### Objects reusing
-
-You can preconfigure run and then reuse it, for example:
-
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_objects_reusing
-import asyncio
-from contree_sdk import Contree
+        # later, elsewhere: resume without repeating `image=`
+        resumed = ContreeSession(client, store=store, session_id="my-session")
+        assert resumed.image_uuid == first.image_uuid
 
 
-async def amain():
-    contree = Contree(token="fake-token")
-    image = await contree.images.use("busybox:latest")
-
-    # preconfigure a run that generates random string and writes to file
-    preconfigured_run = image.run(shell="echo $RANDOM > /tmp/random.txt")
-
-    # reuse it multiple times
-    result1 = await preconfigured_run
-    result2 = await preconfigured_run
-    result3 = await preconfigured_run
-
-    # each execution will generate different uuid, because each result is gonna be unique
-
-
-asyncio.run(amain())
+main()
 ```
 
 ### File uploading
 
-> [!WARNING]
-> This is a low-level API. Use only if you are deeply familiar with ConTree architecture and need direct file management.
-> For most use cases, prefer `files` parameter in `.run()` method.
+Pass files to bake into the resulting image directly through `.run(files=...)` — the SDK deduplicates uploads by content hash under the hood.
 
-```python fixture:docs_file_upload fixture:name:test_file_upload
-import asyncio
-from contree_sdk import Contree
+```python fixture:api_fake_file_upload fixture:name:test_file_upload
+from contree_client.sync import ContreeClient
+from contree_sdk.session import ContreeSession
 
 
-async def amain():
-    contree = Contree(token="fake-token")
+def main():
+    with ContreeClient(token="fake-token") as client:
+        session = ContreeSession(client, image="tag:python:3.11-slim")
+        result = session.run(
+            shell="cat /app.sh",
+            files={"/app.sh": b"#!/bin/sh\necho hello\n"},
+        )
+        print(result.stdout.as_text())
 
-    # upload file
-    file = await contree.files.upload("/some/local/file.txt")
-    print(file.uuid)
 
-
-asyncio.run(amain())
+main()
 ```
+
+---
+
+## Framework integrations
+
+Sandbox adapters for running agent tool calls inside a ConTree session are planned for `contree_sdk.langchain` (`ContreeLCSandbox`) and `contree_sdk.pydantic_ai` (`ContreePAISandbox`), on top of the `ContreeSession`/`Store` design above. Not yet available in this release — `contree_sdk.langchain` still exposes the pre-redesign `ContreeSandbox` and has not been migrated yet; `contree_sdk.pydantic_ai` does not exist yet.
 
 ---
 

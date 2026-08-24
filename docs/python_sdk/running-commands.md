@@ -4,7 +4,7 @@ icon: terminal
 
 # Running Commands
 
-ConTree SDK provides multiple ways to execute commands in containers, from simple shell commands to complex workflows with file handling and custom I/O.
+`ContreeSession`/`ContreeAsyncSession` provide a single `.run()` method covering shell commands, positional commands with arguments, file uploads, and stdin. For control over an operation's lifecycle independent of `.run()` — spawning without waiting, streaming live output, or running additional processes inside an already-running operation — see {doc}`operation`.
 
 ## Basic Command Execution
 
@@ -19,7 +19,7 @@ You can run commands using shell syntax or by specifying command and arguments s
 :start-after: def main(
 ```
 
-See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` and {meth}`ContreeSession.run() <contree_sdk.sdk.objects.session.ContreeSession.run>` for all options.
+See {meth}`~contree_sdk.session.ContreeAsyncSession.run` for all options.
 ````
 
 ````{tab} Sync
@@ -31,7 +31,7 @@ See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` 
 :start-after: def main(
 ```
 
-See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for all options.
+See {meth}`~contree_sdk.session.ContreeSession.run` for all options.
 ````
 
 ## Command Execution Mode
@@ -46,8 +46,6 @@ You can execute commands by specifying the executable path and arguments separat
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` and {meth}`ContreeSession.run() <contree_sdk.sdk.objects.session.ContreeSession.run>` for command execution details.
 ````
 
 ````{tab} Sync
@@ -58,8 +56,6 @@ See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` 
 :dedent: 4
 :start-after: def main(
 ```
-
-See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for command execution details.
 ````
 
 ### Command vs Shell Mode
@@ -72,29 +68,29 @@ See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSyn
 
 By default, values passed through `env` are available only to the current command. Set `preserve_env=True`
 with `disposable=False` when those variables should be written into the resulting image and inherited by
-later commands:
+later commands on the same session:
 
 ````{tab} Async
 ```python
-prepared = await image.run(
+await session.run(
     shell="true",
     env={"MY_PERSISTED_VAR": "persisted_value"},
     preserve_env=True,
     disposable=False,
 )
-result = await prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
+result = await session.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
 ```
 ````
 
 ````{tab} Sync
 ```python
-prepared = image.run(
+session.run(
     shell="true",
     env={"MY_PERSISTED_VAR": "persisted_value"},
     preserve_env=True,
     disposable=False,
-).wait()
-result = prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"]).wait()
+)
+result = session.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
 ```
 ````
 
@@ -105,7 +101,7 @@ environment.
 
 ## Working with Files
 
-You can upload and use files in your commands by specifying local file paths or pre-uploaded file objects:
+Pass files to bake into the resulting image directly through `.run(files=...)` — the SDK deduplicates uploads by content hash under the hood. `files` accepts a list of local paths, a dict mapping a destination path to a local path or raw bytes, or `stdin` for input redirection:
 
 ````{tab} Async
 ```{literalinclude} ../../examples/run/run_files.py
@@ -129,69 +125,9 @@ You can upload and use files in your commands by specifying local file paths or 
 
 ### File Upload Methods
 
-You can provide files to commands in several ways:
-
-- **Local file paths**: `files=["/path/to/local/file.txt"]` - Upload files directly
-- **File mapping**: `files={"dest.txt": "/local/source.txt"}` - Upload with custom names
-- **Pre-uploaded files**: `files={"script.sh": uploaded_file_object}` - Use files uploaded via `client.files.upload()`
-
-## Advanced I/O Handling
-
-You can use Python I/O objects for more sophisticated input/output handling:
-
-````{tab} Async
-```{literalinclude} ../../examples/run/run_io_objects.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.run` for I/O parameter details.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_io_objects_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.run` for I/O parameter details.
-````
-
-### Supported I/O Types
-
-- **StringIO**: For text-based input/output
-- **BytesIO**: For binary data handling
-- **File objects**: Use `open()` file handles directly
-- **PIPE**: Capture stderr/stdout as byte streams
-- **bytes type**: Get output as bytes instead of strings
-
-## Subprocess-like Interface (Sync Only)
-
-You can use a subprocess-like interface for more control over process execution:
-
-```{literalinclude} ../../examples/run/run_popen_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {class}`~contree_sdk.sdk.objects.subprocess.ContreeProcessSync` for the full subprocess API.
-
-### Popen Features
-
-- **Process control**: Use `wait()`, `communicate()`, and check `returncode`
-- **Environment variables**: Pass custom `env` dictionary
-- **Working directory**: Set `cwd` parameter
-- **Shell commands**: Enable with `shell=True`
-- **Error handling**: Check `returncode` and `stderr` for failures
+- **Local file paths**: `files=["/path/to/local/file.txt"]` — uploads under `/<basename>` in the image
+- **Destination mapping**: `files={"/dest.txt": "/local/source.txt"}` — upload with a specific destination path
+- **Inline content**: `files={"/dest.txt": b"raw bytes"}` — no local file needed
 
 ## Command Parameters
 
@@ -199,28 +135,25 @@ See {class}`~contree_sdk.sdk.objects.subprocess.ContreeProcessSync` for the full
 
 - **`shell`**: Execute as shell command (e.g., `"ls -la | grep txt"`)
 - **`command`**: Executable path (e.g., `"/bin/ls"`)
-- **`args`**: Command arguments as tuple (e.g., `("-la", "/tmp")`)
-- **`stdin`**: Input data (string, bytes, or I/O object)
+- **`args`**: Command arguments (e.g., `["-la", "/tmp"]`)
+- **`stdin`**: Input data (string, bytes, or a local file `Path`)
 - **`env`**: Environment variables as dictionary
-
-### I/O Parameters
-
-- **`stdout`**: Redirect stdout (StringIO, BytesIO, file path, or `bytes`)
-- **`stderr`**: Redirect stderr (StringIO, BytesIO, PIPE, or `bytes`)
-- **`files`**: Upload files (list of paths or dict mapping)
+- **`files`**: Files to upload (list of paths or dict mapping — see above)
 
 ### Execution Parameters
 
-- **`cwd`**: Working directory inside container
-- **`disposable`**: Whether to persist changes (default: True for runs, False for sessions)
+- **`cwd`**: Working directory inside the container
+- **`disposable`**: Whether to persist changes (default: `True` — the session's image and history are unchanged)
 - **`preserve_env`**: Whether to persist `env` values into the resulting image environment
-- **`tag`**: Tag to assign to the resulting image after execution (e.g. `tag="myapp:v2"`)
+- **`branch`**: Branch to advance instead of the active one, for a non-disposable run (see {doc}`branching`)
+- **`timeout`**: Maximum time to wait for the operation, in seconds or as a `timedelta`
+- **`truncate_output_at`**: Cap on captured stdout/stderr size, in bytes
 
 ## Result Objects
 
-Command execution returns result objects with:
+`.run()` returns `contree-client`'s `InstanceResult` as-is:
 
-- **`stdout`**: Command output as string (or specified type)
-- **`stderr`**: Error output as string (or specified type)
-- **`exit_code`**: Process exit code (0 = success)
-- **`uuid`**: UUID of the resulting image state
+- **`stdout`/`stderr`**: `StreamRepr` objects — decode with `.as_text()` or `.as_bytes()`
+- **`state.exit_code`**: process exit code (`0` = success)
+
+For a non-disposable run, the session's `image_uuid` reflects the newly-committed image, and a new entry is appended to the session's history (see {doc}`branching`).

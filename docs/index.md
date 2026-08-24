@@ -76,6 +76,13 @@ Comprehensive guide to command execution.
 Create reproducible execution branches.
 :::
 
+:::{grid-item-card} Spawning Subprocesses
+:link: python_sdk/operation
+:link-type: doc
+
+Track additional processes inside a running operation.
+:::
+
 ::::
 
 ```{toctree}
@@ -86,6 +93,7 @@ python_sdk/getting-started
 python_sdk/images
 python_sdk/running-commands
 python_sdk/branching
+python_sdk/operation
 
 python_sdk/reference/index
 

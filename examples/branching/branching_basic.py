@@ -1,50 +1,43 @@
 from asyncio import run
+from types import EllipsisType
 
-from contree_sdk import Contree
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import InstanceResult
+from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
+
+from contree_sdk.session import ContreeAsyncSession
 
 
-async def main(client: Contree):
-    image = await client.images.use("alpine:latest")
-    print(f"Using {image=}")
+def stdout_text(result: InstanceResult) -> str:
+    stream = result.stdout
+    if isinstance(stream, EllipsisType):
+        raise TypeError("command produced no stdout")
+    return stream.as_text()
 
-    print("\nExample 1: Different commands from same image")
-    result1 = await image.run(shell="echo 'First branch'", disposable=False)
-    result2 = await image.run(shell="echo 'Second branch'", disposable=False)
-    result3 = await image.run(shell="ls /bin | head -3", disposable=False)
 
-    print(f"Branch 1: {result1.stdout=}, {result1.uuid=}")
-    print(f"Branch 2: {result2.stdout=}, {result2.uuid=}")
-    print(f"Branch 3: {result3.stdout=}, {result3.uuid=}")
+async def main(client: ContreeAsyncClientBase):
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="branching-demo")
 
-    print("\nExample 2: Random output command (different each time)")
-    random1 = await image.run(shell="od -An -N2 -tu2 /dev/urandom", disposable=False)
-    random2 = await image.run(shell="od -An -N2 -tu2 /dev/urandom", disposable=False)
+    print("Example 1: Commit on main")
+    await session.run(shell="echo base > /tmp/state.txt", disposable=False)
 
-    print(f"Random 1: {random1.stdout=}, {random1.uuid=}")
-    print(f"Random 2: {random2.stdout=}, {random2.uuid=}")
+    print("\nExample 2: Branch off main and diverge")
+    await session.create_branch("experiment")
+    await session.switch_branch("experiment")
+    await session.run(shell="echo experiment >> /tmp/state.txt", disposable=False)
+    print(f"Branches: {await session.list_branches()}")
 
-    print("\nExample 3: Chain of operations from different branches")
-    base_result = await image.run(shell="echo 'apple\nbanana\ncherry' > /tmp/fruits.txt", disposable=False)
+    print("\nExample 3: Switching back to main leaves the experiment branch untouched")
+    await session.switch_branch("main")
+    result = await session.run(shell="cat /tmp/state.txt")
+    print(f"Main branch content: {stdout_text(result)=}")
 
-    sort_result = await base_result.run(shell="sort /tmp/fruits.txt", disposable=False)
-    reverse_result = await base_result.run(shell="sort -r /tmp/fruits.txt", disposable=False)
-
-    print(f"Base: {base_result.uuid=}")
-    print(f"Sorted: {sort_result.stdout=}, {sort_result.uuid=}")
-    print(f"Reverse sorted: {reverse_result.stdout=}, {reverse_result.uuid=}")
-
-    print("\nExample 4: Same command twice - same UUID")
-    same1 = await image.run(shell="echo 'Same command'", disposable=False)
-    same2 = await image.run(shell="echo 'Same command'", disposable=False)
-
-    print(f"Same 1: {same1.stdout=}, {same1.uuid=}")
-    print(f"Same 2: {same2.stdout=}, {same2.uuid=}")
-    print(f"UUIDs equal: {same1.uuid == same2.uuid}")
+    print("\nExample 4: Roll back a commit on main")
+    await session.run(shell="echo second-commit >> /tmp/state.txt", disposable=False)
+    await session.rollback()
+    result = await session.run(shell="cat /tmp/state.txt")
+    print(f"After rollback: {stdout_text(result)=}")
 
 
 if __name__ == "__main__":
-    run(
-        main(
-            client=Contree(),
-        )
-    )
+    run(main(client=ContreeAsyncClient.from_profile()))

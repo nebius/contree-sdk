@@ -1,19 +1,18 @@
-import os
 from asyncio import run
 
-from contree_sdk import Contree
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import ImageListResponse
+from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
 
 
-async def main():
-    # Get client
-    client = Contree()
+def image_count(response: ImageListResponse) -> int:
+    return len(response.images) if isinstance(response.images, list) else 0
 
-    # Get images (to verify that connection works)
-    await client.images()
+
+async def main(client: ContreeAsyncClientBase):
+    images = await client.list_images(limit=1)
+    print(f"Connected, {image_count(images)} image(s) visible")
 
 
 if __name__ == "__main__":
-    token = os.getenv("NEBIUS_API_KEY")
-    if not token:
-        os.environ["NEBIUS_API_KEY"] = input("Please enter Nebius IAM token: ")
-    run(main())
+    run(main(client=ContreeAsyncClient.from_profile()))

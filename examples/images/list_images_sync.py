@@ -1,25 +1,28 @@
 from datetime import datetime, timedelta
 
-from contree_sdk import ContreeSync
-from contree_sdk.utils.models.image import ImageKind
+from contree_client.models import ImageListResponse
+from contree_client.sync import ContreeClient
+from contree_client.types import ContreeSyncClient
 
 
-def main(client: ContreeSync):
-    all_images = client.images()
-    print(f"Loaded {all_images=}")
+def image_count(response: ImageListResponse) -> int:
+    return len(response.images) if isinstance(response.images, list) else 0
 
-    limited_images = client.images(number=3)
-    print(f"Found {len(limited_images)=}")
 
-    tagged_images = client.images(tagged=True)
-    print(f"Found {len(tagged_images)=}")
+def main(client: ContreeSyncClient):
+    all_images = client.list_images()
+    print(f"Loaded {image_count(all_images)} image(s)")
 
-    imported_images = client.images(kind=ImageKind.IMPORTED)
-    print(f"Found {len(imported_images)=}")
+    limited = client.list_images(limit=3)
+    print(f"Limited to {image_count(limited)} image(s)")
 
-    recent_images = client.images(since=datetime.now() - timedelta(days=7), number=5)
-    print(f"Found {len(recent_images)=}")
+    tagged_only = client.list_images(tagged=True)
+    print(f"Tagged images: {image_count(tagged_only)}")
+
+    since = datetime.now().astimezone() - timedelta(days=7)
+    recent = client.list_images(since=since.isoformat(), limit=5)
+    print(f"Created in the last week: {image_count(recent)}")
 
 
 if __name__ == "__main__":
-    main(client=ContreeSync())
+    main(client=ContreeClient.from_profile())

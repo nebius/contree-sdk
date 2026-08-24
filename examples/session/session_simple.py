@@ -1,45 +1,46 @@
 from asyncio import run
+from types import EllipsisType
 
-from contree_sdk import Contree
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import InstanceResult
+from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
+
+from contree_sdk.session import ContreeAsyncSession
 
 
-async def main(client: Contree):
-    image = await client.images.use("busybox:latest")
-    print(f"Using {image=}")
+def stdout_text(result: InstanceResult) -> str:
+    stream = result.stdout
+    if isinstance(stream, EllipsisType):
+        raise TypeError("command produced no stdout")
+    return stream.as_text()
 
-    print("\nExample 1: Create session from image")
-    session = image.session()
-    print(f"Created session: {session=}")
 
+def exit_code(result: InstanceResult) -> int:
+    state = result.state
+    if isinstance(state, EllipsisType) or isinstance(state.exit_code, EllipsisType):
+        raise TypeError("command produced no exit code")
+    return state.exit_code
+
+
+async def main(client: ContreeAsyncClientBase):
+    session = ContreeAsyncSession(client, image="tag:busybox:latest")
+    print(f"Created session: {session.session_id=}, {session.image_uuid=}")
+
+    print("\nExample 1: A non-disposable run advances the session's history")
     result1 = await session.run(shell="echo 'First command' > /tmp/data.txt", disposable=False)
-    print(f"First run: {result1.stdout=}, {result1.exit_code=}")
+    print(f"First run: {exit_code(result1)=}, image now {session.image_uuid=}")
 
-    result2 = await session.run(shell="cat /tmp/data.txt", disposable=False)
-    print(f"Read file: {result2.stdout=}, {result2.exit_code=}")
+    print("\nExample 2: Later runs see state from earlier ones")
+    result2 = await session.run(shell="cat /tmp/data.txt")
+    print(f"Read file: {stdout_text(result2)=}")
 
-    print("\nExample 2: Session maintains state between runs")
+    print("\nExample 3: Session history is a log of every non-disposable run")
     result3 = await session.run(shell="echo 'Second line' >> /tmp/data.txt", disposable=False)
-    print(f"Append to file: {result3.exit_code=}")
+    print(f"Append to file: {exit_code(result3)=}")
 
-    result4 = await session.run(shell="cat /tmp/data.txt", disposable=False)
-    print(f"File now contains: {result4.stdout=}")
-
-    print("\nExample 3: Session from previous run result")
-    run_result = await image.run(shell="echo 'Base setup' > /tmp/base.txt", disposable=False)
-    print(f"Base run: {run_result.uuid=}")
-
-    session_from_result = run_result.session()
-    result7 = await session_from_result.run(shell="cat /tmp/base.txt", disposable=False)
-    print(f"Session from result: {result7.stdout=}")
-
-    await session_from_result.run(shell="echo 'Additional data' >> /tmp/base.txt", disposable=False)
-    await session_from_result.run(shell="cat /tmp/base.txt", disposable=False)
-    print(f"Modified in session: {session_from_result.stdout=}")
+    entries, _ = await session.history()
+    print(f"History: {[(entry.kind, entry.title) for entry in entries]}")
 
 
 if __name__ == "__main__":
-    run(
-        main(
-            client=Contree(),
-        )
-    )
+    run(main(client=ContreeAsyncClient.from_profile()))

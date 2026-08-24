@@ -1,18 +1,16 @@
-import os
+from contree_client.models import ImageListResponse
+from contree_client.sync import ContreeClient
+from contree_client.types import ContreeSyncClient
 
-from contree_sdk import ContreeSync
+
+def image_count(response: ImageListResponse) -> int:
+    return len(response.images) if isinstance(response.images, list) else 0
 
 
-def main():
-    # Get client
-    client = ContreeSync()
-
-    # Get images (to verify that connection works)
-    client.images()
+def main(client: ContreeSyncClient):
+    images = client.list_images(limit=1)
+    print(f"Connected, {image_count(images)} image(s) visible")
 
 
 if __name__ == "__main__":
-    token = os.getenv("NEBIUS_API_KEY")
-    if not token:
-        os.environ["NEBIUS_API_KEY"] = input("Please enter Nebius IAM token: ")
-    main()
+    main(client=ContreeClient.from_profile())

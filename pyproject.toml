@@ -18,29 +18,31 @@ classifiers = [
 ]
 
 dependencies = [
-    "strenum",
-    "cattrs",
-    "aiofiles",
-    "httpx", # todo move to httpx when transport will be supported
+    "contree-client[httpx]>=0.2.1",
     "typing-extensions; python_version < '3.13'",
     "async-timeout; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+async = [
+    "aiosqlite>=0.20",
+    "contree-client[aiohttp]",
+]
+
 dev = [
     # for tests
     "pytest>=8.4.1",
     "pytest-asyncio",
-    "pytest-httpx",
     "pytest-mock",
     "pytest-xdist",
-    "pytest-httpbin",
     "pytest-cov",
     "pytest-html",
     "rich",
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
+    "contree-sdk[async]",
+    "contree-sdk[examples]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -58,18 +60,17 @@ dev-security = [
 "semgrep>=1.0",
 ]
 
-httpx = [
-]
 langchain = [
     "deepagents; python_version >= '3.11'",
 ]
 
+examples = [
+    "langchain-openai",
+    "mini-swe-agent>=2.2.0",
+]
+
 docs = [
     "contree-docs",
-]
-examples = [
-    "mini-swe-agent",
-    "langchain-openai"
 ]
 
 [tool.uv]
@@ -225,8 +226,17 @@ extend-ignore = [
     "PLR2004", # magic-value-comparison
 ]
 
-"contree_sdk/sdk/exceptions/**" = [
-    "RUF027", # missing-f-string-syntax
+"contree_sdk/store/sqlite.py" = [
+    "PLR0904", # too-many-public-methods: paired async/sync methods for every Store operation
+]
+
+"contree_sdk/session/{sync,asyncio}.py" = [
+    "PLR0913", # too-many-arguments: mirrors contree_client.spawn_instance's rich kwarg surface
+]
+
+"contree_sdk/docker/url_fetch.py" = [
+    "PLW0717", # too-many-statements-in-try-clause: optional aiohttp/httpx fallback chain, each branch is one cohesive implementation
+    "RUF029",  # unused-async: the no-client-available fallback keeps the same async signature as its siblings
 ]
 
 "examples/**" = [

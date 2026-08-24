@@ -1,26 +1,29 @@
 from asyncio import run
 from datetime import datetime, timedelta
 
-from contree_sdk import Contree
-from contree_sdk.utils.models.image import ImageKind
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import ImageListResponse
+from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
 
 
-async def main(client: Contree):
-    all_images = await client.images()
-    print(f"Loaded {all_images=}")
+def image_count(response: ImageListResponse) -> int:
+    return len(response.images) if isinstance(response.images, list) else 0
 
-    limited_images = await client.images(number=3)
-    print(f"Found {len(limited_images)=}")
 
-    tagged_images = await client.images(tagged=True)
-    print(f"Found {len(tagged_images)=}")
+async def main(client: ContreeAsyncClientBase):
+    all_images = await client.list_images()
+    print(f"Loaded {image_count(all_images)} image(s)")
 
-    imported_images = await client.images(kind=ImageKind.IMPORTED)
-    print(f"Found {len(imported_images)=}")
+    limited = await client.list_images(limit=3)
+    print(f"Limited to {image_count(limited)} image(s)")
 
-    recent_images = await client.images(since=datetime.now() - timedelta(days=7), number=5)
-    print(f"Found {len(recent_images)=}")
+    tagged_only = await client.list_images(tagged=True)
+    print(f"Tagged images: {image_count(tagged_only)}")
+
+    since = datetime.now().astimezone() - timedelta(days=7)
+    recent = await client.list_images(since=since.isoformat(), limit=5)
+    print(f"Created in the last week: {image_count(recent)}")
 
 
 if __name__ == "__main__":
-    run(main(client=Contree()))
+    run(main(client=ContreeAsyncClient.from_profile()))

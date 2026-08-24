@@ -1,5 +1,4 @@
-from contree_sdk.sdk.client._async import Contree
-from contree_sdk.sdk.client._sync import ContreeSync
+from contree_sdk.session import ContreeAsyncSession, ContreeSession
 
 
-__all__ = ["Contree", "ContreeSync"]
+__all__ = ["ContreeAsyncSession", "ContreeSession"]
