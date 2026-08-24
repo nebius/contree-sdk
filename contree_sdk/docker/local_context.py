@@ -94,7 +94,7 @@ class LocalContext:
             return []
         dest_is_dir = dest.endswith("/") or len(sources) > 1
         instance_path = posixpath.join(dest.rstrip("/"), host_path.name) if dest_is_dir else dest
-        mode = mode_override if mode_override is not None else (host_path.stat().st_mode & 0o7777)
+        mode = mode_override if mode_override is not None else default_mode(host_path)
         return [MappedFile(host_path=str(host_path), instance_path=instance_path, uid=uid, gid=gid, mode=mode)]
 
     def walk_dir(self, host_path: Path, dest: str, uid: int, gid: int, mode_override: int | None) -> list[MappedFile]:
@@ -120,9 +120,19 @@ class LocalContext:
                     continue
                 rel_to_source = os.path.relpath(full, str(host_path)).replace(os.sep, "/")
                 instance_path = f"{base.rstrip('/')}/{rel_to_source}"
-                mode = mode_override if mode_override is not None else (Path(full).stat().st_mode & 0o7777)
+                mode = mode_override if mode_override is not None else default_mode(full_path)
                 result.append(MappedFile(host_path=full, instance_path=instance_path, uid=uid, gid=gid, mode=mode))
         return result
+
+
+def default_mode(path: Path) -> int:
+    # Windows has no POSIX permission bits - st_mode's rwx bits are synthesized from
+    # the read-only file attribute (0o666 for writable, 0o444 for read-only), which
+    # is meaningless for the Linux container being built; use a plain default instead
+    # (an explicit `--chmod` in the Dockerfile still overrides this either way)
+    if os.name == "nt":
+        return 0o644
+    return path.stat().st_mode & 0o7777
 
 
 def join_rel(rel_root: str, name: str) -> str:
