@@ -4,7 +4,7 @@ icon: terminal
 
 # Running Commands
 
-`ContreeSession`/`ContreeAsyncSession` provide a single `.run()` method covering shell commands, positional commands with arguments, file uploads, and stdin.
+`ContreeSession`/`ContreeAsyncSession` provide a single `.run()` method covering shell commands, positional commands with arguments, file uploads, and stdin. For control over an operation's lifecycle independent of `.run()` — spawning without waiting, streaming live output, or running additional processes inside an already-running operation — see {doc}`operation`.
 
 ## Basic Command Execution
 
