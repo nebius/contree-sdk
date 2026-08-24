@@ -20,6 +20,23 @@ def test_history_survives_reopen(tmp_path: Path):
     reopened.close()
 
 
+def test_cwd_env_and_files_survive_reopen(tmp_path: Path):
+    db_path = tmp_path / "sessions.db"
+
+    first = SyncSQLiteStore(db_path)
+    entry = first.append("s1", image_uuid="img-0", parent_id=None, files=("/a.txt", "/b.txt"))
+    first.set_session_cwd("s1", "/app")
+    first.set_session_env("s1", {"FOO": "1"})
+    first.close()
+
+    reopened = SyncSQLiteStore(db_path)
+    metadata = reopened.get_session_metadata("s1")
+    assert metadata.cwd == "/app"
+    assert metadata.env == {"FOO": "1"}
+    assert reopened.get_entry("s1", entry.id).files == ("/a.txt", "/b.txt")
+    reopened.close()
+
+
 def test_second_connection_sees_writes_from_first(tmp_path: Path):
     db_path = tmp_path / "sessions.db"
 

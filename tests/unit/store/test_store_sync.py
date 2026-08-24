@@ -152,3 +152,33 @@ def test_history_dag_reports_branch_pointers(sync_store: SyncStore):
     entries, branch_map = sync_store.history_dag("s1")
     assert [entry.id for entry in entries] == [root.id, tip.id]
     assert set(branch_map[tip.id]) == {"main", "feature"}
+
+
+def test_append_records_files_on_the_entry(sync_store: SyncStore):
+    entry = sync_store.append("s1", image_uuid="img-0", parent_id=None, files=("/a.txt", "/b.txt"))
+    assert entry.files == ("/a.txt", "/b.txt")
+
+    entries, _ = sync_store.history_dag("s1")
+    assert entries[0].files == ("/a.txt", "/b.txt")
+
+
+def test_get_session_metadata_defaults_to_empty(sync_store: SyncStore):
+    metadata = sync_store.get_session_metadata("s1")
+    assert metadata.cwd is None
+    assert metadata.env == {}
+
+
+def test_set_session_cwd_round_trips(sync_store: SyncStore):
+    sync_store.set_session_cwd("s1", "/app")
+    assert sync_store.get_session_metadata("s1").cwd == "/app"
+
+    sync_store.set_session_cwd("s1", None)
+    assert sync_store.get_session_metadata("s1").cwd is None
+
+
+def test_set_session_env_merges_and_unsets(sync_store: SyncStore):
+    sync_store.set_session_env("s1", {"FOO": "1", "BAR": "2"})
+    assert sync_store.get_session_metadata("s1").env == {"FOO": "1", "BAR": "2"}
+
+    sync_store.set_session_env("s1", {"FOO": "updated", "BAR": None})
+    assert sync_store.get_session_metadata("s1").env == {"FOO": "updated"}

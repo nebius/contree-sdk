@@ -154,3 +154,33 @@ async def test_history_dag_reports_branch_pointers(async_store: AsyncStore):
     entries, branch_map = await async_store.history_dag("s1")
     assert [entry.id for entry in entries] == [root.id, tip.id]
     assert set(branch_map[tip.id]) == {"main", "feature"}
+
+
+async def test_append_records_files_on_the_entry(async_store: AsyncStore):
+    entry = await async_store.append("s1", image_uuid="img-0", parent_id=None, files=("/a.txt", "/b.txt"))
+    assert entry.files == ("/a.txt", "/b.txt")
+
+    entries, _ = await async_store.history_dag("s1")
+    assert entries[0].files == ("/a.txt", "/b.txt")
+
+
+async def test_get_session_metadata_defaults_to_empty(async_store: AsyncStore):
+    metadata = await async_store.get_session_metadata("s1")
+    assert metadata.cwd is None
+    assert metadata.env == {}
+
+
+async def test_set_session_cwd_round_trips(async_store: AsyncStore):
+    await async_store.set_session_cwd("s1", "/app")
+    assert (await async_store.get_session_metadata("s1")).cwd == "/app"
+
+    await async_store.set_session_cwd("s1", None)
+    assert (await async_store.get_session_metadata("s1")).cwd is None
+
+
+async def test_set_session_env_merges_and_unsets(async_store: AsyncStore):
+    await async_store.set_session_env("s1", {"FOO": "1", "BAR": "2"})
+    assert (await async_store.get_session_metadata("s1")).env == {"FOO": "1", "BAR": "2"}
+
+    await async_store.set_session_env("s1", {"FOO": "updated", "BAR": None})
+    assert (await async_store.get_session_metadata("s1")).env == {"FOO": "updated"}

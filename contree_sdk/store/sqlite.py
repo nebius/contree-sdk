@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from contree_sdk.store.base import AsyncStore, HistoryEntry, SyncStore
+from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
 
 
 try:
@@ -51,6 +51,25 @@ CREATE TABLE IF NOT EXISTS session_state_v1 (
 
 CREATE INDEX IF NOT EXISTS ix_history_v1_session ON session_history_v1(session_id);
 CREATE INDEX IF NOT EXISTS ix_history_v1_parent ON session_history_v1(parent_id);
+
+CREATE TABLE IF NOT EXISTS session_metadata_v1 (
+    session_id TEXT PRIMARY KEY,
+    cwd        TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+);
+
+CREATE TABLE IF NOT EXISTS session_env_v1 (
+    session_id TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    PRIMARY KEY (session_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS session_history_files_v1 (
+    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
+    file_path  TEXT NOT NULL,
+    PRIMARY KEY (history_id, file_path)
+);
 """
 
 
@@ -60,7 +79,7 @@ def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def entry_from_row(row: Any) -> HistoryEntry:
+def entry_from_row(row: Any, files: tuple[str, ...] = ()) -> HistoryEntry:
     # column values are naive UTC (SQLite's strftime('%Y-%m-%dT%H:%M:%S','now')), so
     # attach tzinfo explicitly to match MemoryStore's datetime.now(timezone.utc)
     return HistoryEntry(
@@ -73,6 +92,7 @@ def entry_from_row(row: Any) -> HistoryEntry:
         operation_uuid=row["operation_uuid"],
         exit_code=row["exit_code"],
         created_at=datetime.fromisoformat(row["created_at"]).replace(tzinfo=timezone.utc),
+        files=files,
     )
 
 
@@ -84,10 +104,11 @@ class SyncSQLiteStore(SyncStore):
     instance safe to share across *threads* within this process too.
 
     No in-place schema migrations: tables are named `session_history_v1`,
-    `session_branches_v1`, `session_state_v1`. A future schema change bumps
-    the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1` tables in
-    place - old data under the previous suffix is abandoned, not migrated
-    forward.
+    `session_branches_v1`, `session_state_v1`, `session_metadata_v1`,
+    `session_env_v1`, `session_history_files_v1`. A future schema change
+    bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
+    tables in place - old data under the previous suffix is abandoned, not
+    migrated forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -121,6 +142,14 @@ class SyncSQLiteStore(SyncStore):
                 (session_id, branch),
             ).fetchone()
 
+    def files_for(self, history_id: int) -> tuple[str, ...]:
+        with self.rlock:
+            rows = self.conn.execute(
+                "SELECT file_path FROM session_history_files_v1 WHERE history_id = ? ORDER BY file_path",
+                (history_id,),
+            ).fetchall()
+        return tuple(row["file_path"] for row in rows)
+
     def get_entry_row(self, session_id: str, history_id: int) -> HistoryEntry:
         with self.rlock:
             row = self.conn.execute(
@@ -129,10 +158,48 @@ class SyncSQLiteStore(SyncStore):
             ).fetchone()
         if row is None:
             raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-        return entry_from_row(row)
+        return entry_from_row(row, self.files_for(history_id))
 
     def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         return self.get_entry_row(session_id, history_id)
+
+    def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        with self.rlock:
+            row = self.conn.execute(
+                "SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,)
+            ).fetchone()
+            env_rows = self.conn.execute(
+                "SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,)
+            ).fetchall()
+        cwd = row["cwd"] if row is not None else None
+        return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
+
+    def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
+        with self.rlock, self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO session_metadata_v1 (session_id, cwd) VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+                """,
+                (session_id, cwd),
+            )
+            self.conn.commit()
+
+    def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        with self.rlock, self.transaction():
+            for key, value in updates.items():
+                if value is None:
+                    self.conn.execute("DELETE FROM session_env_v1 WHERE session_id = ? AND key = ?", (session_id, key))
+                else:
+                    self.conn.execute(
+                        """
+                        INSERT INTO session_env_v1 (session_id, key, value) VALUES (?, ?, ?)
+                        ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value
+                        """,
+                        (session_id, key, value),
+                    )
+            self.conn.commit()
 
     def active_branch(self, session_id: str) -> str | None:
         with self.rlock:
@@ -161,6 +228,7 @@ class SyncSQLiteStore(SyncStore):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         with self.rlock, self.transaction():
             branch_name = branch or self.active_branch(session_id) or "main"
@@ -175,6 +243,11 @@ class SyncSQLiteStore(SyncStore):
             new_id = cursor.lastrowid
             if new_id is None:
                 raise RuntimeError("INSERT into session_history_v1 did not report a row id")
+            for path in files:
+                self.conn.execute(
+                    "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
+                    (new_id, path),
+                )
             self.conn.execute(
                 """
                 INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
@@ -347,9 +420,18 @@ class SyncSQLiteStore(SyncStore):
             row = self.conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,)).fetchone()
             if row is None:
                 return False
+            self.conn.execute(
+                """
+                DELETE FROM session_history_files_v1
+                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
+                """,
+                (session_id,),
+            )
             self.conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
             self.conn.commit()
             return True
 
@@ -359,11 +441,22 @@ class SyncSQLiteStore(SyncStore):
                 "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
                 (session_id,),
             ).fetchall()
-            entries = [entry_from_row(row) for row in rows]
+            file_rows = self.conn.execute(
+                """
+                SELECT history_id, file_path FROM session_history_files_v1
+                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
+                ORDER BY file_path
+                """,
+                (session_id,),
+            ).fetchall()
             branch_rows = self.conn.execute(
                 "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
                 (session_id,),
             ).fetchall()
+        files_map: dict[int, list[str]] = {}
+        for row in file_rows:
+            files_map.setdefault(row["history_id"], []).append(row["file_path"])
+        entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
         branch_map: dict[int, list[str]] = {}
         for row in branch_rows:
             branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
@@ -378,6 +471,15 @@ async def branch_tip_row_async(conn: Any, session_id: str, branch: str) -> Any:
     return await cursor.fetchone()
 
 
+async def files_for_async(conn: Any, history_id: int) -> tuple[str, ...]:
+    cursor = await conn.execute(
+        "SELECT file_path FROM session_history_files_v1 WHERE history_id = ? ORDER BY file_path",
+        (history_id,),
+    )
+    rows = await cursor.fetchall()
+    return tuple(row["file_path"] for row in rows)
+
+
 async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> HistoryEntry:
     cursor = await conn.execute(
         "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
@@ -386,7 +488,7 @@ async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> Hi
     row = await cursor.fetchone()
     if row is None:
         raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-    return entry_from_row(row)
+    return entry_from_row(row, await files_for_async(conn, history_id))
 
 
 async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
@@ -417,10 +519,11 @@ class AsyncSQLiteStore(AsyncStore):
     helpers here never re-acquire it. Requires the `contree-sdk[async]` extra.
 
     No in-place schema migrations: tables are named `session_history_v1`,
-    `session_branches_v1`, `session_state_v1`. A future schema change bumps
-    the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1` tables in
-    place - old data under the previous suffix is abandoned, not migrated
-    forward.
+    `session_branches_v1`, `session_state_v1`, `session_metadata_v1`,
+    `session_env_v1`, `session_history_files_v1`. A future schema change
+    bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
+    tables in place - old data under the previous suffix is abandoned, not
+    migrated forward.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -471,6 +574,45 @@ class AsyncSQLiteStore(AsyncStore):
         async with self.lock:
             return await get_entry_row_async(conn, session_id, history_id)
 
+    async def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute("SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
+            row = await cursor.fetchone()
+            env_cursor = await conn.execute("SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,))
+            env_rows = await env_cursor.fetchall()
+        cwd = row["cwd"] if row is not None else None
+        return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
+
+    async def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            await conn.execute(
+                """
+                INSERT INTO session_metadata_v1 (session_id, cwd) VALUES (?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+                """,
+                (session_id, cwd),
+            )
+            await conn.commit()
+
+    async def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            for key, value in updates.items():
+                if value is None:
+                    await conn.execute("DELETE FROM session_env_v1 WHERE session_id = ? AND key = ?", (session_id, key))
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO session_env_v1 (session_id, key, value) VALUES (?, ?, ?)
+                        ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value
+                        """,
+                        (session_id, key, value),
+                    )
+            await conn.commit()
+
     async def active_branch(self, session_id: str) -> str | None:
         conn = await self.ensure_connection()
         async with self.lock:
@@ -487,6 +629,7 @@ class AsyncSQLiteStore(AsyncStore):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
@@ -502,6 +645,11 @@ class AsyncSQLiteStore(AsyncStore):
             new_id = cursor.lastrowid
             if new_id is None:
                 raise RuntimeError("INSERT into session_history_v1 did not report a row id")
+            for path in files:
+                await conn.execute(
+                    "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
+                    (new_id, path),
+                )
             await conn.execute(
                 """
                 INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
@@ -689,9 +837,18 @@ class AsyncSQLiteStore(AsyncStore):
             row = await cursor.fetchone()
             if row is None:
                 return False
+            await conn.execute(
+                """
+                DELETE FROM session_history_files_v1
+                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
+                """,
+                (session_id,),
+            )
             await conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
             await conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
             await conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
             await conn.commit()
             return True
 
@@ -703,12 +860,24 @@ class AsyncSQLiteStore(AsyncStore):
                 (session_id,),
             )
             rows = await cursor.fetchall()
-            entries = [entry_from_row(row) for row in rows]
+            file_cursor = await conn.execute(
+                """
+                SELECT history_id, file_path FROM session_history_files_v1
+                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
+                ORDER BY file_path
+                """,
+                (session_id,),
+            )
+            file_rows = await file_cursor.fetchall()
             branch_cursor = await conn.execute(
                 "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
                 (session_id,),
             )
             branch_rows = await branch_cursor.fetchall()
+        files_map: dict[int, list[str]] = {}
+        for row in file_rows:
+            files_map.setdefault(row["history_id"], []).append(row["file_path"])
+        entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
         branch_map: dict[int, list[str]] = {}
         for row in branch_rows:
             branch_map.setdefault(row["history_id"], []).append(row["branch_name"])

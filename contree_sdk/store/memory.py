@@ -4,7 +4,7 @@ import threading
 from asyncio import Lock
 from datetime import datetime, timezone
 
-from contree_sdk.store.base import AsyncStore, HistoryEntry, SyncStore
+from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
 
 
 class SyncMemoryStore(SyncStore):
@@ -15,6 +15,8 @@ class SyncMemoryStore(SyncStore):
         self.next_id = 1
         self.branches: dict[str, dict[str, int]] = {}
         self.active_branches: dict[str, str] = {}
+        self.cwds: dict[str, str] = {}
+        self.envs: dict[str, dict[str, str]] = {}
         self.lock = threading.Lock()
 
     def branch_tip_id(self, session_id: str, branch: str) -> int | None:
@@ -31,6 +33,7 @@ class SyncMemoryStore(SyncStore):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         with self.lock:
             branch_name = branch or self.active_branches.get(session_id) or "main"
@@ -44,6 +47,7 @@ class SyncMemoryStore(SyncStore):
                 operation_uuid=operation_uuid,
                 exit_code=exit_code,
                 created_at=datetime.now(timezone.utc),
+                files=files,
             )
             self.entries[entry.id] = entry
             self.next_id += 1
@@ -56,6 +60,26 @@ class SyncMemoryStore(SyncStore):
         if entry is None or entry.session_id != session_id:
             raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
         return entry
+
+    def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        with self.lock:
+            return SessionMetadata(cwd=self.cwds.get(session_id), env=dict(self.envs.get(session_id, {})))
+
+    def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
+        with self.lock:
+            if cwd is None:
+                self.cwds.pop(session_id, None)
+            else:
+                self.cwds[session_id] = cwd
+
+    def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        with self.lock:
+            env = self.envs.setdefault(session_id, {})
+            for key, value in updates.items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
 
     def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         branch_name = branch or self.active_branches.get(session_id)
@@ -174,6 +198,8 @@ class SyncMemoryStore(SyncStore):
                 del self.entries[history_id]
             del self.branches[session_id]
             del self.active_branches[session_id]
+            self.cwds.pop(session_id, None)
+            self.envs.pop(session_id, None)
             return True
 
     def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
@@ -194,6 +220,8 @@ class AsyncMemoryStore(AsyncStore):
         self.next_id = 1
         self.branches: dict[str, dict[str, int]] = {}
         self.active_branches: dict[str, str] = {}
+        self.cwds: dict[str, str] = {}
+        self.envs: dict[str, dict[str, str]] = {}
         self.lock = Lock()
 
     def branch_tip_id(self, session_id: str, branch: str) -> int | None:
@@ -210,6 +238,7 @@ class AsyncMemoryStore(AsyncStore):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         async with self.lock:
             branch_name = branch or self.active_branches.get(session_id) or "main"
@@ -223,6 +252,7 @@ class AsyncMemoryStore(AsyncStore):
                 operation_uuid=operation_uuid,
                 exit_code=exit_code,
                 created_at=datetime.now(timezone.utc),
+                files=files,
             )
             self.entries[entry.id] = entry
             self.next_id += 1
@@ -235,6 +265,26 @@ class AsyncMemoryStore(AsyncStore):
         if entry is None or entry.session_id != session_id:
             raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
         return entry
+
+    async def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        async with self.lock:
+            return SessionMetadata(cwd=self.cwds.get(session_id), env=dict(self.envs.get(session_id, {})))
+
+    async def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
+        async with self.lock:
+            if cwd is None:
+                self.cwds.pop(session_id, None)
+            else:
+                self.cwds[session_id] = cwd
+
+    async def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        async with self.lock:
+            env = self.envs.setdefault(session_id, {})
+            for key, value in updates.items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
 
     async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         branch_name = branch or self.active_branches.get(session_id)
@@ -353,6 +403,8 @@ class AsyncMemoryStore(AsyncStore):
                 del self.entries[history_id]
             del self.branches[session_id]
             del self.active_branches[session_id]
+            self.cwds.pop(session_id, None)
+            self.envs.pop(session_id, None)
             return True
 
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:

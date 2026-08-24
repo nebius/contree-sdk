@@ -20,6 +20,23 @@ async def test_history_survives_reopen(tmp_path: Path):
     await reopened.close()
 
 
+async def test_cwd_env_and_files_survive_reopen(tmp_path: Path):
+    db_path = tmp_path / "sessions.db"
+
+    first = AsyncSQLiteStore(db_path)
+    entry = await first.append("s1", image_uuid="img-0", parent_id=None, files=("/a.txt", "/b.txt"))
+    await first.set_session_cwd("s1", "/app")
+    await first.set_session_env("s1", {"FOO": "1"})
+    await first.close()
+
+    reopened = AsyncSQLiteStore(db_path)
+    metadata = await reopened.get_session_metadata("s1")
+    assert metadata.cwd == "/app"
+    assert metadata.env == {"FOO": "1"}
+    assert (await reopened.get_entry("s1", entry.id)).files == ("/a.txt", "/b.txt")
+    await reopened.close()
+
+
 async def test_second_connection_sees_writes_from_first(tmp_path: Path):
     db_path = tmp_path / "sessions.db"
 

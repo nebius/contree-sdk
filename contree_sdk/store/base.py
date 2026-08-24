@@ -16,6 +16,13 @@ class HistoryEntry:
     operation_uuid: str | None
     exit_code: int | None
     created_at: datetime
+    files: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SessionMetadata:
+    cwd: str | None
+    env: dict[str, str]
 
 
 class SyncStore(ABC):
@@ -36,11 +43,23 @@ class SyncStore(ABC):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         """Insert an entry under `parent_id` and advance `branch` (default: active) to it."""
 
     @abstractmethod
     def get_entry(self, session_id: str, history_id: int) -> HistoryEntry: ...
+
+    @abstractmethod
+    def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        """Return current cwd/env for `session_id`; `SessionMetadata(cwd=None, env={})` if unset."""
+
+    @abstractmethod
+    def set_session_cwd(self, session_id: str, cwd: str | None) -> None: ...
+
+    @abstractmethod
+    def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        """Merge `updates` into the session's env; a `None` value unsets that key."""
 
     @abstractmethod
     def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
@@ -107,11 +126,23 @@ class AsyncStore(ABC):
         operation_uuid: str | None = None,
         exit_code: int | None = None,
         branch: str | None = None,
+        files: tuple[str, ...] = (),
     ) -> HistoryEntry:
         """Insert an entry under `parent_id` and advance `branch` (default: active) to it."""
 
     @abstractmethod
     async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry: ...
+
+    @abstractmethod
+    async def get_session_metadata(self, session_id: str) -> SessionMetadata:
+        """Return current cwd/env for `session_id`; `SessionMetadata(cwd=None, env={})` if unset."""
+
+    @abstractmethod
+    async def set_session_cwd(self, session_id: str, cwd: str | None) -> None: ...
+
+    @abstractmethod
+    async def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
+        """Merge `updates` into the session's env; a `None` value unsets that key."""
 
     @abstractmethod
     async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
