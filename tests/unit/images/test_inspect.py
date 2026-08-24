@@ -1,7 +1,8 @@
 from uuid import UUID
 
+import httpx
 import pytest
-from contree_client.models import FileItem
+from contree_client.models import FileItem, GrepResult
 from pytest_httpx import HTTPXMock
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
@@ -12,7 +13,7 @@ from tests.e2e.sdk.images.test_inspect import test_image_ls_s as _test_image_ls_
 from tests.e2e.sdk.images.test_inspect import test_read_file as _test_read_file
 from tests.e2e.sdk.images.test_inspect import test_read_file_s as _test_read_file_s
 from tests.unit.fixtures.images import add_tag_responses
-from tests.unit.fixtures.utils import url
+from tests.unit.fixtures.utils import r, url
 
 
 def create_file_item(name: str, is_dir: bool = False, size: int = 0) -> dict:
@@ -106,6 +107,84 @@ async def test_image_ls(api_fake_inspect_ls: HTTPXMock, fake_image: ContreeImage
 
 def test_image_ls_s(api_fake_inspect_ls: HTTPXMock, fake_image_s: ContreeImageSync):
     _test_image_ls_s(fake_image_s)
+
+
+async def test_image_grep_preserves_repeatable_query_and_resolves_tag(
+    fake_contree,
+    image_uuid: UUID,
+    image_tag: str,
+    api_fake_images: HTTPXMock,
+):
+    image = ContreeImage(client=fake_contree, uuid=None, tag=image_tag)
+
+    def grep_response(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get_list("pattern") == ["root", "daemon"]
+        assert request.url.params.get_list("path") == ["/etc/passwd", "/etc/group"]
+        assert request.url.params.get_list("glob") == ["*.conf", "!shadow"]
+        assert request.url.params["max_count"] == "2"
+        assert request.url.params["max_total"] == "3"
+        assert request.url.params["case"] == "smart"
+        assert request.url.params["before"] == "1"
+        assert request.url.params["after"] == "2"
+        return httpx.Response(
+            200,
+            json={
+                "path": "/etc/passwd",
+                "patterns": ["root", "daemon"],
+                "matches": [
+                    {
+                        "path": "/etc/passwd",
+                        "line_number": 1,
+                        "absolute_offset": 0,
+                        "line_text": "root:x:0:0:root:/root:/bin/sh\n",
+                        "line_bytes": 32,
+                        "submatches": [{"text": "root", "start": 0, "end": 4}],
+                        "type": "match",
+                    }
+                ],
+                "truncated": False,
+            },
+        )
+
+    api_fake_images.add_callback(
+        grep_response,
+        method="GET",
+        url=r(f".*/inspect/{image_uuid}/grep.*"),
+    )
+
+    result = await image.grep(
+        ["root", "daemon"],
+        path=["/etc/passwd", "/etc/group"],
+        glob=["*.conf", "!shadow"],
+        max_count=2,
+        max_total=3,
+        case="smart",
+        before=1,
+        after=2,
+    )
+
+    assert result.patterns == ["root", "daemon"]
+    assert result.matches[0].path == "/etc/passwd"
+    assert result.matches[0].submatches[0].text == "root"
+    assert result.truncated is False
+
+
+def test_image_grep_s(fake_image_s: ContreeImageSync, mocker):
+    expected = GrepResult(path="/", patterns=["root"], matches=[], truncated=False)
+    grep = mocker.patch.object(fake_image_s._client._api, "inspect_image_grep", return_value=expected)
+
+    assert fake_image_s.grep("root") is expected
+    grep.assert_awaited_once_with(
+        str(fake_image_s.uuid),
+        "root",
+        path=None,
+        glob=None,
+        max_count=None,
+        max_total=None,
+        case=None,
+        before=None,
+        after=None,
+    )
 
 
 async def test_download_file(

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path, PurePosixPath
-from typing import TypeVar
+from typing import Literal, TypeVar
+
+from contree_client.models import GrepResult
 
 from contree_sdk._internals.io.operation_waiter import OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
@@ -46,6 +48,47 @@ class _ImageLikeSync(_ImageLikeBase):
 
         """
         return coro_sync(self._ls(path, ImageFileSync, ImageDirectorySync))
+
+    def grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        """Search file contents in the image.
+
+        Args:
+            pattern: Search pattern or patterns.
+            path: Path or paths to search. Defaults to the image root.
+            glob: Glob filter or filters.
+            max_count: Maximum matches per file.
+            max_total: Maximum matches across all files.
+            case: Case matching mode.
+            before: Number of context lines before each match.
+            after: Number of context lines after each match.
+
+        Returns:
+            Typed grep result with matches and truncation status.
+
+        """
+        return coro_sync(
+            self._grep(
+                pattern,
+                path=path,
+                glob=glob,
+                max_count=max_count,
+                max_total=max_total,
+                case=case,
+                before=before,
+                after=after,
+            )
+        )
 
     def download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path | None:
         """Download a file from the image to local filesystem.

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from asyncio import create_task, gather, to_thread
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from contextlib import aclosing
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, BinaryIO, TypeVar, cast, overload
+from typing import TYPE_CHECKING, BinaryIO, Literal, TypeVar, cast, overload
 from uuid import UUID
 
-from contree_client.models import FileSpec
+from contree_client.models import FileSpec, GrepResult
 
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
@@ -378,6 +378,30 @@ class _ImageLikeBase:
                 )
             )
         return result
+
+    async def _grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        return await self._client._api.inspect_image_grep(
+            await self._resolved_uuid(),
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
 
     async def _read_file(self, path: str | PurePosixPath) -> bytes:
         return await self._client._api.inspect_image_download(await self._resolved_uuid(), str(path))
