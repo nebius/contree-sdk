@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
 from uuid import UUID
 
 from contree_client.exceptions import NotFoundError
@@ -12,7 +10,6 @@ from contree_client.models import Image, ImageImportRegistry, ImageImportRegistr
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.managers.images._base import ImagesBaseManager, process_time_param
 from contree_sdk.sdk.objects.image import ContreeImage
-from contree_sdk.utils.deprecation import deprecated
 from contree_sdk.utils.oci import OCIReference
 from contree_sdk.utils.sentinels import value_or_none
 from contree_sdk.utils.typing import keep_signature
@@ -82,61 +79,6 @@ class ImagesManager(ImagesBaseManager[ContreeImage]):
         if strict:
             return await self.get_image_by_tag(tag)
         return self.ImageType(client=self.client, uuid=None, tag=tag)
-
-    @deprecated("You can migrate to use() or oci() methods instead")
-    async def pull_image(
-        self,
-        url_or_tag_or_uuid: str | UUID,
-        *,
-        new_tag: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        timeout: float | None = None,
-    ) -> ContreeImage:
-        """Outdated method for pulling images. Use ``use()`` or ``oci()`` instead.
-
-        .. deprecated::
-            Use :meth:`use` to reference an image by tag or UUID,
-            or :meth:`oci` / :meth:`import_from` to import from an external source.
-
-        Args:
-            url_or_tag_or_uuid: UUID, local tag, or external registry URL of the image.
-            new_tag: Tag to assign to the imported image.
-            username: Registry username for authenticated imports.
-            password: Registry password for authenticated imports.
-            timeout: Maximum seconds to wait for the import operation.
-
-        Returns:
-            Resolved or imported image object.
-
-        Raises:
-            TypeError: If url_or_tag_or_uuid is not a str or UUID.
-
-        """
-        uuid = url_or_tag_or_uuid if isinstance(url_or_tag_or_uuid, UUID) else None
-
-        with suppress(ValueError):
-            uuid = UUID(url_or_tag_or_uuid) if isinstance(url_or_tag_or_uuid, str) else uuid
-
-        if uuid is not None:
-            return await self.get_image_by_uuid(uuid)
-
-        if not isinstance(url_or_tag_or_uuid, str):
-            raise TypeError(f"Expected str for url_or_tag_or_uuid, got {type(url_or_tag_or_uuid)}")
-
-        parsed = urlparse(url_or_tag_or_uuid)
-
-        if parsed.netloc or username or password:
-            return await self.import_image(
-                url_or_tag_or_uuid,
-                tag=new_tag,
-                username=username,
-                password=password,
-                timeout=timeout,
-            )
-
-        # return by tag
-        return await self.get_image_by_tag(url_or_tag_or_uuid)
 
     async def get_image_by_tag(self, tag: str) -> ContreeImage:
         uuid = await self.client.api.inspect_find_image_by_tag(tag)
@@ -266,19 +208,6 @@ class ImagesManager(ImagesBaseManager[ContreeImage]):
     @keep_signature(use_image)
     async def use(self, *args, **kwargs) -> ContreeImage:
         return await self.use_image(*args, **kwargs)
-
-    async def pull(
-        self,
-        url_or_tag_or_uuid: str | UUID,
-        *,
-        new_tag: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        timeout: float | None = None,
-    ) -> ContreeImage:
-        return await self.pull_image(
-            url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password, timeout=timeout
-        )
 
     @keep_signature(pull_image_by_oci)
     async def oci(self, *args, **kwargs) -> ContreeImage:

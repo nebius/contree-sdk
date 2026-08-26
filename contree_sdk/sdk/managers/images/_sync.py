@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
 from uuid import UUID
 
 from contree_client.exceptions import NotFoundError
@@ -12,7 +10,6 @@ from contree_client.models import Image, ImageImportRegistry, ImageImportRegistr
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.managers.images._base import ImagesBaseManager, process_time_param
 from contree_sdk.sdk.objects.image import ContreeImageSync
-from contree_sdk.utils.deprecation import deprecated
 from contree_sdk.utils.oci import OCIReference
 from contree_sdk.utils.sentinels import value_or_none
 from contree_sdk.utils.typing import keep_signature
@@ -82,40 +79,6 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
         if strict:
             return self.get_image_by_tag(tag)
         return self.ImageType(client=self.client, uuid=None, tag=tag)
-
-    @deprecated("Use use() or oci() instead")
-    def pull_image(
-        self,
-        url_or_tag_or_uuid: str | UUID,
-        *,
-        new_tag: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        timeout: float | None = None,
-    ) -> ContreeImageSync:
-        uuid = url_or_tag_or_uuid if isinstance(url_or_tag_or_uuid, UUID) else None
-
-        with suppress(ValueError):
-            uuid = UUID(url_or_tag_or_uuid) if isinstance(url_or_tag_or_uuid, str) else uuid
-
-        if uuid is not None:
-            return self.get_image_by_uuid(uuid)
-
-        if not isinstance(url_or_tag_or_uuid, str):
-            raise TypeError(f"Expected str for url_or_tag_or_uuid, got {type(url_or_tag_or_uuid)}")
-
-        parsed = urlparse(url_or_tag_or_uuid)
-
-        if parsed.netloc or username or password:
-            return self.import_image(
-                url_or_tag_or_uuid,
-                tag=new_tag,
-                username=username,
-                password=password,
-                timeout=timeout,
-            )
-
-        return self.get_image_by_tag(url_or_tag_or_uuid)
 
     def get_image_by_tag(self, tag: str) -> ContreeImageSync:
         uuid = self.client.api.inspect_find_image_by_tag(tag)
@@ -240,19 +203,6 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
     @keep_signature(use_image)
     def use(self, *args, **kwargs) -> ContreeImageSync:
         return self.use_image(*args, **kwargs)
-
-    def pull(
-        self,
-        url_or_tag_or_uuid: str | UUID,
-        *,
-        new_tag: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        timeout: float | None = None,
-    ) -> ContreeImageSync:
-        return self.pull_image(
-            url_or_tag_or_uuid, new_tag=new_tag, username=username, password=password, timeout=timeout
-        )
 
     @keep_signature(pull_image_by_oci)
     def oci(self, *args, **kwargs) -> ContreeImageSync:

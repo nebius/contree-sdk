@@ -18,6 +18,4 @@ Core Components
     session
     image_fs
     subprocess
-    config
-    auth
     oci
