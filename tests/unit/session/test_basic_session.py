@@ -1,5 +1,4 @@
 import pytest
-from pytest_httpx import HTTPXMock
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
@@ -31,12 +30,12 @@ def test_create_session_s(fake_image_s):
 
 
 @pytest.fixture
-def fake_session(fake_image: ContreeImage, api_fake_run: HTTPXMock) -> ContreeSession:
+def fake_session(fake_image: ContreeImage, api_fake_run) -> ContreeSession:
     return fake_image.session()
 
 
 @pytest.fixture
-def fake_session_s(fake_image_s: ContreeImageSync, api_fake_run: HTTPXMock) -> ContreeSessionSync:
+def fake_session_s(fake_image_s: ContreeImageSync, api_fake_run) -> ContreeSessionSync:
     return fake_image_s.session()
 
 
@@ -50,7 +49,7 @@ def test_session_run_s(fake_session_s: ContreeSessionSync):
 
 @pytest.fixture
 def fake_session_multiple(
-    fake_image_s: ContreeImageSync, api_fake_session_multiple_runs: HTTPXMock
+    fake_image_s: ContreeImageSync, api_fake_session_multiple_runs
 ) -> ContreeSessionSync:
     return fake_image_s.session()
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from contree_client.models import EventDataExit, EventDataTruncated
 
-from contree_sdk._internals.io.typing import OUTPUT_TYPES
+from contree_sdk.sdk.io.typing import OUTPUT_TYPES
 
 
 @dataclass(frozen=True)
@@ -15,9 +15,13 @@ class ContreeResult:
     exit_code: int
     elapsed_time: timedelta
     truncated: dict[str, EventDataTruncated]
+    # `contree_client`'s exit-event resources (`EventResources`) carry no
+    # cost figure at all -- the old API's exit event had an untyped
+    # `resources` dict that happened to include one, but the new typed
+    # model has no such field upstream, so this can only ever be None now.
     cost: float | None = field(repr=False)
 
-    _raw: EventDataExit | None = field(repr=False)
+    raw: EventDataExit | None = field(repr=False)
 
     @classmethod
     def from_result(
@@ -35,6 +39,6 @@ class ContreeResult:
             stderr=stderr,
             elapsed_time=timedelta(milliseconds=raw_result.duration_ms),
             truncated=truncated,
-            cost=cost,
-            _raw=raw_result,
+            cost=None,
+            raw=raw_result,
         )

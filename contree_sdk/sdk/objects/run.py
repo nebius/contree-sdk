@@ -1,22 +1,18 @@
-from asyncio import to_thread
-from base64 import b64encode
 from dataclasses import dataclass, field
 
-from contree_client.models import ClosableStreamRepr
-
-from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
-from contree_sdk._internals.io.wiring import read_input
+from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.utils.models.file import UploadFileSpec
-
-
-def _encode_stdin(value: str | bytes) -> ClosableStreamRepr:
-    if isinstance(value, str):
-        return ClosableStreamRepr(value=value, encoding="ascii")
-    return ClosableStreamRepr(value=b64encode(value).decode("ascii"), encoding="base64")
 
 
 @dataclass(frozen=True, kw_only=True)
 class RunRequest:
+    """Pure data: what to run and how.
+
+    No I/O -- reading `stdin` into a wire payload is the sync/async
+    caller's job (`contree_sdk.sdk.io.wiring.read_stdin` /
+    `read_stdin_sync`), since that step differs by variant.
+    """
+
     command: str
     args: list[str] | None = None
     shell: bool | None = None
@@ -37,7 +33,3 @@ class RunRequest:
     truncate_output_at: int | None = None
 
     preserve_env: bool = False
-
-    async def _read_stdin(self) -> ClosableStreamRepr:
-        value = await read_input(self.stdin)
-        return await to_thread(_encode_stdin, value)

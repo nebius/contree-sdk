@@ -1,8 +1,6 @@
-import json
 from uuid import uuid4
 
 import pytest
-from pytest_httpx import HTTPXMock
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk.sdk.exceptions import DisposableImageRunError
@@ -36,12 +34,12 @@ async def test_use_image_no_tag_raises_disposable_error(fake_contree: Contree):
         image.run(command="echo hello")
 
 
-async def test_use_image_await_passes_tag_spec(fake_contree: Contree, api_fake_run: HTTPXMock):
+async def test_use_image_await_passes_tag_spec(fake_contree: Contree, api_fake_run):
     image = await fake_contree.images.use("my-tag:latest")
     await image.run(shell="echo hello")
 
-    [request] = [r for r in api_fake_run.get_requests() if r.url.path.endswith("/instances")]
-    assert json.loads(request.content)["image"] == "tag:my-tag:latest"
+    [call] = fake_contree.api.calls_for("spawn_instance")
+    assert call.args[1] == "tag:my-tag:latest"
 
 
 async def test_use_with_uuid_string(fake_contree: Contree):

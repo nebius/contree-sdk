@@ -1,17 +1,3 @@
-from .api import (
-    ApiStatusCodeError,
-    ApiTimeoutError,
-    ContreeApiError,
-    ContreeTransportError,
-    EventStreamError,
-    EventStreamInterruptedError,
-    ForbiddenError,
-    GoneError,
-    MalformedEventError,
-    NotFoundError,
-    TooEarlyError,
-    UnprocessableEntityError,
-)
 from .base import ContreeError
 from .image import (
     ContreeImageEmptyRequestError,
@@ -26,28 +12,16 @@ from .other import UnknownContreeError
 
 
 __all__ = [
-    "ApiStatusCodeError",
-    "ApiTimeoutError",
     "CancelledOperationError",
-    "ContreeApiError",
     "ContreeError",
     "ContreeImageEmptyRequestError",
     "ContreeImageImpossibleStateError",
     "ContreeImageNotFoundError",
     "ContreeImageParametersError",
     "ContreeImageStateError",
-    "ContreeTransportError",
     "DisposableImageRunError",
-    "EventStreamError",
-    "EventStreamInterruptedError",
     "FailedOperationError",
-    "ForbiddenError",
-    "GoneError",
-    "MalformedEventError",
-    "NotFoundError",
     "OperationError",
     "OperationTimedOutError",
-    "TooEarlyError",
     "UnknownContreeError",
-    "UnprocessableEntityError",
 ]
