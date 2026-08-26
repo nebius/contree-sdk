@@ -1,12 +1,16 @@
 from io import BytesIO, StringIO
 from subprocess import PIPE
 from tempfile import NamedTemporaryFile
+from typing import BinaryIO, Literal, cast
+
+from contree_client.base import ContreeSyncClient
 
 from contree_sdk import ContreeSync
 
 
-def main(client: ContreeSync):
-    image = client.images.use("busybox:latest")
+def main(api_client: ContreeSyncClient):
+    sdk = ContreeSync(api_client)
+    image = sdk.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: StringIO for stdin and stdout")
@@ -19,9 +23,13 @@ def main(client: ContreeSync):
     print(f"result.stdout is the StringIO object: {result.stdout is stdout_io}")
 
     print("\nExample 2: PIPE for stderr capture")
-    result = image.run(shell="echo 'to stdout'; echo 'to stderr' >&2; exit 0", stderr=PIPE).wait()
+    result = image.run(
+        shell="echo 'to stdout'; echo 'to stderr' >&2; exit 0",
+        stderr=cast("Literal[-1]", PIPE),
+    ).wait()
+    stderr = cast("BinaryIO", result.stderr)
     print(f"PIPE stderr: {result.stdout=}")
-    print(f"Stderr content: {result.stderr.read().decode()=}")
+    print(f"Stderr content: {stderr.read().decode()=}")
     print(f"Stderr type: {type(result.stderr).__name__}")
 
     print("\nExample 3: Output to bytes")
@@ -45,7 +53,12 @@ def main(client: ContreeSync):
     print(f"BytesIO input: {result.stdout=}, {result.exit_code=}")
 
 
+def run_example() -> None:
+    from contree_client.sync import ContreeClient as DefaultContreeClient
+
+    with DefaultContreeClient.from_profile() as api_client:
+        main(api_client)
+
+
 if __name__ == "__main__":
-    main(
-        client=ContreeSync(),
-    )
+    run_example()

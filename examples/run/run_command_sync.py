@@ -1,8 +1,11 @@
+from contree_client.base import ContreeSyncClient
+
 from contree_sdk import ContreeSync
 
 
-def main(client: ContreeSync):
-    image = client.images.use("alpine:3.20", strict=True)
+def main(api_client: ContreeSyncClient):
+    sdk = ContreeSync(api_client)
+    image = sdk.images.use("alpine:3.20", strict=True)
     print(f"Pulled {image=}")
 
     print("\nExample 1: Simple command execution")
@@ -28,7 +31,12 @@ def main(client: ContreeSync):
     print(f"Result: {result.stdout=}, {result.exit_code=}")
 
 
+def run_example() -> None:
+    from contree_client.sync import ContreeClient as DefaultContreeClient
+
+    with DefaultContreeClient.from_profile() as api_client:
+        main(api_client)
+
+
 if __name__ == "__main__":
-    main(
-        client=ContreeSync(),
-    )
+    run_example()

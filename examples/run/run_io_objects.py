@@ -2,12 +2,16 @@ from asyncio import run
 from io import BytesIO, StringIO
 from subprocess import PIPE
 from tempfile import NamedTemporaryFile
+from typing import Literal, cast
+
+from contree_client.base import ContreeAsyncClient
 
 from contree_sdk import Contree
 
 
-async def main(client: Contree):
-    image = await client.images.use("busybox:latest")
+async def main(api_client: ContreeAsyncClient):
+    sdk = Contree(api_client)
+    image = await sdk.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: StringIO for stdin and stdout")
@@ -20,7 +24,10 @@ async def main(client: Contree):
     print(f"result.stdout is the StringIO object: {result.stdout is stdout_io}")
 
     print("\nExample 2: PIPE for stderr capture")
-    result = await image.run(shell="echo 'to stdout'; echo 'to stderr' >&2; exit 0", stderr=PIPE)
+    result = await image.run(
+        shell="echo 'to stdout'; echo 'to stderr' >&2; exit 0",
+        stderr=cast("Literal[-1]", PIPE),
+    )
     print(f"PIPE stderr: {result.stdout=}")
     print(f"Stderr content: {result.stderr.read().decode()=}")
     print(f"Stderr type: {type(result.stderr).__name__}")
@@ -46,9 +53,13 @@ async def main(client: Contree):
     print(f"BytesIO input: {result.stdout=}, {result.exit_code=}")
 
 
+async def run_example():
+    from contree_client.asyncio import ContreeAsyncClient as DefaultContreeAsyncClient
+
+    # The application owns one resource-bearing client and reuses it through the SDK.
+    async with DefaultContreeAsyncClient.from_profile() as api_client:
+        await main(api_client)
+
+
 if __name__ == "__main__":
-    run(
-        main(
-            client=Contree(),
-        )
-    )
+    run(run_example())
