@@ -1,483 +1,150 @@
-from uuid import UUID, uuid4
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
 
 import pytest
-from contree_client.models import EventResources
-from pytest_httpx import HTTPXMock
 
-from tests.unit.fixtures.files import add_file_responses
-from tests.unit.fixtures.operations import ProcessState, SlowEventStream, add_base_responses, add_operation_responses
-from tests.unit.fixtures.utils import r
+from tests.unit.fixtures.files import queue_upload
+from tests.unit.fixtures.operations import queue_run
 
 
-def create_process_state(exit_code: int = 0) -> ProcessState:
-    return ProcessState(
-        continued=False,
-        core_dump=False,
-        exit_code=exit_code,
-        pid=1,
-        signal=0,
-        stopped=False,
-        timed_out=False,
-    )
+FILE_UUID = "6a1b0d3c-7e8f-4a9b-9c1d-2e3f4a5b6c7d"
+FILE_SHA256 = "1c338c24f4a82e6dc440204d8d6a08058a58136d3e01b4f7aa0f7588b51ba197"
 
 
-def add_inspect_by_uuid_response(httpx_mock: HTTPXMock, image_uuid: UUID, tag: str | None = None):
-    httpx_mock.add_response(
-        method="GET",
-        url=r(f".*/inspect/{image_uuid}/$"),
-        json={"uuid": str(image_uuid), "tag": tag, "created_at": "2024-01-01T12:00:00+00:00"},
-        is_optional=True,
-    )
-
-
-def add_multiple_run_operations(
-    httpx_mock: HTTPXMock,
-    image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    stdout_values: list[str],
-):
-    for stdout in stdout_values:
-        op_id = str(uuid4())
-        result_uuid = uuid4()
-
-        httpx_mock.add_response(
-            method="POST",
-            url=r(".*/instances"),
-            json={"uuid": op_id},
-            is_optional=True,
-        )
-
-        add_inspect_by_uuid_response(httpx_mock, result_uuid)
-
-        add_operation_responses(
-            httpx_mock,
-            op_id,
-            image_uuid,
-            result_uuid,
-            process_state,
-            resource_usage,
-            stdout,
-        )
+RUN_STDIN = "my input\n"
+RUN_STDOUT = RUN_STDIN + "this is stdout\n"
+RUN_STDERR = "this is stderr\n"
 
 
 @pytest.fixture
-def result_image_uuid() -> UUID:
-    return uuid4()
+def api_fake_run(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+    queue_run(fake_api_s, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def process_state() -> ProcessState:
-    return ProcessState(
-        continued=False,
-        core_dump=False,
-        exit_code=0,
-        pid=1,
-        signal=0,
-        stopped=False,
-        timed_out=False,
-    )
+def api_fake_run_deferred(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    # `not_found_first` (a transient 404 before the events stream comes up) is now
+    # contree_client's own reconnect concern (`follow_operation_events`), nothing
+    # left for contree_sdk to special-case -- this is the same canned run as
+    # `api_fake_run`.
+    queue_run(fake_api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+    queue_run(fake_api_s, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def resource_usage() -> EventResources:
-    return EventResources(
-        user_time_us=100_000,
-        sys_time_us=100_000,
-        max_rss_kb=1024,
-        shared_memory=0,
-        unshared_memory=0,
-        swaps=0,
-        minor_faults=0,
-        major_faults=0,
-        voluntary_ctx_switches=0,
-        involuntary_ctx_switches=0,
-        block_input_ops=0,
-        block_output_ops=0,
-        ipc_msgs_sent=0,
-        ipc_msgs_received=0,
-        signals_received=0,
-    )
+def api_fake_run_with_files(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    for api in (fake_api, fake_api_s):
+        queue_upload(api, FILE_UUID, FILE_SHA256)
+        queue_run(api, stdout="second line\nlast line\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_base(
-    image_uuid: UUID,
-    operation_id: str,
-    file_uuid: str,
-    file_sha256: str,
-    strict_httpx: HTTPXMock,
-) -> HTTPXMock:
-    add_file_responses(strict_httpx, file_uuid, file_sha256)
-    add_base_responses(strict_httpx, operation_id)
-    return strict_httpx
+def api_fake_apply_files(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    for api in (fake_api, fake_api_s):
+        queue_upload(api, FILE_UUID, FILE_SHA256)
+        queue_run(api, stdout="", result_image_uuid=str(result_image_uuid))
+        queue_run(api, stdout="second line\nlast line\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-    )
-    return api_fake_run_base
+def api_fake_run_preserve_env(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    # the second `.run()` chains off the first run's *result* image, so that
+    # result needs a live `uuid` too (see api_fake_session_multiple_runs).
+    for api in (fake_api, fake_api_s):
+        queue_run(api, stdout="", result_image_uuid=str(result_image_uuid))
+        queue_run(api, stdout="ok\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_deferred(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        not_found_first=True,
-    )
-    return api_fake_run_base
+def api_fake_run_without_preserve_env(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    for api in (fake_api, fake_api_s):
+        queue_run(api, stdout="", result_image_uuid=str(result_image_uuid))
+        queue_run(api, stdout="", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_with_files(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        "second line\nlast line\n",
-    )
-    return api_fake_run_base
+def api_fake_run_truncated(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api, stdout="a" * 50, result_image_uuid=str(result_image_uuid))
+    queue_run(fake_api_s, stdout="a" * 50, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_apply_files(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    api_fake_run_with_files: HTTPXMock,
-) -> HTTPXMock:
-    second_op_id = str(uuid4())
-    second_result_uuid = uuid4()
-    api_fake_run_with_files.add_response(
-        method="POST",
-        url=r(".*/instances"),
-        json={"uuid": second_op_id},
-        is_optional=True,
-    )
-    add_inspect_by_uuid_response(api_fake_run_with_files, second_result_uuid)
-    add_operation_responses(
-        api_fake_run_with_files,
-        second_op_id,
-        result_image_uuid,
-        second_result_uuid,
-        process_state,
-        resource_usage,
-        "second line\nlast line\n",
-    )
-    return api_fake_run_with_files
+def api_fake_session_multiple_runs(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    # a session mutates itself in place (`copy_self` is a no-op), so each
+    # queued run must keep handing back a live `uuid` -- otherwise the next
+    # `.run()` in the chain sees an unreferenceable (disposed) image and
+    # raises `DisposableImageRunError`.
+    for api in (fake_api, fake_api_s):
+        for stdout in ("", "some other step\n", "some data"):
+            queue_run(api, stdout=stdout, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_preserve_env(
-    image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    strict_httpx: HTTPXMock,
-) -> HTTPXMock:
-    add_multiple_run_operations(
-        strict_httpx,
-        image_uuid,
-        process_state,
-        resource_usage,
-        ["", "ok\n"],
-    )
-    return strict_httpx
+def api_fake_slow_run(fake_api: Any, fake_api_s: Any, operation_id: str) -> Any:
+    for api in (fake_api, fake_api_s):
+        queue_run(api, operation_id=operation_id, stdout="")
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_without_preserve_env(
-    image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    strict_httpx: HTTPXMock,
-) -> HTTPXMock:
-    add_multiple_run_operations(
-        strict_httpx,
-        image_uuid,
-        process_state,
-        resource_usage,
-        ["", ""],
+def api_fake_popen(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    ls_output = (
+        "total 0\n"
+        "drwxr-xr-x  5 root  root  180 Jan  7 10:00 .\n"
+        "drwxr-xr-x 18 root  root  360 Jan  7 10:00 ..\n"
+        "crw-rw-rw-  1 root  tty   5, 0 Jan  7 10:00 tty\n"
+        "crw-rw-rw-  1 root  root  1, 8 Jan  7 10:00 random\n"
+        "crw-rw-rw-  1 root  root  1, 3 Jan  7 10:00 null\n"
     )
-    return strict_httpx
+    queue_run(fake_api_s, stdout=ls_output, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_run_truncated(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        process_state,
-        resource_usage,
-        "a" * 50,
-    )
-    return api_fake_run_base
-
-
-@pytest.fixture
-def api_fake_session_multiple_runs(
-    image_uuid: UUID,
-    file_uuid: str,
-    file_sha256: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    strict_httpx: HTTPXMock,
-) -> HTTPXMock:
-    add_file_responses(strict_httpx, file_uuid, file_sha256)
-
-    strict_httpx.add_response(
-        method="DELETE",
-        url=r(".*/operations/.*"),
-        json={},
-        is_optional=True,
-    )
-
-    add_multiple_run_operations(
-        strict_httpx,
-        image_uuid,
-        process_state,
-        resource_usage,
-        ["", "some other step\n", "some data", "final step\n"],
-    )
-
-    return strict_httpx
-
-
-@pytest.fixture
-def api_fake_slow_run(operation_id: str, strict_httpx: HTTPXMock) -> HTTPXMock:
-    strict_httpx.add_response(
-        method="POST",
-        url=r(".*/instances"),
-        json={"uuid": operation_id},
-        is_optional=True,
-    )
-    strict_httpx.add_response(
-        method="GET",
-        url=r(f".*/operations/{operation_id}/events.*"),
-        stream=SlowEventStream(),
-        is_optional=True,
-    )
-    strict_httpx.add_response(
-        method="DELETE",
-        url=r(".*/operations/.*"),
-        json={},
-        is_optional=True,
-    )
-    return strict_httpx
-
-
-@pytest.fixture
-def api_fake_popen(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    ls_output = """total 0
-drwxr-xr-x  5 root  root  180 Jan  7 10:00 .
-drwxr-xr-x 18 root  root  360 Jan  7 10:00 ..
-crw-rw-rw-  1 root  tty   5, 0 Jan  7 10:00 tty
-crw-rw-rw-  1 root  root  1, 8 Jan  7 10:00 random
-crw-rw-rw-  1 root  root  1, 3 Jan  7 10:00 null
-"""
-
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(),
-        resource_usage,
-        ls_output,
-        "",
-    )
-    return api_fake_run_base
-
-
-@pytest.fixture
-def api_fake_popen_error(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
+def api_fake_popen_error(fake_api_s: Any, result_image_uuid: UUID) -> Any:
     error_stderr = "ls: cannot access '/totally/fake/directory': No such file or directory\n"
-
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(exit_code=2),
-        resource_usage,
-        "",
-        error_stderr,
-    )
-    return api_fake_run_base
+    queue_run(fake_api_s, stderr=error_stderr, exit_code=2, result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_popen_shell(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(),
-        resource_usage,
-        "Hello World\n",
-        "Error message\n",
-    )
-    return api_fake_run_base
+def api_fake_popen_shell(fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api_s, stdout="Hello World\n", stderr="Error message\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_popen_stdin(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(),
-        resource_usage,
-        "Hello from stdin\nSecond line\n",
-        "",
-    )
-    return api_fake_run_base
+def api_fake_popen_stdin(fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api_s, stdout="Hello from stdin\nSecond line\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_popen_communicate(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(),
-        resource_usage,
-        "test line\ntest again\n",
-        "",
-    )
-    return api_fake_run_base
+def api_fake_popen_communicate(fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api_s, stdout="test line\ntest again\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_popen_env(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    operation_id: str,
-    resource_usage: EventResources,
-    api_fake_run_base: HTTPXMock,
-) -> HTTPXMock:
-    add_operation_responses(
-        api_fake_run_base,
-        operation_id,
-        image_uuid,
-        result_image_uuid,
-        create_process_state(),
-        resource_usage,
-        "test_value\nanother_value\n",
-        "",
-    )
-    return api_fake_run_base
+def api_fake_popen_env(fake_api_s: Any, result_image_uuid: UUID) -> Any:
+    queue_run(fake_api_s, stdout="test_value\nanother_value\n", result_image_uuid=str(result_image_uuid))
+    return fake_api_s
 
 
 @pytest.fixture
-def api_fake_thread_pool(
-    image_uuid: UUID,
-    image_tag: str,
-    file_uuid: str,
-    file_sha256: str,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    strict_httpx: HTTPXMock,
-) -> HTTPXMock:
-    from tests.unit.fixtures.images import add_inspect_by_tag_response
-
-    add_file_responses(strict_httpx, file_uuid, file_sha256)
-
-    for _ in range(10):
-        add_inspect_by_tag_response(strict_httpx, image_tag, image_uuid)
-
-    strict_httpx.add_response(
-        method="DELETE",
-        url=r(".*/operations/.*"),
-        json={},
-        is_optional=True,
-    )
-
-    add_multiple_run_operations(
-        strict_httpx,
-        image_uuid,
-        process_state,
-        resource_usage,
-        [f"{10000 + i * 1000}\n" for i in range(10)],
-    )
-
-    return strict_httpx
+def api_fake_thread_pool(fake_api: Any, fake_api_s: Any) -> Any:
+    for api in (fake_api, fake_api_s):
+        for i in range(10):
+            queue_run(api, stdout=f"{10000 + i * 1000}\n")
+    return fake_api_s

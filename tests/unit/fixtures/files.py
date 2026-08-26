@@ -1,9 +1,10 @@
+from __future__ import annotations
+
+from typing import Any
 from uuid import uuid4
 
 import pytest
-from pytest_httpx import HTTPXMock
-
-from tests.unit.fixtures.utils import r
+from contree_client.models import FileResponse
 
 
 @pytest.fixture
@@ -16,23 +17,12 @@ def file_sha256() -> str:
     return "1c338c24f4a82e6dc440204d8d6a08058a58136d3e01b4f7aa0f7588b51ba197"
 
 
-def add_file_responses(httpx_mock: HTTPXMock, file_uuid: str, file_sha256: str):
-    httpx_mock.add_response(
-        method="GET",
-        url=r(".*/files/[0-9a-f]{64}$"),
-        status_code=404,
-        json={"error": "File not found", "status": 404},
-        is_optional=True,
-    )
-    httpx_mock.add_response(
-        method="POST",
-        url=r(".*/files"),
-        json={"uuid": file_uuid, "sha256": file_sha256, "size": 4},
-        is_optional=True,
-    )
+def queue_upload(api: Any, file_uuid: str, file_sha256: str, *, size: int = 4) -> None:
+    api.mock("ensure_file", FileResponse(uuid=file_uuid, sha256=file_sha256, size=size))
 
 
 @pytest.fixture
-def api_fake_upload(file_uuid: str, file_sha256: str, strict_httpx: HTTPXMock) -> HTTPXMock:
-    add_file_responses(strict_httpx, file_uuid, file_sha256)
-    return strict_httpx
+def api_fake_upload(fake_api: Any, fake_api_s: Any, file_uuid: str, file_sha256: str) -> Any:
+    queue_upload(fake_api, file_uuid, file_sha256)
+    queue_upload(fake_api_s, file_uuid, file_sha256)
+    return fake_api_s

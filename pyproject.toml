@@ -19,19 +19,18 @@ classifiers = [
 
 dependencies = [
     "strenum",
-    "cattrs",
-    "aiofiles",
-    "contree-client~=0.2.1",
     "typing-extensions; python_version < '3.13'",
-    "async-timeout; python_version < '3.11'",
+    "contree-client>=0.2.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    # for tests
+    # for tests -- all contree_client backends, so tests/examples can
+    # exercise any concrete transport; contree_sdk itself stays
+    # backend-agnostic (see main `dependencies` above)
+    "contree-client[aiohttp,httpx,requests,urllib3]>=0.2.1",
     "pytest>=8.4.1",
     "pytest-asyncio",
-    "pytest-httpx",
     "pytest-mock",
     "pytest-xdist",
     "pytest-httpbin",
@@ -41,7 +40,6 @@ dev = [
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
-    "contree-sdk[aiohttp,httpx,requests,urllib3]",
 
     # for format+checks
     "pytest-markdown-docs",
@@ -59,17 +57,7 @@ dev-security = [
 "semgrep>=1.0",
 ]
 
-aiohttp = [
-    "contree-client[aiohttp]",
-]
 httpx = [
-    "contree-client[httpx]",
-]
-requests = [
-    "contree-client[requests]",
-]
-urllib3 = [
-    "contree-client[urllib3]",
 ]
 langchain = [
     "deepagents; python_version >= '3.11'",

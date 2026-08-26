@@ -4,7 +4,7 @@ from threading import get_ident
 
 import pytest
 
-from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
+from contree_sdk.sdk.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 
 
 class _TextSink:
