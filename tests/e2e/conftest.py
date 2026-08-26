@@ -1,17 +1,17 @@
+from collections.abc import AsyncIterator, Iterator
 from os import getenv
 
 import pytest
+from contree_client.httpx import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk._internals.utils.config import ContreeEndpoint
-from contree_sdk.auth import IAMAuth
-from contree_sdk.config import ContreeConfig
 from tests.utils.marker import create_directory_marker
 
 
 pytest_collection_modifyitems, should_be_marked_e2e = create_directory_marker(pytest.mark.e2e)
 
 CONTREE_TOKEN_TESTS_ENV_VAR = "CONTREE_SDK_TOKEN_E2E_TESTS"
+TOKEN_FACTORY_SANDBOXES_URL = "https://api.tokenfactory.nebius.com/sandboxes/"
 
 
 @pytest.fixture
@@ -31,21 +31,16 @@ def _contree_project_id() -> str:
 
 
 @pytest.fixture
-def contree_config(_contree_project_id: str) -> ContreeConfig:
-    return ContreeConfig(
-        auth=IAMAuth(
-            token=CONTREE_TOKEN_TESTS_ENV_VAR,
-            base_url=ContreeEndpoint.TOKEN_FACTORY_SANDBOXES,
-            project_id=_contree_project_id,
-        )
-    )
+async def contree(_contree_token: str, _contree_project_id: str) -> AsyncIterator[Contree]:
+    async with ContreeAsyncClient(
+        _contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL, project=_contree_project_id or None
+    ) as api:
+        yield Contree(api)
 
 
 @pytest.fixture
-def contree(contree_config: ContreeConfig) -> Contree:
-    return Contree(config=contree_config)
-
-
-@pytest.fixture
-def contree_s(contree_config: ContreeConfig) -> ContreeSync:
-    return ContreeSync(config=contree_config)
+def contree_s(_contree_token: str, _contree_project_id: str) -> Iterator[ContreeSync]:
+    with ContreeClient(
+        _contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL, project=_contree_project_id or None
+    ) as api:
+        yield ContreeSync(api)
