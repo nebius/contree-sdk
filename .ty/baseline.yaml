@@ -1,5 +1,3 @@
-contree_sdk/langchain/sandbox.py:
-  unresolved-import: 2
 contree_sdk/sdk/objects/image_like/_async.py:
   invalid-argument-type: 1
 contree_sdk/sdk/objects/image_like/_sync.py:
@@ -37,7 +35,6 @@ examples/images/tag_image_sync.py:
   missing-argument: 1
 examples/langchain/langchain_basic.py:
   missing-argument: 1
-  unresolved-import: 1
 examples/mini_swe_agent/mini_swe_agent_basic.py:
   unresolved-import: 2
 examples/run/run_command.py:
@@ -74,8 +71,6 @@ examples/session/session_simple.py:
   missing-argument: 1
 examples/session/session_simple_sync.py:
   missing-argument: 1
-tests/e2e/integrations/test_langchain.py:
-  unresolved-import: 1
 tests/e2e/sdk/images/test_images.py:
   unknown-argument: 1
 tests/e2e/sdk/images/test_inspect.py:
