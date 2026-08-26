@@ -1,6 +1,7 @@
 from uuid import UUID
 
 import pytest
+from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
@@ -34,14 +35,16 @@ def test_create_session_s(fake_image_s):
 
 
 @pytest.fixture
-def fake_session(fake_image: ContreeImage, result_image_uuid: UUID) -> ContreeSession:
-    queue_run(fake_image.client.api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+def fake_session(fake_image: ContreeImage, fake_api: ContreeAsyncClient, result_image_uuid: UUID) -> ContreeSession:
+    queue_run(fake_api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
     return fake_image.session()
 
 
 @pytest.fixture
-def fake_session_s(fake_image_s: ContreeImageSync, result_image_uuid: UUID) -> ContreeSessionSync:
-    queue_run(fake_image_s.client.api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
+def fake_session_s(
+    fake_image_s: ContreeImageSync, fake_api_s: ContreeClient, result_image_uuid: UUID
+) -> ContreeSessionSync:
+    queue_run(fake_api_s, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
     return fake_image_s.session()
 
 
@@ -54,13 +57,15 @@ def test_session_run_s(fake_session_s: ContreeSessionSync):
 
 
 @pytest.fixture
-def fake_session_multiple(fake_image_s: ContreeImageSync, result_image_uuid: UUID) -> ContreeSessionSync:
+def fake_session_multiple(
+    fake_image_s: ContreeImageSync, fake_api_s: ContreeClient, result_image_uuid: UUID
+) -> ContreeSessionSync:
     # a session mutates itself in place (`copy_self` is a no-op), so each
     # queued run must keep handing back a live `uuid` -- otherwise the next
     # `.run()` in the chain sees an unreferenceable (disposed) image and
     # raises `DisposableImageRunError`.
     for stdout in ("", "some other step\n", "some data"):
-        queue_run(fake_image_s.client.api, stdout=stdout, result_image_uuid=str(result_image_uuid))
+        queue_run(fake_api_s, stdout=stdout, result_image_uuid=str(result_image_uuid))
     return fake_image_s.session()
 
 
