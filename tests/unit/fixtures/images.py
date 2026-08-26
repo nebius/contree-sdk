@@ -4,7 +4,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from contree_client.exceptions import ForbiddenError
 from contree_client.models import Image, ImageListResponse
 
 from contree_sdk import Contree, ContreeSync
@@ -39,27 +38,12 @@ def queue_untag(api: Any, *, count: int = 1) -> None:
 
 
 @pytest.fixture
-def api_fake_images(fake_api: Any, fake_api_s: Any, image_uuid: UUID, image_tag: str) -> Any:
-    queue_image_lookup(fake_api, image_uuid, image_tag)
-    queue_image_lookup(fake_api_s, image_uuid, image_tag)
-    return fake_api_s
-
-
-@pytest.fixture
-def api_fake_forbidden(fake_api: Any, fake_api_s: Any) -> Any:
-    error = ForbiddenError(403, "Forbidden")
-    fake_api.mock("list_images", error=error)
-    fake_api_s.mock("list_images", error=error)
-    return fake_api_s
-
-
-@pytest.fixture
-def fake_image(fake_contree: Contree, image_uuid: UUID, image_tag: str, api_fake_images: Any) -> ContreeImage:
+def fake_image(fake_contree: Contree, image_uuid: UUID, image_tag: str) -> ContreeImage:
+    queue_image_lookup(fake_contree.api, image_uuid, image_tag)
     return ContreeImage(client=fake_contree, uuid=image_uuid, tag=image_tag)
 
 
 @pytest.fixture
-def fake_image_s(
-    fake_contree_s: ContreeSync, image_uuid: UUID, image_tag: str, api_fake_images: Any
-) -> ContreeImageSync:
+def fake_image_s(fake_contree_s: ContreeSync, image_uuid: UUID, image_tag: str) -> ContreeImageSync:
+    queue_image_lookup(fake_contree_s.api, image_uuid, image_tag)
     return ContreeImageSync(client=fake_contree_s, uuid=image_uuid, tag=image_tag)

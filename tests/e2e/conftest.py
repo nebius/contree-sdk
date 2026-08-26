@@ -2,7 +2,9 @@ from collections.abc import AsyncIterator, Iterator
 from os import getenv
 
 import pytest
-from contree_client.httpx import ContreeAsyncClient, ContreeClient
+from contree_client import asyncio as contree_asyncio
+from contree_client import sync as contree_sync
+from contree_client.base import ContreeAsyncClient, ContreeSyncClient
 
 from contree_sdk import Contree, ContreeSync
 from tests.utils.marker import create_directory_marker
@@ -31,16 +33,26 @@ def _contree_project_id() -> str:
 
 
 @pytest.fixture
-async def contree(_contree_token: str, _contree_project_id: str) -> AsyncIterator[Contree]:
-    async with ContreeAsyncClient(
+async def async_client(_contree_token: str, _contree_project_id: str) -> AsyncIterator[ContreeAsyncClient]:
+    async with contree_asyncio.ContreeAsyncClient(
         _contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL, project=_contree_project_id or None
     ) as api:
-        yield Contree(api)
+        yield api
 
 
 @pytest.fixture
-def contree_s(_contree_token: str, _contree_project_id: str) -> Iterator[ContreeSync]:
-    with ContreeClient(
+def sync_client(_contree_token: str, _contree_project_id: str) -> Iterator[ContreeSyncClient]:
+    with contree_sync.ContreeClient(
         _contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL, project=_contree_project_id or None
     ) as api:
-        yield ContreeSync(api)
+        yield api
+
+
+@pytest.fixture
+def contree(async_client: ContreeAsyncClient) -> Contree:
+    return Contree(async_client)
+
+
+@pytest.fixture
+def contree_s(sync_client: ContreeSyncClient) -> ContreeSync:
+    return ContreeSync(sync_client)

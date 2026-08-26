@@ -32,31 +32,3 @@ def queue_import(
 @pytest.fixture
 def result_image_uuid() -> UUID:
     return uuid4()
-
-
-@pytest.fixture
-def api_fake_import(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
-    queue_import(fake_api, result_image_uuid=result_image_uuid)
-    queue_import(fake_api_s, result_image_uuid=result_image_uuid)
-    return fake_api_s
-
-
-@pytest.fixture
-def api_fake_import_failed(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
-    queue_import(fake_api, status=OperationStatus.FAILED, error="Import failed")
-    queue_import(fake_api_s, status=OperationStatus.FAILED, error="Import failed")
-    return fake_api_s
-
-
-@pytest.fixture
-def api_fake_import_cancel(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
-    queue_import(fake_api, status=OperationStatus.CANCELLED)
-    queue_import(fake_api_s, status=OperationStatus.CANCELLED)
-    return fake_api_s
-
-
-@pytest.fixture
-def api_fake_import_slow(fake_api: Any, fake_api_s: Any, result_image_uuid: UUID) -> Any:
-    queue_import(fake_api, status=OperationStatus.CANCELLED)
-    queue_import(fake_api_s, status=OperationStatus.CANCELLED)
-    return fake_api_s

@@ -1,10 +1,12 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from contree_sdk import Contree, ContreeSync
 from contree_sdk.sdk.exceptions import DisposableImageRunError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
+from tests.unit.fixtures.operations import queue_run
+from tests.unit.fixtures.runs import RUN_STDERR, RUN_STDOUT
 
 
 async def test_use_returns_image_with_none_uuid(fake_contree: Contree):
@@ -34,7 +36,8 @@ async def test_use_image_no_tag_raises_disposable_error(fake_contree: Contree):
         image.run(command="echo hello")
 
 
-async def test_use_image_await_passes_tag_spec(fake_contree: Contree, api_fake_run):
+async def test_use_image_await_passes_tag_spec(fake_contree: Contree, result_image_uuid: UUID):
+    queue_run(fake_contree.api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
     image = await fake_contree.images.use("my-tag:latest")
     await image.run(shell="echo hello")
 
