@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from os import getenv
 
 import pytest
-from contree_client.httpx import ContreeAsyncClient
+from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import Contree
 

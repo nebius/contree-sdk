@@ -11,7 +11,7 @@ except ImportError:
         allow_module_level=True,
     )
 
-from contree_client.httpx import ContreeClient
+from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSync
 from contree_sdk.langchain.sandbox import ContreeSandbox

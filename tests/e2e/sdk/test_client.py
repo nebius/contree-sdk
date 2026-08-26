@@ -1,6 +1,6 @@
 import pytest
+from contree_client.asyncio import ContreeAsyncClient
 from contree_client.exceptions import ForbiddenError
-from contree_client.httpx import ContreeAsyncClient
 
 from tests.e2e.conftest import TOKEN_FACTORY_SANDBOXES_URL
 

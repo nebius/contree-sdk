@@ -19,10 +19,3 @@ def file_sha256() -> str:
 
 def queue_upload(api: Any, file_uuid: str, file_sha256: str, *, size: int = 4) -> None:
     api.mock("ensure_file", FileResponse(uuid=file_uuid, sha256=file_sha256, size=size))
-
-
-@pytest.fixture
-def api_fake_upload(fake_api: Any, fake_api_s: Any, file_uuid: str, file_sha256: str) -> Any:
-    queue_upload(fake_api, file_uuid, file_sha256)
-    queue_upload(fake_api_s, file_uuid, file_sha256)
-    return fake_api_s
