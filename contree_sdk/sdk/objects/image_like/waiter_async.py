@@ -138,9 +138,7 @@ class OperationWaiter:
         self, *, timeout: float | None = None, spid: int = MAIN_SPID
     ) -> tuple[OperationResponse, EventDataExit]: ...
     @overload
-    async def wait_for_result(
-        self, *, timeout: float | None = None, spid: None
-    ) -> tuple[OperationResponse, None]: ...
+    async def wait_for_result(self, *, timeout: float | None = None, spid: None) -> tuple[OperationResponse, None]: ...
 
     async def wait_for_result(
         self, *, timeout: float | None = None, spid: int | None = MAIN_SPID

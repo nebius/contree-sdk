@@ -1,12 +1,21 @@
-from asyncio import Lock, gather
+from asyncio import Lock, gather, run
+from collections.abc import Coroutine
+from pathlib import Path
+from typing import Any, TypeVar
 from uuid import uuid4
 
+from contree_client.exceptions import NotFoundError, UnprocessableEntityError
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
 
-from contree_sdk._internals.utils.wrapper import coro_sync
-from contree_sdk.sdk.exceptions import NotFoundError, UnprocessableEntityError
 from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync
+
+
+T = TypeVar("T")
+
+
+def coro_sync(coro: Coroutine[Any, Any, T]) -> T:
+    return run(coro)
 
 
 class ContreeSandbox(BaseSandbox):

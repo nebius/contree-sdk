@@ -1,6 +1,22 @@
+tests/unit/docs/_tmp/README.md_test_async_sync_clients.py:
+  unresolved-reference: 2
+tests/unit/docs/_tmp/README.md_test_file_upload.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_objects_reusing.py:
+  unresolved-reference: 1
 tests/unit/docs/_tmp/README.md_test_popen_communicate.py:
   unresolved-reference: 1
 tests/unit/docs/_tmp/README.md_test_popen_shell.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_quick_start_async.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_quick_start_async_simple.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_quick_start_sync.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_quick_start_sync_simple.py:
+  unresolved-reference: 1
+tests/unit/docs/_tmp/README.md_test_sessions_versioning.py:
   unresolved-reference: 1
 tests/unit/docs/_tmp/README.md_test_stable_image_uuid.py:
   unresolved-reference: 1

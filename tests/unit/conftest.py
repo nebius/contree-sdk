@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator, Iterator
+
 import pytest
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
@@ -79,15 +81,17 @@ __all__ = [
 
 
 @pytest.fixture
-def fake_api() -> ContreeAsyncClient:
+async def fake_api() -> AsyncIterator[ContreeAsyncClient]:
     """A `contree_client.testing.ContreeAsyncClient` double, unmocked by default."""
-    return ContreeAsyncClient()
+    async with ContreeAsyncClient() as api:
+        yield api
 
 
 @pytest.fixture
-def fake_api_s() -> ContreeClient:
+def fake_api_s() -> Iterator[ContreeClient]:
     """A `contree_client.testing.ContreeClient` double, unmocked by default."""
-    return ContreeClient()
+    with ContreeClient() as api:
+        yield api
 
 
 @pytest.fixture

@@ -23,14 +23,15 @@ pip install contree-sdk
 <details open>
 <summary>🔀 Async Example</summary>
 
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_async_simple
+```python fixture:api_client fixture:api_fake_quick_start fixture:name:test_quick_start_async_simple
 import asyncio
 from contree_sdk import Contree
 
 
 async def main():
-    # Get client
-    contree = Contree(token="fake-token")
+    # `api_client` is an already-built contree_client.base.ContreeAsyncClient
+    # (e.g. contree_client.httpx.ContreeAsyncClient) — see "Client configuration" below
+    contree = Contree(api_client)
 
     # Use image by tag
     image = await contree.images.use("ubuntu:latest")
@@ -50,13 +51,14 @@ asyncio.run(main())
 <details>
 <summary>🔁 Sync Example</summary>
 
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync_simple
+```python fixture:api_client_s fixture:api_fake_quick_start fixture:name:test_quick_start_sync_simple
 from contree_sdk import ContreeSync
 
 
 def main():
-    # Get client
-    contree = ContreeSync(token="fake-token")
+    # `api_client_s` is an already-built contree_client.base.ContreeSyncClient
+    # (e.g. contree_client.httpx.ContreeClient) — see "Client configuration" below
+    contree = ContreeSync(api_client_s)
 
     # Use image by tag
     image = contree.images.use("ubuntu:latest")
@@ -161,7 +163,7 @@ make rtd-dev
 <details open>
 <summary>🔀 Async Example</summary>
 
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_async
+```python fixture:api_client fixture:api_fake_quick_start fixture:name:test_quick_start_async
 import asyncio
 import stat
 
@@ -173,8 +175,9 @@ from contree_sdk.sdk.objects.image_fs import ImageFile
 
 
 async def amain():
-    # create client
-    contree = Contree(token="fake-token")
+    # `api_client` is an already-built contree_client.base.ContreeAsyncClient
+    # (e.g. contree_client.httpx.ContreeAsyncClient) — see "Client configuration" below
+    contree = Contree(api_client)
 
     # list images
     images = await contree.images()
@@ -239,7 +242,7 @@ asyncio.run(amain())
 <details>
 <summary>🔁 Sync Example</summary>
 
-```python fixture:api_fake_quick_start fixture:name:test_quick_start_sync
+```python fixture:api_client_s fixture:api_fake_quick_start fixture:name:test_quick_start_sync
 import stat
 
 from contree_sdk import ContreeSync
@@ -248,8 +251,9 @@ from contree_sdk.sdk.objects.image_fs import ImageFileSync
 
 
 def main():
-    # Create client
-    contree = ContreeSync(token="fake-token")
+    # `api_client_s` is an already-built contree_client.base.ContreeSyncClient
+    # (e.g. contree_client.httpx.ContreeClient) — see "Client configuration" below
+    contree = ContreeSync(api_client_s)
 
     # list images
     images = contree.images()
@@ -322,13 +326,13 @@ main()
 
 A **session** is essentially an image whose version automatically updates after each command execution. When you run commands, you're not modifying the original image - instead, each command creates a new version of the image with your changes applied.
 
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_sessions_versioning
+```python fixture:api_client fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_sessions_versioning
 import asyncio
 from contree_sdk import Contree
 
 
 async def amain():
-    contree = Contree(token="fake-token")
+    contree = Contree(api_client)
 
     # Each command creates a new image version
     image = await contree.images.use("busybox:latest")  # busybox:latest
@@ -398,13 +402,13 @@ assert result1.uuid == result0.uuid
 Basically every object that is produced by async client is async-friendly and every object is produced by sync client is sync friendly.
 For example
 
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_async_sync_clients
+```python fixture:api_client fixture:api_client_s fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_async_sync_clients
 import asyncio
 from contree_sdk import Contree, ContreeSync
 
 
 async def amain():
-    contree_async = Contree(token="fake-token")
+    contree_async = Contree(api_client)
 
     # async client produces async-friendly images objects, so they can be used in async code
     images = await contree_async.images()
@@ -413,7 +417,7 @@ async def amain():
 
 asyncio.run(amain())
 
-contree_sync = ContreeSync(token="fake-token")
+contree_sync = ContreeSync(api_client_s)
 
 # while sync client produces sync-friendly images objects, so they can be used in sync code
 images = contree_sync.images()
@@ -429,43 +433,54 @@ images[0].run(shell="some command").wait()
 
 ### Client configuration
 
-You can create configuration object and use it later in client
+`contree_sdk` does not build, configure, or authenticate an HTTP client of its own — `Contree`/`ContreeSync` just take an already-constructed `contree_client.base.ContreeAsyncClient`/`ContreeSyncClient` implementation (e.g. from `contree_client.httpx`) as their first argument. Transport, retries, timeouts, and credentials are entirely `contree_client`'s concern, configured directly on that client:
 
 ```python fixture:name:test_client_config
-from contree_sdk.auth import IAMAuth
-from contree_sdk.config import ContreeConfig
+import asyncio
+from contree_client.httpx import ContreeAsyncClient, ContreeClient
+from contree_client.runtime import RetryPolicy
 from contree_sdk import Contree, ContreeSync
 
-config = ContreeConfig(
-    auth=IAMAuth(token="my-token", base_url="https://contree.host.com"),
-    transport_timeout=10.0,  # timeout for transport operations
-)
 
-client_async = Contree(config)
-client = ContreeSync(config)
+async def amain():
+    async with ContreeAsyncClient(
+        "YOUR-NEBIUS-API-KEY",
+        base_url="https://api.tokenfactory.nebius.com/sandboxes",
+        timeout=30.0,
+        retry=RetryPolicy(max_attempts=5),
+    ) as api_client:
+        contree_async = Contree(api_client)
+
+
+asyncio.run(amain())
+
+with ContreeClient("YOUR-NEBIUS-API-KEY") as api_client:
+    contree_sync = ContreeSync(api_client)
 ```
 
 #### Authentication
 
-The SDK resolves credentials in the following priority order:
+`contree_client` clients can also be built from a saved profile with `from_profile()`, which resolves credentials in this order: an explicit `profile` argument, then the `CONTREE_PROFILE` environment variable, then the active profile recorded in the profile config file (`$CONTREE_HOME/auth.ini`, defaulting to `~/.config/contree/auth.ini`):
 
-1. **Explicit values** passed to `IAMAuth` / `JWTAuth` constructors.
-2. **Environment variables** — field defaults like `NEBIUS_API_KEY` and `NEBIUS_PROJECT_ID` are substituted automatically if the corresponding variable is set.
-3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth` are read from `~/.config/contree/auth.ini` (or `$CONTREE_HOME` / `$XDG_CONFIG_HOME/contree`).
+```python notest
+from contree_client.httpx import ContreeClient
+from contree_sdk import ContreeSync
 
-The active profile is taken from the `[DEFAULT]` section of `auth.ini` and can be overridden with the `CONTREE_PROFILE` environment variable.
+with ContreeClient.from_profile() as api_client:
+    contree_sync = ContreeSync(api_client)
+```
 
 ### Objects reusing
 
 You can preconfigure run and then reuse it, for example:
 
-```python fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_objects_reusing
+```python fixture:api_client fixture:api_fake_images fixture:api_fake_session_multiple_runs fixture:name:test_objects_reusing
 import asyncio
 from contree_sdk import Contree
 
 
 async def amain():
-    contree = Contree(token="fake-token")
+    contree = Contree(api_client)
     image = await contree.images.use("busybox:latest")
 
     # preconfigure a run that generates random string and writes to file
@@ -488,13 +503,13 @@ asyncio.run(amain())
 > This is a low-level API. Use only if you are deeply familiar with ConTree architecture and need direct file management.
 > For most use cases, prefer `files` parameter in `.run()` method.
 
-```python fixture:docs_file_upload fixture:name:test_file_upload
+```python fixture:api_client fixture:docs_file_upload fixture:name:test_file_upload
 import asyncio
 from contree_sdk import Contree
 
 
 async def amain():
-    contree = Contree(token="fake-token")
+    contree = Contree(api_client)
 
     # upload file
     file = await contree.files.upload("/some/local/file.txt")

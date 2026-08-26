@@ -48,9 +48,7 @@ def test_session_run_s(fake_session_s: ContreeSessionSync):
 
 
 @pytest.fixture
-def fake_session_multiple(
-    fake_image_s: ContreeImageSync, api_fake_session_multiple_runs
-) -> ContreeSessionSync:
+def fake_session_multiple(fake_image_s: ContreeImageSync, api_fake_session_multiple_runs) -> ContreeSessionSync:
     return fake_image_s.session()
 
 
