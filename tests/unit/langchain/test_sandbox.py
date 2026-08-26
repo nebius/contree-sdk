@@ -2,6 +2,10 @@ from datetime import timedelta
 from uuid import UUID
 
 import pytest
+
+
+pytest.importorskip("deepagents", reason="langchain integration needs deepagents (Python >= 3.11)")
+
 from contree_client.exceptions import NotFoundError, UnprocessableEntityError
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
@@ -11,9 +15,6 @@ from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync
 from tests.unit.fixtures.files import queue_upload
 from tests.unit.fixtures.operations import queue_run
-
-
-pytest.importorskip("deepagents", reason="langchain integration needs deepagents (Python >= 3.11)")
 
 
 @pytest.fixture
