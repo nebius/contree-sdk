@@ -8,24 +8,21 @@ This guide will help you get up and running with ConTree SDK. By the end of this
 
 ## Configuration
 
-The SDK resolves credentials in the following priority order:
+`contree_sdk` performs no auth, transport, or configuration of its own — `Contree`/`ContreeSync` just take an already-constructed `contree_client.base.ContreeAsyncClient`/`ContreeSyncClient` (e.g. from `contree_client.httpx`) as their first argument. Credentials, base URL, timeouts, and retries are entirely `contree_client`'s concern, configured directly when you build that client:
 
-1. **Explicit values** passed to `IAMAuth` / `JWTAuth` constructors via `ContreeConfig`.
-2. **Environment variables**:
-   - `NEBIUS_API_KEY` — IAM token
-   - `NEBIUS_PROJECT_ID` — ConTree project ID
-   - `CONTREE_BASE_URL` — ConTree instance URL (for `JWTAuth`)
-3. **`auth.ini`** — if the `contree` CLI is installed, credentials written by `contree auth` are read automatically from `~/.config/contree/auth.ini`.
+```python
+from contree_client.httpx import ContreeAsyncClient
 
-```bash
-export NEBIUS_API_KEY="your_token_here"
-export NEBIUS_PROJECT_ID="your_project_id"
-export CONTREE_BASE_URL="https://your-instance.of.contree"
+api_client = ContreeAsyncClient("YOUR-NEBIUS-API-KEY", base_url="https://your-instance.of.contree")
 ```
 
-The active `auth.ini` profile defaults to `default` and can be overridden with `CONTREE_PROFILE`. The config directory respects `$CONTREE_HOME` and `$XDG_CONFIG_HOME`.
+`contree_client` clients can also be built from a saved profile with `from_profile()`, which resolves credentials in this order: an explicit `profile` argument, then the `CONTREE_PROFILE` environment variable, then the active profile recorded in the profile config file (`$CONTREE_HOME/auth.ini`, defaulting to `~/.config/contree/auth.ini`):
 
-Alternatively, you can pass auth directly when creating a client via `ContreeConfig(auth=IAMAuth(...))` or use `JWTAuth` for legacy token-based access.
+```python
+from contree_client.httpx import ContreeAsyncClient
+
+api_client = ContreeAsyncClient.from_profile()
+```
 
 ## Creating a Client
 
