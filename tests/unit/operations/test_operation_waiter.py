@@ -1,3 +1,4 @@
+import asyncio
 from io import BytesIO
 from uuid import UUID
 
@@ -234,6 +235,38 @@ def test_fallback_completion_without_exit_does_not_fail_a_success_sync(fake_api_
     assert exit_event is not None
     assert exit_event.code == 0
     assert exit_event.timed_out is False
+
+
+async def test_wait_for_result_shields_cancel_from_outer_cancellation(fake_api, operation_id: str):
+    cancel_started = asyncio.Event()
+    cancel_finished = asyncio.Event()
+
+    async def slow_cancel(*args, **kwargs):
+        cancel_started.set()
+        await asyncio.sleep(0.05)
+        cancel_finished.set()
+
+    async def hang_forever(*args, **kwargs):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover -- unreachable, satisfies the async-generator shape
+
+    fake_api.cancel_operation = slow_cancel
+    fake_api.follow_operation_events = hang_forever
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    task = asyncio.create_task(waiter.wait_for_result())
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    # A second cancel while cleanup is in flight is what shield actually guards against.
+    await cancel_started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(cancel_finished.wait(), timeout=1)
+    assert cancel_finished.is_set()
 
 
 async def test_connect_output_after_finish(fake_api, operation_id: str):

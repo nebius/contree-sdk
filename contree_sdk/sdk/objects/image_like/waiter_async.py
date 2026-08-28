@@ -158,7 +158,8 @@ class OperationWaiter:
             raise OperationTimedOutError(operation_uuid=UUID(self.operation_id)) from e
         finally:
             if not self.completed:
-                await self.cancel()
+                # Shielded: the cleanup call must finish even if we're being cancelled too.
+                await asyncio.shield(self.cancel())
 
         response = await self.api.get_operation_status(self.operation_id)
         if response.status == OperationStatus.CANCELLED:
