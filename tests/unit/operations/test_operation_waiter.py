@@ -154,8 +154,7 @@ async def test_multiple_waiters_share_result(fake_api, operation_id: str):
 
 
 async def test_cancel_failure_does_not_mask_original_error(fake_api, operation_id: str):
-    # cancel_operation raising something other than ContreeAPIError must not
-    # replace the timeout error already propagating out of the `finally`.
+    # cancel_operation raising must not replace the already-propagating timeout error.
     fake_api.mock("follow_operation_events", error=TimeoutError("no events arrived"))
     fake_api.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
 
@@ -180,9 +179,7 @@ def test_sync_iter_chunks_after_exhausted_does_not_resubscribe(fake_api_s, opera
     waiter.wait_for_result()
     assert waiter.process_view().outputs["stdout"] == b"hi\n"
 
-    # A second consumer (or the same one iterating again) must not
-    # re-subscribe and re-process the event log, which would double the
-    # accumulated output.
+    # A second iteration must not re-subscribe and double the accumulated output.
     assert list(waiter.iter_chunks(MAIN_SPID, timeout=None)) == []
     assert len(fake_api_s.calls_for("follow_operation_events")) == 1
     assert waiter.process_view().outputs["stdout"] == b"hi\n"
@@ -213,9 +210,7 @@ def test_output_limit_caps_accumulated_buffer_sync(fake_api_s, operation_id: str
 
 
 async def test_fallback_completion_without_exit_does_not_fail_a_success(fake_api, operation_id: str):
-    # events-endpoint-down fallback: transport synthesizes only a
-    # `completion` event, no `exit` -- a genuinely successful operation
-    # must not be reported as failed just because of that.
+    # Fallback mode's completion-only event must not fail a genuinely successful operation.
     fake_api.mock("follow_operation_events", [completion_event(0, status=OperationStatus.SUCCESS)])
     fake_api.mock("get_operation_status", OperationResponse(uuid=operation_id, status=OperationStatus.SUCCESS))
 

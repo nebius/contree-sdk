@@ -45,8 +45,7 @@ async def test_run_flushes_caller_supplied_writer(fake_image, tmp_path, result_i
 
 
 async def test_run_result_exposes_cost(fake_image, result_image_uuid: UUID):
-    # The exit event itself carries no cost figure, but `get_operation_status`
-    # (already fetched by the waiter) does, under `metadata.result.resources`.
+    # Cost comes from get_operation_status, not the exit event.
     queue_run(
         fake_image.client.api,
         stdout=RUN_STDOUT,
@@ -60,8 +59,7 @@ async def test_run_result_exposes_cost(fake_image, result_image_uuid: UUID):
 
 
 async def test_run_caps_client_side_output_at_truncate_output_at(fake_image, result_image_uuid: UUID):
-    # `truncate_output_at` is normally the server's job, but the waiter also
-    # enforces it client-side as a memory-growth safety net.
+    # The waiter enforces truncate_output_at client-side too, not just the server.
     queue_run(fake_image.client.api, stdout="hello world", stderr="", result_image_uuid=str(result_image_uuid))
     result = await fake_image.run(shell="true", truncate_output_at=4, stdout=bytes)
 

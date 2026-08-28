@@ -46,11 +46,7 @@ class OperationWaiter:
         self.exits: dict[int, EventDataExit] = {}
         self.truncated: dict[int, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.exhausted = False
-        # Caps how much of stdout/stderr we accumulate in `self.outputs`,
-        # independent of the server's own `truncate_output_at` -- a safety
-        # net against unbounded client-side memory growth if the caller
-        # raises or disables that limit. Writers (e.g. a caller-supplied
-        # file) still get the full, uncapped chunk.
+        # Caps self.outputs growth only; writers still get the full chunk.
         self.output_limit = output_limit
 
     def connect_output(self, *, output: Writable, spid: int, stream_name: str) -> None:
@@ -81,18 +77,12 @@ class OperationWaiter:
                 writer.finalize()
 
     def cancel(self) -> None:
-        # Best-effort cleanup, usually called from a `finally` while another
-        # exception is already propagating -- suppress broadly so a cancel
-        # failure never replaces/masks that original exception.
+        # Best-effort cleanup: never let this mask an exception already propagating.
         with suppress(Exception):
             self.api.cancel_operation(self.operation_id)
 
     def iter_events(self, timeout: float | None) -> Iterator[tuple[OperationEvent, bytes | None]]:
-        # Run at most once per instance (see class docstring): a second
-        # caller re-subscribing to an already-drained stream would replay
-        # every event through `process_event` again, double-counting
-        # output. Once exhausted, accumulated state (`self.outputs` etc.)
-        # is already final -- nothing left to yield.
+        # Run at most once per instance (see class docstring) to avoid double-counting output.
         if self.exhausted:
             return
         completed = False
@@ -144,17 +134,13 @@ class OperationWaiter:
 
         exit_event = self.exits.get(spid) if spid is not None else None
         if spid is not None and exit_event is None:
-            # `self.exits` non-empty means other spids *did* report an exit --
-            # this spid's is a genuine gap, not the fallback transport's
-            # blanket "no exit events at all" case.
+            # self.exits non-empty means another spid's exit is a genuine gap, not a fallback-mode blackout.
             if response.status != OperationStatus.SUCCESS or self.exits:
                 raise FailedOperationError(
                     operation_uuid=UUID(self.operation_id),
                     error=f"no exit event received for spid {spid}",
                 )
-            # The transport's fallback mode (events endpoint unavailable)
-            # only synthesizes a `completion` event -- the operation did
-            # succeed, there's just no real exit detail to report.
+            # Fallback transport mode: only a completion event, no exit -- synthesize one.
             duration_ms = round((value_or_none(response.duration) or 0) * 1000)
             exit_event = synthetic_exit_event(pid=spid, duration_ms=duration_ms)
         if exit_event is not None and exit_event.timed_out:

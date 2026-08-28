@@ -314,9 +314,7 @@ class ImageLikeAsync(ImageLikeBase):
                 uploaded = await self.client.files.upload_file(source)
             return str(file.path), FileSpec(uuid=uploaded.uuid, mode=f"{file.mode:04o}", uid=file.uid, gid=file.gid)
 
-        # `return_exceptions=True` so one failing upload doesn't cancel its
-        # siblings and leave their exceptions never retrieved; re-raise the
-        # first failure once all uploads have settled.
+        # Let every sibling upload settle before re-raising, so none is left unretrieved.
         results = await gather(*(upload_one(i) for i in files), return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):

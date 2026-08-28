@@ -30,15 +30,8 @@ ZERO_RESOURCES = EventResources(
 def synthetic_exit_event(*, pid: int, duration_ms: int) -> EventDataExit:
     """Stand in for the exit event the fallback transport never sends.
 
-    Used when the events endpoint is unavailable and the transport only
-    synthesizes a `completion` event. The operation is known to have
-    actually succeeded at this point (its status is checked before this
-    is ever called) -- there is just no exit detail to report, so this
-    reports a clean, non-timed-out, no-signal exit with an
-    unknown-but-successful code.
-
     Returns:
-        A synthetic `EventDataExit` standing in for the missing one.
+        A clean, non-timed-out exit with an unknown-but-successful code.
 
     """
     return EventDataExit(
