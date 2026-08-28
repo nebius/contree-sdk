@@ -153,6 +153,26 @@ async def test_multiple_waiters_share_result(fake_api, operation_id: str):
     assert len(fake_api.calls_for("follow_operation_events")) == 1
 
 
+async def test_cancel_failure_does_not_mask_original_error(fake_api, operation_id: str):
+    # cancel_operation raising something other than ContreeAPIError must not
+    # replace the timeout error already propagating out of the `finally`.
+    fake_api.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    with pytest.raises(OperationTimedOutError):
+        await waiter.wait_for_result(timeout=0.01)
+
+
+def test_cancel_failure_does_not_mask_original_error_sync(fake_api_s, operation_id: str):
+    fake_api_s.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api_s.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    with pytest.raises(OperationTimedOutError):
+        waiter.wait_for_result(timeout=0.01)
+
+
 async def test_connect_output_after_finish(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, stdout="hi\n")
 

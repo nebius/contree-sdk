@@ -6,7 +6,6 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
-from contree_client.exceptions import ContreeAPIError
 from contree_client.models import EventDataExit, EventDataTruncated, OperationStatus, decode_chunk
 
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
@@ -130,7 +129,10 @@ class OperationWaiter:
         )
 
     async def cancel(self) -> None:
-        with suppress(ContreeAPIError):
+        # Best-effort cleanup, usually called from a `finally` while another
+        # exception is already propagating -- suppress broadly so a cancel
+        # failure never replaces/masks that original exception.
+        with suppress(Exception):
             await self.api.cancel_operation(self.operation_id)
 
     @overload
