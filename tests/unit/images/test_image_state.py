@@ -1,9 +1,10 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
+from contree_client.models import InstanceSpawnResponse
 
 from contree_sdk.sdk.exceptions import ContreeImageStateError
-from contree_sdk.sdk.objects.image import ContreeImage
+from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from tests.unit.fixtures.operations import queue_run
 from tests.unit.fixtures.runs import RUN_STDERR, RUN_STDOUT
@@ -42,3 +43,30 @@ async def test_succeeded_image_can_run_again(fake_image: ContreeImage, result_im
 
     assert result.state == ImageState.SUCCEEDED
     assert result.run(shell="again").state == ImageState.PREPARED
+
+
+async def test_transport_failure_transitions_to_failed(fake_image: ContreeImage):
+    # Not a ContreeError of either hierarchy -- the state machine must still notice.
+    fake_image.client.api.mock("spawn_instance", InstanceSpawnResponse(uuid=str(uuid4())))
+    fake_image.client.api.mock("follow_operation_events", error=ConnectionError("transport blew up"))
+
+    executing = await fake_image.run(shell="true").start()
+    assert executing.state == ImageState.EXECUTING
+
+    with pytest.raises(ConnectionError):
+        await executing.wait()
+
+    assert executing.state == ImageState.FAILED
+
+
+def test_transport_failure_transitions_to_failed_s(fake_image_s: ContreeImageSync):
+    fake_image_s.client.api.mock("spawn_instance", InstanceSpawnResponse(uuid=str(uuid4())))
+    fake_image_s.client.api.mock("follow_operation_events", error=ConnectionError("transport blew up"))
+
+    executing = fake_image_s.run(shell="true").start()
+    assert executing.state == ImageState.EXECUTING
+
+    with pytest.raises(ConnectionError):
+        executing.wait()
+
+    assert executing.state == ImageState.FAILED

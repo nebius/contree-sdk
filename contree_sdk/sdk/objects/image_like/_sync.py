@@ -8,7 +8,6 @@ from uuid import UUID
 
 from contree_client.models import FileSpec, GrepResult
 
-from contree_sdk.sdk.exceptions import ContreeError
 from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.sdk.io.wiring import OperationOutputs, read_stdin_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
@@ -97,7 +96,7 @@ class ImageLikeSync(ImageLikeBase):
     def collect_result(self: ImageLikeSyncT, executing: Executing) -> ImageLikeSyncT:
         try:
             operation_data, process_result = executing.waiter.wait_for_result(timeout=executing.timeout)
-        except ContreeError:
+        except Exception:
             if self.state_data is executing:
                 self.set_state(Failed(request=executing.request))
             raise

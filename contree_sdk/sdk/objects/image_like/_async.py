@@ -9,7 +9,6 @@ from uuid import UUID
 
 from contree_client.models import FileSpec, GrepResult
 
-from contree_sdk.sdk.exceptions import ContreeError
 from contree_sdk.sdk.io.wiring import OperationOutputs, read_stdin
 from contree_sdk.sdk.objects.image_fs._async import ImageDirectory, ImageFile
 from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, ImageLikeBase
@@ -98,7 +97,7 @@ class ImageLikeAsync(ImageLikeBase):
     async def collect_result(self: ImageLikeAsyncT, executing: Executing) -> ImageLikeAsyncT:
         try:
             operation_data, process_result = await executing.waiter.wait_for_result(timeout=executing.timeout)
-        except ContreeError:
+        except Exception:
             if self.state_data is executing:
                 self.set_state(Failed(request=executing.request))
             raise
