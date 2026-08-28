@@ -59,16 +59,22 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
 
 ````{tab} Async
-```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
+```{literalinclude} ../../examples/images/use_by_tag.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
 ````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
+```{literalinclude} ../../examples/images/use_by_tag_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
