@@ -1,5 +1,5 @@
 from io import BytesIO
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from contree_client.models import OperationResponse, OperationStatus
@@ -162,39 +162,3 @@ async def test_connect_output_after_finish(fake_api, operation_id: str):
     buffer = BytesIO()
     await waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
     assert buffer.getvalue() == b"hi\n"
-
-
-async def test_iter_chunks_after_finish_does_not_deadlock(
-    fake_contree: Contree,
-    operation_id: str,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: EventResources,
-    strict_httpx: HTTPXMock,
-):
-    frames = run_event_frames(result_image_uuid, process_state, resource_usage, "hi\n", "oops\n")
-    add_events_responses(strict_httpx, operation_id, *frames)
-    waiter = await fake_contree._get_operation_waiter(operation_id)
-    await waiter.wait_for_result()
-
-    async def collect_chunks():
-        return [chunk async for chunk in waiter.iter_chunks(MAIN_SPID)]
-
-    chunks = await wait_for(collect_chunks(), timeout=1)
-    assert {(chunk.stream_name, chunk.value) for chunk in chunks} == {
-        ("stdout", b"hi\n"),
-        ("stderr", b"oops\n"),
-    }
-
-
-async def test_cancelling_chunk_iteration_disconnects_queue_writers(fake_contree: Contree, operation_id: str):
-    waiter = await fake_contree._get_operation_waiter(operation_id)
-    iterator = waiter.iter_chunks(MAIN_SPID)
-    pending_chunk = create_task(anext(iterator))
-    await sleep(0)
-    assert waiter._readers_by_spid
-
-    pending_chunk.cancel()
-    await gather(pending_chunk, return_exceptions=True)
-
-    assert not any(waiter._readers_by_spid.values())

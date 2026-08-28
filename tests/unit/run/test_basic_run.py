@@ -1,7 +1,6 @@
 from typing import Any
 from uuid import UUID
 
-from contree_sdk.sdk.exceptions import ContreeTransportError
 from tests.e2e.sdk.run.test_basic_run import test_apply_files as _test_apply_files
 from tests.e2e.sdk.run.test_basic_run import test_apply_files_s as _test_apply_files_s
 from tests.e2e.sdk.run.test_basic_run import test_basic_run as _test_basic_run

@@ -1,5 +1,3 @@
-from contree_client.models import OperationEventType
-
 from contree_sdk import Contree
 from contree_sdk.sdk.objects.image import ContreeImage
 

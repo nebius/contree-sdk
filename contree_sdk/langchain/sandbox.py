@@ -9,6 +9,7 @@ from deepagents.backends.sandbox import BaseSandbox
 
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync
+from contree_sdk.utils.models.file import UploadFileSpec
 
 
 def to_execute_response(result: ContreeResult) -> ExecuteResponse:

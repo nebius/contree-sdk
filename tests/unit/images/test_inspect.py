@@ -1,6 +1,5 @@
 from uuid import UUID
 
-import httpx
 import pytest
 from contree_client.models import DirectoryList, FileItem
 

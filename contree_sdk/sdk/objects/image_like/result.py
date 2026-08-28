@@ -31,7 +31,6 @@ class ContreeResult:
         stdout: OUTPUT_TYPES | None,
         stderr: OUTPUT_TYPES | None,
         truncated: dict[str, EventDataTruncated],
-        cost: float | None,
     ) -> ContreeResult:
         return cls(
             exit_code=raw_result.code,

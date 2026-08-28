@@ -43,17 +43,6 @@ ZERO_RESOURCES = EventResources(
 OPERATION_COST = 12.34
 
 
-@dataclass
-class ProcessState:
-    continued: bool
-    core_dump: bool
-    exit_code: int
-    pid: int
-    signal: int
-    stopped: bool
-    timed_out: bool
-
-
 @pytest.fixture
 def operation_id() -> str:
     return str(uuid4())
