@@ -1,7 +1,8 @@
 from asyncio import run
 from io import BytesIO, StringIO
+from pathlib import Path
 from subprocess import PIPE
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
 from contree_client.base import ContreeAsyncClient
@@ -38,11 +39,11 @@ async def main(api_client: ContreeAsyncClient):
     print(f"Output type: {type(result.stdout).__name__}")
 
     print("\nExample 4: open() file object for input")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as temp_file:
-        temp_file.write("line1\nline2\nline3\n")
-        temp_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        temp_file = Path(tmpdir) / "temp.txt"
+        temp_file.write_text("line1\nline2\nline3\n")
 
-        with open(temp_file.name) as file_obj:
+        with open(temp_file) as file_obj:
             result = await image.run(shell="wc -l", stdin=file_obj)
             print(f"File object input: {result.stdout=}, {result.exit_code=}")
 

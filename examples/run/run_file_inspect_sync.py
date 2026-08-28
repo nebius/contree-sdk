@@ -1,4 +1,5 @@
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from contree_client.base import ContreeSyncClient
 
@@ -15,10 +16,10 @@ def main(api_client: ContreeSyncClient):
         shell="sh -c 'echo \"Generated inside container at $(date)\" > /tmp/output.txt'", disposable=False
     ).wait()
 
-    with NamedTemporaryFile(mode="w+") as local_file:
-        result.download("/tmp/output.txt", local_file.name)
-        with open(local_file.name) as f:
-            content = f.read()
+    with TemporaryDirectory() as tmpdir:
+        local_file = Path(tmpdir) / "output.txt"
+        result.download("/tmp/output.txt", local_file)
+        content = local_file.read_text()
         print(f"Downloaded file content: {content.strip()}")
 
     print("\nExample 2: List /etc directory contents")
@@ -26,10 +27,10 @@ def main(api_client: ContreeSyncClient):
     print(f"Files in /etc: {etc_files=}")
 
     print("\nExample 3: Download system file")
-    with NamedTemporaryFile(mode="w+") as local_file:
-        image.download("/etc/passwd", local_file.name)
-        with open(local_file.name) as f:
-            passwd_content = f.read()
+    with TemporaryDirectory() as tmpdir:
+        local_file = Path(tmpdir) / "passwd"
+        image.download("/etc/passwd", local_file)
+        passwd_content = local_file.read_text()
         print(f"System passwd file (first 3 lines): {passwd_content.splitlines()[:3]}")
 
 
