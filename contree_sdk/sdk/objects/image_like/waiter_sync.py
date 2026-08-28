@@ -44,17 +44,19 @@ class OperationWaiter:
     def connect_output(self, *, output: Writable, spid: int, stream_name: str) -> None:
         self.writers[spid, stream_name].append(SyncWriterWrapper(output))
 
-    def process_event(self, event: OperationEvent) -> None:
+    def process_event(self, event: OperationEvent) -> bytes | None:
         spid = event.spid if isinstance(event.spid, int) else 0
         if event.type in {"stdout", "stderr"}:
             chunk = decode_chunk(event.data)
             self.outputs[spid][event.type] += chunk
             for writer in self.writers[spid, event.type]:
                 writer.write(chunk)
-        elif isinstance(event.data, EventDataExit):
+            return chunk
+        if isinstance(event.data, EventDataExit):
             self.exits[spid] = event.data
         elif isinstance(event.data, EventDataTruncated):
             self.truncated[spid][event.data.stream] = event.data
+        return None
 
     def finalize_writers(self) -> None:
         for writers in self.writers.values():
@@ -68,7 +70,7 @@ class OperationWaiter:
         with suppress(Exception):
             self.api.cancel_operation(self.operation_id)
 
-    def iter_events(self, timeout: float | None) -> Iterator[OperationEvent]:
+    def iter_events(self, timeout: float | None) -> Iterator[tuple[OperationEvent, bytes | None]]:
         # Run at most once per instance (see class docstring): a second
         # caller re-subscribing to an already-drained stream would replay
         # every event through `process_event` again, double-counting
@@ -79,8 +81,8 @@ class OperationWaiter:
         completed = False
         try:
             for event in self.api.follow_operation_events(self.operation_id, timeout=timeout):
-                self.process_event(event)
-                yield event
+                chunk = self.process_event(event)
+                yield event, chunk
                 if event.type == "completion":
                     completed = True
         finally:
@@ -90,14 +92,14 @@ class OperationWaiter:
             self.finalize_writers()
 
     def iter_chunks(self, spid: int, timeout: float | None) -> Iterator[OutputChunk]:
-        for event in self.iter_events(timeout):
+        for event, chunk in self.iter_events(timeout):
             # tuple, not a set literal: ty narrows `event.type` through this
             # membership check (needed below) but not through a set literal
-            if event.type not in ("stdout", "stderr"):  # noqa: PLR6201
+            if event.type not in ("stdout", "stderr") or chunk is None:  # noqa: PLR6201
                 continue
             event_spid = event.spid if isinstance(event.spid, int) else 0
             if event_spid == spid:
-                yield OutputChunk(value=decode_chunk(event.data), stream_name=event.type)
+                yield OutputChunk(value=chunk, stream_name=event.type)
 
     def process_view(self, spid: int = MAIN_SPID) -> ProcessView:
         return ProcessView(
@@ -111,7 +113,7 @@ class OperationWaiter:
     ) -> tuple[OperationResponse, EventDataExit | None]:
         if not self.exhausted:
             try:
-                for _event in self.iter_events(timeout):
+                for _event, _chunk in self.iter_events(timeout):
                     pass
             except TimeoutError as e:
                 raise OperationTimedOutError(operation_uuid=UUID(self.operation_id)) from e
