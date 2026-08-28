@@ -188,6 +188,30 @@ def test_sync_iter_chunks_after_exhausted_does_not_resubscribe(fake_api_s, opera
     assert waiter.process_view().outputs["stdout"] == b"hi\n"
 
 
+async def test_output_limit_caps_accumulated_buffer(fake_api, operation_id: str):
+    waiter = AsyncOperationWaiter(fake_api, operation_id, output_limit=4)
+    buffer = BytesIO()
+    await waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
+    for event in run_events(stdout="hello world"):
+        if event.type == "stdout":
+            await waiter.process_event(event)
+
+    assert bytes(waiter.outputs[MAIN_SPID]["stdout"]) == b"hell"
+    assert buffer.getvalue() == b"hello world"
+
+
+def test_output_limit_caps_accumulated_buffer_sync(fake_api_s, operation_id: str):
+    waiter = SyncOperationWaiter(fake_api_s, operation_id, output_limit=4)
+    buffer = BytesIO()
+    waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
+    for event in run_events(stdout="hello world"):
+        if event.type == "stdout":
+            waiter.process_event(event)
+
+    assert bytes(waiter.outputs[MAIN_SPID]["stdout"]) == b"hell"
+    assert buffer.getvalue() == b"hello world"
+
+
 async def test_connect_output_after_finish(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, stdout="hi\n")
 

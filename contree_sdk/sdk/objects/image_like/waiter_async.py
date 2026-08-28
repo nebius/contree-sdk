@@ -40,13 +40,19 @@ class OperationWaiter:
     `connect_output`/`iter_chunks` shape).
     """
 
-    def __init__(self, api: ContreeAsyncClient, operation_id: str) -> None:
+    def __init__(self, api: ContreeAsyncClient, operation_id: str, *, output_limit: int | None = None) -> None:
         self.api = api
         self.operation_id = operation_id
         self.outputs: dict[int, dict[str, bytearray]] = defaultdict(lambda: defaultdict(bytearray))
         self.readers: dict[tuple[int, str], list[WriterWrapper]] = defaultdict(list)
         self.exits: dict[int, EventDataExit] = {}
         self.truncated: dict[int, dict[str, EventDataTruncated]] = defaultdict(dict)
+        # Caps how much of stdout/stderr we accumulate in `self.outputs`,
+        # independent of the server's own `truncate_output_at` -- a safety
+        # net against unbounded client-side memory growth if the caller
+        # raises or disables that limit. Readers (e.g. a caller-supplied
+        # file) still get the full, uncapped chunk.
+        self.output_limit = output_limit
         self.finished = asyncio.Event()
         # True only once a `completion` event was actually observed -- as
         # opposed to `finished`, which also gets set when the load loop
@@ -80,7 +86,12 @@ class OperationWaiter:
         async with self.lock:
             if event.type in {"stdout", "stderr"}:
                 chunk = decode_chunk(event.data)
-                self.outputs[spid][event.type] += chunk
+                buffer = self.outputs[spid][event.type]
+                if self.output_limit is not None:
+                    retained = min(len(chunk), max(self.output_limit - len(buffer), 0))
+                    buffer += chunk[:retained]
+                else:
+                    buffer += chunk
                 for reader in self.readers[spid, event.type]:
                     await reader.write(chunk)
             elif isinstance(event.data, EventDataExit):

@@ -59,6 +59,15 @@ async def test_run_result_exposes_cost(fake_image, result_image_uuid: UUID):
     assert result.result.cost == OPERATION_COST
 
 
+async def test_run_caps_client_side_output_at_truncate_output_at(fake_image, result_image_uuid: UUID):
+    # `truncate_output_at` is normally the server's job, but the waiter also
+    # enforces it client-side as a memory-growth safety net.
+    queue_run(fake_image.client.api, stdout="hello world", stderr="", result_image_uuid=str(result_image_uuid))
+    result = await fake_image.run(shell="true", truncate_output_at=4, stdout=bytes)
+
+    assert result.result.stdout == b"hell"
+
+
 async def test_run_result_cost_is_none_when_unavailable(fake_image, result_image_uuid: UUID):
     queue_run(fake_image.client.api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
     result = await fake_image.run(shell="true")

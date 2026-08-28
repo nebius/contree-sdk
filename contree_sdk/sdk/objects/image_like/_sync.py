@@ -55,6 +55,7 @@ class ImageLikeSync(ImageLikeBase):
         if timeout is None:
             timeout = self.client.operation_run_timeout or self.client.operation_timeout
 
+        truncate_output_at = req.truncate_output_at or self.client.default_truncate_output_at
         response = self.client.api.spawn_instance(
             req.command,
             f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
@@ -67,11 +68,11 @@ class ImageLikeSync(ImageLikeBase):
             timeout=round(timeout),
             stdin=stdin,
             files=files,
-            truncate_output_at=req.truncate_output_at or self.client.default_truncate_output_at,
+            truncate_output_at=truncate_output_at,
             preserve_env=req.preserve_env,
         )
         operation_id = str(response.uuid)
-        waiter = OperationWaiter(self.client.api, operation_id)
+        waiter = OperationWaiter(self.client.api, operation_id, output_limit=truncate_output_at)
         for stream_name, output in (("stdout", outputs.stdout), ("stderr", outputs.stderr)):
             if output is not None:
                 waiter.connect_output(output=output, spid=MAIN_SPID, stream_name=stream_name)

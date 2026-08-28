@@ -32,7 +32,7 @@ class OperationWaiter:
     later callers reuse the accumulated state instead of resubscribing.
     """
 
-    def __init__(self, api: ContreeSyncClient, operation_id: str) -> None:
+    def __init__(self, api: ContreeSyncClient, operation_id: str, *, output_limit: int | None = None) -> None:
         self.api = api
         self.operation_id = operation_id
         self.outputs: dict[int, dict[str, bytearray]] = defaultdict(lambda: defaultdict(bytearray))
@@ -40,6 +40,12 @@ class OperationWaiter:
         self.exits: dict[int, EventDataExit] = {}
         self.truncated: dict[int, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.exhausted = False
+        # Caps how much of stdout/stderr we accumulate in `self.outputs`,
+        # independent of the server's own `truncate_output_at` -- a safety
+        # net against unbounded client-side memory growth if the caller
+        # raises or disables that limit. Writers (e.g. a caller-supplied
+        # file) still get the full, uncapped chunk.
+        self.output_limit = output_limit
 
     def connect_output(self, *, output: Writable, spid: int, stream_name: str) -> None:
         self.writers[spid, stream_name].append(SyncWriterWrapper(output))
@@ -48,7 +54,12 @@ class OperationWaiter:
         spid = event.spid if isinstance(event.spid, int) else 0
         if event.type in {"stdout", "stderr"}:
             chunk = decode_chunk(event.data)
-            self.outputs[spid][event.type] += chunk
+            buffer = self.outputs[spid][event.type]
+            if self.output_limit is not None:
+                retained = min(len(chunk), max(self.output_limit - len(buffer), 0))
+                buffer += chunk[:retained]
+            else:
+                buffer += chunk
             for writer in self.writers[spid, event.type]:
                 writer.write(chunk)
             return chunk
