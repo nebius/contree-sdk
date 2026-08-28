@@ -9,7 +9,13 @@ from contree_client.models import EventDataExit, EventDataTruncated, OperationSt
 
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.io.writer_wrapper import SyncWriterWrapper
-from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID, STREAM_NAMES, OutputChunk, ProcessView
+from contree_sdk.sdk.objects.image_like.waiter_common import (
+    MAIN_SPID,
+    STREAM_NAMES,
+    OutputChunk,
+    ProcessView,
+    synthetic_exit_event,
+)
 from contree_sdk.utils.sentinels import value_or_none
 
 
@@ -138,10 +144,19 @@ class OperationWaiter:
 
         exit_event = self.exits.get(spid) if spid is not None else None
         if spid is not None and exit_event is None:
-            raise FailedOperationError(
-                operation_uuid=UUID(self.operation_id),
-                error=f"no exit event received for spid {spid}",
-            )
+            # `self.exits` non-empty means other spids *did* report an exit --
+            # this spid's is a genuine gap, not the fallback transport's
+            # blanket "no exit events at all" case.
+            if response.status != OperationStatus.SUCCESS or self.exits:
+                raise FailedOperationError(
+                    operation_uuid=UUID(self.operation_id),
+                    error=f"no exit event received for spid {spid}",
+                )
+            # The transport's fallback mode (events endpoint unavailable)
+            # only synthesizes a `completion` event -- the operation did
+            # succeed, there's just no real exit detail to report.
+            duration_ms = round((value_or_none(response.duration) or 0) * 1000)
+            exit_event = synthetic_exit_event(pid=spid, duration_ms=duration_ms)
         if exit_event is not None and exit_event.timed_out:
             raise OperationTimedOutError(operation_uuid=UUID(self.operation_id))
         return response, exit_event

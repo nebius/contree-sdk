@@ -8,7 +8,7 @@ from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationE
 from contree_sdk.sdk.objects.image_like.waiter_async import OperationWaiter as AsyncOperationWaiter
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID
 from contree_sdk.sdk.objects.image_like.waiter_sync import OperationWaiter as SyncOperationWaiter
-from tests.unit.fixtures.operations import run_events
+from tests.unit.fixtures.operations import completion_event, run_events
 
 
 def queue_events_and_status(
@@ -210,6 +210,35 @@ def test_output_limit_caps_accumulated_buffer_sync(fake_api_s, operation_id: str
 
     assert bytes(waiter.outputs[MAIN_SPID]["stdout"]) == b"hell"
     assert buffer.getvalue() == b"hello world"
+
+
+async def test_fallback_completion_without_exit_does_not_fail_a_success(fake_api, operation_id: str):
+    # events-endpoint-down fallback: transport synthesizes only a
+    # `completion` event, no `exit` -- a genuinely successful operation
+    # must not be reported as failed just because of that.
+    fake_api.mock("follow_operation_events", [completion_event(0, status=OperationStatus.SUCCESS)])
+    fake_api.mock("get_operation_status", OperationResponse(uuid=operation_id, status=OperationStatus.SUCCESS))
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    response, exit_event = await waiter.wait_for_result()
+
+    assert response.status == OperationStatus.SUCCESS
+    assert exit_event is not None
+    assert exit_event.code == 0
+    assert exit_event.timed_out is False
+
+
+def test_fallback_completion_without_exit_does_not_fail_a_success_sync(fake_api_s, operation_id: str):
+    fake_api_s.mock("follow_operation_events", [completion_event(0, status=OperationStatus.SUCCESS)])
+    fake_api_s.mock("get_operation_status", OperationResponse(uuid=operation_id, status=OperationStatus.SUCCESS))
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    response, exit_event = waiter.wait_for_result()
+
+    assert response.status == OperationStatus.SUCCESS
+    assert exit_event is not None
+    assert exit_event.code == 0
+    assert exit_event.timed_out is False
 
 
 async def test_connect_output_after_finish(fake_api, operation_id: str):
