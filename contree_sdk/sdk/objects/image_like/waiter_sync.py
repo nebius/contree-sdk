@@ -69,6 +69,13 @@ class OperationWaiter:
             self.api.cancel_operation(self.operation_id)
 
     def iter_events(self, timeout: float | None) -> Iterator[OperationEvent]:
+        # Run at most once per instance (see class docstring): a second
+        # caller re-subscribing to an already-drained stream would replay
+        # every event through `process_event` again, double-counting
+        # output. Once exhausted, accumulated state (`self.outputs` etc.)
+        # is already final -- nothing left to yield.
+        if self.exhausted:
+            return
         completed = False
         try:
             for event in self.api.follow_operation_events(self.operation_id, timeout=timeout):

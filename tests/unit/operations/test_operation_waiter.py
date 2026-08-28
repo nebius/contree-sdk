@@ -173,6 +173,21 @@ def test_cancel_failure_does_not_mask_original_error_sync(fake_api_s, operation_
         waiter.wait_for_result(timeout=0.01)
 
 
+def test_sync_iter_chunks_after_exhausted_does_not_resubscribe(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    waiter.wait_for_result()
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+    # A second consumer (or the same one iterating again) must not
+    # re-subscribe and re-process the event log, which would double the
+    # accumulated output.
+    assert list(waiter.iter_chunks(MAIN_SPID, timeout=None)) == []
+    assert len(fake_api_s.calls_for("follow_operation_events")) == 1
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+
 async def test_connect_output_after_finish(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, stdout="hi\n")
 
