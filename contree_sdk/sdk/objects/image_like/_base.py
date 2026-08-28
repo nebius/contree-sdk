@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 from asyncio import create_task, gather, to_thread
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Sequence
+from contextlib import aclosing
 from copy import copy
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, TypeVar, overload
+from typing import TYPE_CHECKING, BinaryIO, Literal, TypeVar, cast, overload
 from uuid import UUID
 
-import cattrs
+from contree_client.models import FileSpec, GrepResult
 
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OutputChunk
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
 from contree_sdk._internals.io.wiring import OperationOutputs
-from contree_sdk._internals.models.instance import InstanceFileSpec, InstanceSpawnRequest
 from contree_sdk.sdk.exceptions import ContreeError, ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.image_like.state import (
@@ -226,14 +226,14 @@ class _ImageLikeBase:
             disposable=False,
         )._await()
 
-    async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, InstanceFileSpec]:
-        async def _upload_file(file: UploadFileSpec) -> tuple[str, InstanceFileSpec]:
+    async def _prepare_files_for_api(self, files: list[UploadFileSpec]) -> dict[str, FileSpec]:
+        async def _upload_file(file: UploadFileSpec) -> tuple[str, FileSpec]:
             source = file.source
             if isinstance(source, bytes):
                 source = await self._client.files._upload_bytes_file(source)
             elif not isinstance(source, UploadedFile):
                 source = await self._client.files._upload_file(source)
-            return str(file.path), InstanceFileSpec(
+            return str(file.path), FileSpec(
                 uuid=source.uuid,
                 mode=f"{file.mode:04o}",
                 uid=file.uid,
@@ -283,24 +283,24 @@ class _ImageLikeBase:
             timeout = self._client.config.operation_run_timeout or self._client.config.operation_timeout
         self._client._warn_if_timeout_exceeds_limit(timeout, "instance_max_timeout")
 
-        operation_uuid = await self._client._start_operation(
-            InstanceSpawnRequest(
-                command=req.command,
-                image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
-                hostname=req.hostname or "localhost",
-                args=req.args or [],
-                env=req.env,
-                shell=bool(req.shell),
-                cwd=req.cwd or "",
-                disposable=req.disposable,
-                timeout=round(timeout),
-                stdin=stdin,
-                files=files,
-                truncate_output_at=req.truncate_output_at or self._client.config.default_truncate_output_at,
-                preserve_env=req.preserve_env,
-            )
+        truncate_output_at = req.truncate_output_at or self._client.config.default_truncate_output_at
+        operation_uuid = await self._client._start_spawn(
+            command=req.command,
+            image=f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
+            hostname=req.hostname or "localhost",
+            args=req.args or [],
+            env=req.env,
+            shell=bool(req.shell),
+            cwd=req.cwd or "",
+            disposable=req.disposable,
+            timeout=round(timeout),
+            stdin=stdin,
+            files=files,
+            truncate_output_at=truncate_output_at,
+            preserve_env=req.preserve_env,
         )
         waiter = await self._client._get_operation_waiter(operation_uuid)
+        waiter._set_output_limit(truncate_output_at)
         await outputs.connect(waiter)
         return self._copy_with_state(_Executing(request=req, waiter=waiter, outputs=outputs, timeout=timeout))
 
@@ -320,11 +320,13 @@ class _ImageLikeBase:
         except ContreeError:
             if self._state_data is executing:
                 self._set_state(_Failed(request=executing.request))
+                executing.outputs.close()
             raise
 
         if self._state_data is not executing:
             return self
 
+        cost = await self._client._get_compat_operation_cost(executing.waiter.operation_id)
         view = executing.waiter.process_view()
         finalized = executing.outputs.finalize(view)
         result = ContreeResult.from_result(
@@ -332,9 +334,11 @@ class _ImageLikeBase:
             stdout=finalized.stdout,
             stderr=finalized.stderr,
             truncated=view.truncated,
+            cost=cost,
         )
         self._set_state(_Succeeded(request=executing.request, result=result))
-        self.uuid = UUID(new_uuid) if (new_uuid := operation_data.result_image_uuid) else None
+        new_uuid = operation_data.result_image_uuid
+        self.uuid = UUID(new_uuid) if isinstance(new_uuid, str) else None
         self.tag = None
         if executing.request.tag:
             return await self._tag_as(executing.request.tag)
@@ -354,33 +358,64 @@ class _ImageLikeBase:
 
     # inspect methods
 
+    async def _resolved_uuid(self) -> str:
+        if self.uuid is not None:
+            return str(self.uuid)
+        return await self._client._api.inspect_find_image_by_tag(self.tag or "")
+
     async def _ls(
         self, path: str | PurePosixPath, file_type: type[FileTypeT], dir_type: type[DirTypeT]
     ) -> list[FileTypeT | DirTypeT]:
-        uuid = self.uuid if self.uuid is not None else (await self._client._api.get_image_by_tag(self.tag or "")).uuid
-        ls_res = await self._client._api.list_image_files(uuid, path)
+        listing = await self._client._api.inspect_image_list(await self._resolved_uuid(), str(path))
         result = []
-        for obj in ls_res:
+        for obj in listing.files:
             type_ = dir_type if obj.is_dir else file_type
             result.append(
                 type_(
                     _image=self,
                     _path=PurePosixPath(path),
-                    **cattrs.unstructure(obj),
+                    **obj.to_dict(),
                 )
             )
         return result
 
+    async def _grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        return await self._client._api.inspect_image_grep(
+            await self._resolved_uuid(),
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
+
     async def _read_file(self, path: str | PurePosixPath) -> bytes:
-        uuid = self.uuid if self.uuid is not None else (await self._client._api.get_image_by_tag(self.tag or "")).uuid
-        return await self._client._api.download_image_file(uuid, path)
+        return await self._client._api.inspect_image_download(await self._resolved_uuid(), str(path))
 
     async def _download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path:
         image_path = PurePosixPath(image_path)
         if local_path is None:
             local_path = image_path.name
-        with await to_thread(open, local_path, "wb") as file:
-            await to_thread(file.write, await self._read_file(image_path))
+        file = cast(BinaryIO, await to_thread(open, local_path, "wb"))
+        with file:
+            chunks = self._client._api.inspect_image_download_stream(await self._resolved_uuid(), str(image_path))
+            async with aclosing(chunks):
+                async for chunk in chunks:
+                    await to_thread(file.write, chunk)
         return Path(local_path)
 
     def __repr__(self):
@@ -443,7 +478,7 @@ class _ImageLikeBase:
         """
         if tag is None:
             return await self._untag()
-        await self._client._api.tag_image(str(self.uuid), tag)
+        await self._client._api.update_image_tag(str(self.uuid), tag)
         new_self = self._copy_self()
         new_self.tag = tag
         return new_self
@@ -455,7 +490,7 @@ class _ImageLikeBase:
             New instance with tag set to None.
 
         """
-        await self._client._api.untag_image(str(self.uuid))
+        await self._client._api.delete_image_tag(str(self.uuid))
         new_self = self._copy_self()
         new_self.tag = None
         return new_self

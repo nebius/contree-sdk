@@ -17,8 +17,17 @@ def add_inspect_by_tag_response(
     httpx_mock.add_response(
         method="GET",
         url=url("/inspect/", params={"tag": tag}),
+        status_code=302,
+        headers={"Location": f"/v1/inspect/{image_uuid}/"},
+        is_optional=True,
+        is_reusable=True,
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=r(f".*/inspect/{image_uuid}/$"),
         json={"uuid": str(image_uuid), "tag": tag, "created_at": created_at},
         is_optional=True,
+        is_reusable=True,
     )
 
 
@@ -47,12 +56,15 @@ def api_fake_images(image_uuid: UUID, image_tag: str, strict_httpx: HTTPXMock) -
         url=r(f".*/inspect/{image_uuid}/$"),
         json=image_dict,
         is_optional=True,
+        is_reusable=True,
     )
     strict_httpx.add_response(
         method="GET",
         url=url("/inspect/", params={"tag": image_tag}),
-        json=image_dict,
+        status_code=302,
+        headers={"Location": f"/v1/inspect/{image_uuid}/"},
         is_optional=True,
+        is_reusable=True,
     )
     return strict_httpx
 

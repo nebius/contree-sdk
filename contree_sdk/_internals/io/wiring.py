@@ -70,6 +70,11 @@ class OperationOutputs:
             stderr=finalize_output(self.stderr_request, self.stderr, view.outputs["stderr"]),
         )
 
+    def close(self) -> None:
+        for request, connected in ((self.stdout_request, self.stdout), (self.stderr_request, self.stderr)):
+            if isinstance(request, (str, Path)) and isinstance(connected, IOBase):
+                connected.close()
+
 
 def get_output_obj(request: OUTPUT_REQUEST_TYPES | None) -> Writable | AsyncWritable | None:
     if request is None or request is str or request is bytes:

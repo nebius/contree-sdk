@@ -2,27 +2,34 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Iterator
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 import pytest
+from contree_client.models import EventResources
 from httpx import AsyncByteStream, SyncByteStream
 from pytest_httpx import HTTPXMock, IteratorStream
 
 from contree_sdk._internals.io.codecs import io_encode
 from contree_sdk._internals.io.operation_waiter import MAIN_SPID
-from contree_sdk._internals.models.instance import (
-    InstanceOperationMetadata,
-    InstanceOperationResult,
-    ProcessExecutionResult,
-    ProcessResources,
-    ProcessState,
-)
-from contree_sdk._internals.models.operation import OperationKind, OperationModel
 from contree_sdk.utils.models.operation import OperationStatus
-from contree_sdk.utils.models.stream import StreamDescription, StreamEncoding
+from contree_sdk.utils.models.stream import StreamEncoding
 from tests.unit.fixtures.utils import r
+
+
+OPERATION_COST = 12.34
+
+
+@dataclass
+class ProcessState:
+    continued: bool
+    core_dump: bool
+    exit_code: int
+    pid: int
+    signal: int
+    stopped: bool
+    timed_out: bool
 
 
 @pytest.fixture
@@ -75,52 +82,10 @@ def add_events_responses(
     )
 
 
-def create_operation_model(
-    image_uuid: UUID,
-    result_image_uuid: UUID,
-    process_state: ProcessState,
-    resource_usage: ProcessResources,
-    stdout_content: str,
-    status: OperationStatus,
-    duration: float = 0.0,
-    stderr_content: str = "this is stderr\n",
-) -> OperationModel:
-    execution_result = ProcessExecutionResult(
-        stdout=io_encode(stdout_content, StreamEncoding.base64),
-        stderr=io_encode(stderr_content, StreamEncoding.base64),
-        state=process_state,
-        resources=resource_usage,
-    )
-
-    metadata = InstanceOperationMetadata(
-        args=[],
-        command="",
-        cwd="/",
-        disposable=True,
-        env={},
-        files={},
-        hostname="",
-        image=str(image_uuid),
-        shell=True,
-        stdin=StreamDescription(value="", encoding=StreamEncoding.ascii),
-        timeout=60,
-        truncate_output_at=65535,
-        result=execution_result,
-    )
-
-    return OperationModel(
-        kind=OperationKind.INSTANCE,
-        status=status,
-        duration=duration,
-        metadata=metadata,
-        result=InstanceOperationResult(image=str(result_image_uuid), tag=None),
-    )
-
-
 def run_event_frames(
     result_image_uuid: UUID | None,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     stdout_content: str,
     stderr_content: str,
     status: OperationStatus = OperationStatus.SUCCESS,
@@ -133,18 +98,18 @@ def run_event_frames(
             )
     exit_data = {
         "code": process_state.exit_code,
-        "duration_ms": int(resource_usage.elapsed_time * 1000),
+        "duration_ms": 500,
         "pid": process_state.pid,
         "signal": process_state.signal,
         "timed_out": process_state.timed_out,
-        "resources": asdict(resource_usage),
+        "resources": resource_usage.to_dict(),
     }
     frames.append(sse_event(len(frames), "exit", exit_data, spid=MAIN_SPID))
     completion_data = {
         "status": str(status),
         "result_image_uuid": str(result_image_uuid) if result_image_uuid else None,
         "error": None,
-        "duration_ms": int(resource_usage.elapsed_time * 1000),
+        "duration_ms": 500,
     }
     frames.append(sse_event(len(frames), "completion", completion_data))
     return tuple(frames)
@@ -156,7 +121,7 @@ def add_operation_responses(
     image_uuid: UUID,
     result_image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     stdout_content: str = "my input\nthis is stdout\n",
     stderr_content: str = "this is stderr\n",
     not_found_first: bool = False,
@@ -171,6 +136,30 @@ def add_operation_responses(
         )
     frames = run_event_frames(result_image_uuid, process_state, resource_usage, stdout_content, stderr_content)
     add_events_responses(httpx_mock, operation_id, *frames, is_reusable=True)
+    add_operation_status_response(httpx_mock, operation_id, image_uuid, OPERATION_COST)
+
+
+def add_operation_status_response(
+    httpx_mock: HTTPXMock,
+    operation_id: str,
+    image_uuid: UUID,
+    cost: float,
+):
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(f".*/operations/{operation_id}$"),
+        json={
+            "uuid": operation_id,
+            "kind": "instance",
+            "status": "SUCCESS",
+            "metadata": {
+                "command": "true",
+                "image": str(image_uuid),
+                "result": {"resources": {"cost": cost}},
+            },
+        },
+        is_optional=True,
+    )
 
 
 @pytest.fixture
@@ -178,7 +167,7 @@ def api_fake_streamed_run(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_base_responses(strict_httpx, operation_id)
@@ -186,6 +175,7 @@ def api_fake_streamed_run(
     add_events_responses(strict_httpx, operation_id, *frames)
     add_events_responses(strict_httpx, operation_id, *frames)
     add_events_responses(strict_httpx, operation_id, *frames[1:])
+    add_operation_status_response(strict_httpx, operation_id, result_image_uuid, OPERATION_COST)
     return strict_httpx
 
 
@@ -224,7 +214,7 @@ def add_inspect_list_responses(
         httpx_mock.add_response(
             method="GET",
             url=r(".*/inspect/.*/list.*"),
-            json={"files": files_list},
+            json={"path": "/", "files": files_list},
             is_optional=True,
         )
 

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -6,14 +7,9 @@ from typing import Generic, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID
 
-from contree_sdk._internals.models.image import ContreeImageModel
-from contree_sdk._internals.models.image_import import (
-    ImageImportRequest,
-    PrivateRegistryInfo,
-    PublicRegistryInfo,
-    RegistryCredentials,
-)
-from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError
+from contree_client.models import Image, ImageImportRegistry, ImageImportRegistryCredentials
+
+from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError, UnknownContreeError
 from contree_sdk.sdk.managers._base import BaseManager
 from contree_sdk.sdk.objects.image._base import _ContreeImageBase
 from contree_sdk.utils.models.image import ImageKind
@@ -50,7 +46,7 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
 
         Args:
             number: Maximum number of images to return. None returns all.
-            kind: Filter by image kind.
+            kind: Deprecated and ignored: the server does not support this filter.
             tagged: If True, return only tagged images.
             since: Return images created after this time. Accepts datetime or timedelta relative to now.
             until: Return images created before this time. Accepts datetime or timedelta relative to now.
@@ -78,6 +74,12 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         since: datetime | timedelta | None = None,
         until: datetime | timedelta | None = None,
     ) -> AsyncGenerator[_ImageT, None]:
+        if kind is not None:
+            warnings.warn(
+                "the kind filter is deprecated and ignored: the server does not support it",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         started = datetime.now()
 
         until = until or started
@@ -90,14 +92,16 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             if number is not None:
                 limit = min(limit, number - current_offset)
 
-            batch = await self._client._api.get_images(
+            response = await self._client._api.list_images(
                 offset=current_offset,
                 limit=limit,
                 since=_process_time_param(since, offset=timedelta_offset),
                 until=_process_time_param(until, offset=timedelta_offset),
-                tagged=1 if tagged else None,
-                kind=kind or None,
+                tagged=tagged,
             )
+            batch = response.images
+            if not isinstance(batch, list):
+                raise UnknownContreeError(exception=ValueError(f"images response carries no image list: {response}"))
             for image in batch:
                 yield self._image_by_data(image)
 
@@ -142,11 +146,12 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
             return await self._get_image_by_tag(tag)
         return self._ImageType(client=self._client, uuid=None, tag=tag)
 
-    def _image_by_data(self, image: ContreeImageModel) -> _ImageT:
+    def _image_by_data(self, image: Image) -> _ImageT:
+        data = image.to_dict()
         return self._ImageType(
             client=self._client,
-            uuid=image.uuid,
-            tag=image.tag,
+            uuid=data["uuid"],
+            tag=data.get("tag"),
         )
 
     async def _pull_image(
@@ -204,16 +209,14 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         return await self._get_image_by_tag(url_or_tag_or_uuid)
 
     async def _get_image_by_tag(self, tag: str) -> _ImageT:
-        resp = await self._client._api.get_image_by_tag(tag)
-        if resp.tag is None:
-            resp.tag = tag
-        return self._image_by_data(resp)
+        image_uuid = await self._client._api.inspect_find_image_by_tag(tag)
+        return self._ImageType(client=self._client, uuid=image_uuid, tag=tag)
 
     async def _get_image_by_uuid(self, uuid: UUID | str) -> _ImageT:
         if isinstance(uuid, str):
             uuid = UUID(uuid)
 
-        return self._image_by_data(await self._client._api.get_image_by_uuid(str(uuid)))
+        return self._image_by_data(await self._client._api.inspect_image(str(uuid)))
 
     async def _import_image(
         self,
@@ -251,39 +254,33 @@ class _ImagesBaseManager(BaseManager, Generic[_ImageT]):
         if username or password:
             if not (username and password):
                 raise ValueError("Both username and password must be provided")
-            registry = PrivateRegistryInfo(
+            registry = ImageImportRegistry(
                 url=image_url,
-                credentials=RegistryCredentials(username=username, password=password),
+                credentials=ImageImportRegistryCredentials(username=username, password=password),
             )
         else:
-            registry = PublicRegistryInfo(url=image_url)
+            registry = ImageImportRegistry(url=image_url)
 
         timeout = timeout or self._client.config.operation_import_timeout or self._client.config.operation_timeout
 
         self._client._warn_if_timeout_exceeds_limit(timeout, "images_import_max_timeout")
 
-        operation_uuid = await self._client._start_operation(
-            ImageImportRequest(
-                registry=registry,
-                tag=new_tag,
-                timeout=round(timeout),
-            )
-        )
+        operation_uuid = await self._client._start_import(registry, tag=new_tag, timeout=round(timeout))
         operation_result, _ = await self._client._wait_operation(
             operation_uuid=operation_uuid,
             timeout=timeout,
             spid=None,
         )
-        if operation_result.result_image_uuid is None:
+        result_image_uuid = operation_result.result_image_uuid
+        if not isinstance(result_image_uuid, str):
             raise FailedOperationError(
                 operation_uuid=operation_uuid,
                 error="Image import returned no image uuid",
             )
-        return self._image_by_data(
-            ContreeImageModel(
-                uuid=operation_result.result_image_uuid,
-                tag=new_tag,
-            )
+        return self._ImageType(
+            client=self._client,
+            uuid=result_image_uuid,
+            tag=new_tag,
         )
 
     async def _pull_image_by_oci(

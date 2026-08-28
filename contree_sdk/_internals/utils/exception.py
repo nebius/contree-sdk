@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import http.client
 from contextlib import contextmanager
-from json import JSONDecodeError
 
-from httpx import HTTPError, HTTPStatusError, Response, TimeoutException, TransportError
+from contree_client import exceptions as transport_exceptions
+from contree_client.base import ContreeClientBase
 
 from contree_sdk.sdk.exceptions import (
     ApiStatusCodeError,
@@ -17,64 +18,55 @@ from contree_sdk.sdk.exceptions import (
     UnknownContreeError,
     UnprocessableEntityError,
 )
-from contree_sdk.sdk.exceptions.api import RequestInfo, ResponseInfo, TooManyRequestsError
+from contree_sdk.sdk.exceptions.api import EventStreamInterruptedError, TooManyRequestsError
 
 
-# for now, it works with httpx errors
-# when be implementing multi transport support, we should change it to some other class
-def wrap_api_exception(exc: HTTPError, kwargs: dict | None = None) -> ContreeError:
-    request_info = RequestInfo(
-        url=str(exc.request.url),
-        method=exc.request.method,
-    )
-    response = getattr(exc, "response", None)
-    response_info = None
-    if isinstance(response, Response):
-        response_info = ResponseInfo(
-            headers=dict(response.headers),
-        )
+_STATUS_ERROR_CLASSES: dict[int, type[ApiStatusCodeError]] = {
+    403: ForbiddenError,
+    404: NotFoundError,
+    410: GoneError,
+    422: UnprocessableEntityError,
+    425: TooEarlyError,
+    429: TooManyRequestsError,
+}
 
-    if isinstance(exc, TimeoutException):
-        return ApiTimeoutError(
-            timeout_type=str(exc.__class__.__name__).lower().replace("timeout", ""),
-            request=request_info,
-            response=response_info,
-        )
 
-    if isinstance(exc, TransportError):
-        return ContreeTransportError(_raw=exc, error=str(exc), request=request_info, response=response_info)
+def _timeout_errors(transport: ContreeClientBase) -> tuple[type[BaseException], ...]:
+    return tuple(error for error in transport.nonretryable_errors if not issubclass(error, http.client.InvalidURL))
 
-    if isinstance(exc, HTTPStatusError):
-        response = exc.response
-        try:
-            data = response.json()
-        except JSONDecodeError:
-            data = {"status": response.status_code, "error": response.text}
-        class_ = ApiStatusCodeError
-        if response.status_code == 404:
-            class_ = NotFoundError
-        elif response.status_code == 403:
-            class_ = ForbiddenError
-        elif response.status_code == 410:
-            class_ = GoneError
-        elif response.status_code == 422:
-            class_ = UnprocessableEntityError
-        elif response.status_code == 425:
-            class_ = TooEarlyError
-        elif response.status_code == 429:
-            class_ = TooManyRequestsError
-        return class_(
-            **{k: data[k] for k in ["status", "error"] if k in data},  # ty: ignore[invalid-argument-type]
-            request=request_info,
-            response=response_info,
-        )
 
-    return UnknownContreeError(exception=exc)
+def wrap_api_exception(exc: Exception, transport: ContreeClientBase) -> ContreeError | None:
+    """Translate a contree-client or transport error into an SDK exception.
+
+    Transport-level classification relies on the ``retryable_errors`` and
+    ``nonretryable_errors`` tuples every contree-client backend declares, so
+    no backend package is imported here.
+
+    Returns:
+        The matching SDK exception, or None for exceptions that are not
+        transport-related and must propagate unchanged.
+
+    """
+    if isinstance(exc, transport_exceptions.ContreeAPIError):
+        class_ = _STATUS_ERROR_CLASSES.get(exc.status, ApiStatusCodeError)
+        return class_(status=exc.status, error=str(exc.error))
+    if isinstance(exc, (transport_exceptions.SSEStreamError, transport_exceptions.DecompressionError)):
+        return EventStreamInterruptedError(error=str(exc))
+    if isinstance(exc, transport_exceptions.ContreeError):
+        return UnknownContreeError(exception=exc)
+    if isinstance(exc, _timeout_errors(transport)):
+        return ApiTimeoutError(timeout_type=type(exc).__name__.lower().replace("timeout", "") or None)
+    if isinstance(exc, transport.retryable_errors):
+        return ContreeTransportError(_raw=exc, error=str(exc))
+    return None
 
 
 @contextmanager
-def wrap_api_call():
+def wrap_api_call(transport: ContreeClientBase):
     try:
         yield
-    except HTTPError as exc:
-        raise wrap_api_exception(exc).with_traceback(exc.__traceback__) from exc
+    except Exception as exc:
+        wrapped = wrap_api_exception(exc, transport)
+        if wrapped is None:
+            raise
+        raise wrapped.with_traceback(exc.__traceback__) from exc

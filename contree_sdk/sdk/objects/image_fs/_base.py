@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal
 
-from contree_sdk._internals.models.file import FileItemModel
+from contree_client.models import FileItem
+
 from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, _ImageLikeBase
 
 
 @dataclass
-class _ImageFsEntryBase(FileItemModel):
+class _ImageFsEntryBase(FileItem):
     _image: _ImageLikeBase
     _path: PurePosixPath
 

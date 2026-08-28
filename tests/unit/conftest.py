@@ -107,7 +107,8 @@ def fake_project_id() -> str:
 @pytest.fixture
 def fake_contree_config(fake_token: str, fake_project_id: str) -> ContreeConfig:
     return ContreeConfig(
-        auth=IAMAuth(token=fake_token, base_url="https://fake.contree.endpoint", project_id=fake_project_id)
+        auth=IAMAuth(token=fake_token, base_url="https://fake.contree.endpoint", project_id=fake_project_id),
+        transport="httpx",
     )
 
 

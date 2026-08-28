@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+from contree_client.models import Image
 
 from contree_sdk import Contree
-from contree_sdk._internals.models.image import ContreeImageModel
 
 
 @pytest.mark.parametrize(
@@ -19,16 +19,17 @@ from contree_sdk._internals.models.image import ContreeImageModel
 )
 async def test_pull_routing(fake_contree: Contree, input_value, method):
     with (
-        patch.object(fake_contree._api, "get_image_by_tag", new_callable=AsyncMock) as get_by_tag_mock,
-        patch.object(fake_contree._api, "get_image_by_uuid", new_callable=AsyncMock) as get_by_uuid_mock,
+        patch.object(fake_contree._api, "inspect_find_image_by_tag", new_callable=AsyncMock) as get_by_tag_mock,
+        patch.object(fake_contree._api, "inspect_image", new_callable=AsyncMock) as get_by_uuid_mock,
         patch.object(fake_contree.images, "_import_image", new_callable=AsyncMock) as import_mock,
     ):
-        get_by_tag_mock.return_value = ContreeImageModel(tag="tag-tag", uuid="12345678-1234-5678-9012-123456789012")
-        get_by_uuid_mock.return_value = ContreeImageModel(tag="uuid-tag", uuid="12345678-1234-5678-9012-123456789012")
-        import_mock.return_value = ContreeImageModel(tag="import-tag", uuid="12345678-1234-5678-9012-123456789012")
+        get_by_tag_mock.return_value = "12345678-1234-5678-9012-123456789012"
+        get_by_uuid_mock.return_value = Image(tag="uuid-tag", uuid="12345678-1234-5678-9012-123456789012")
+        import_mock.return_value = Image(tag="import-tag", uuid="12345678-1234-5678-9012-123456789012")
 
         res = await fake_contree.images.pull(input_value)
-        assert res.tag == f"{method}-tag"
+        expected_tags = {"tag": str(input_value), "uuid": "uuid-tag", "import": "import-tag"}
+        assert res.tag == expected_tags[method]
 
         expected_calls = {"tag": get_by_tag_mock, "uuid": get_by_uuid_mock, "import": import_mock}
         assert_called = expected_calls.pop(method)

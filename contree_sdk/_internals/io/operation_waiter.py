@@ -1,28 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from asyncio import Event, Lock, Queue, create_task, gather, shield
 from collections import defaultdict
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import timedelta
 from sys import version_info
-from typing import TYPE_CHECKING, Literal, overload
+from types import EllipsisType
+from typing import TYPE_CHECKING, Literal, TypeVar, overload
 from uuid import UUID
 
-from cattrs.errors import BaseValidationError
-
-from contree_sdk._internals.io.codecs import io_decode
-from contree_sdk._internals.io.typing import AsyncWritable, Writable
-from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
-from contree_sdk._internals.lib.helpers import convert_data_to_type
-from contree_sdk._internals.lib.types import ReturnType
-from contree_sdk._internals.models.operation import (
+from contree_client.models import (
     EventDataCompletion,
     EventDataExit,
+    EventDataStream,
     EventDataTruncated,
     OperationEvent,
-    OperationEventType,
 )
+
+from contree_sdk._internals.io.typing import AsyncWritable, Writable
+from contree_sdk._internals.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
+from contree_sdk._internals.utils.circuit_retrier import CircuitRetrier
 from contree_sdk.sdk.exceptions import (
     CancelledOperationError,
     ContreeApiError,
@@ -33,8 +33,8 @@ from contree_sdk.sdk.exceptions import (
     NotFoundError,
     OperationTimedOutError,
 )
-from contree_sdk.utils.models.operation import OperationStatus
-from contree_sdk.utils.models.stream import StreamDescription
+from contree_sdk.sdk.exceptions.api import ApiTimeoutError, ContreeTransportError, TooEarlyError, TooManyRequestsError
+from contree_sdk.utils.models.operation import OperationEventType, OperationStatus
 
 
 if version_info >= (3, 11):
@@ -47,6 +47,8 @@ if TYPE_CHECKING:
 
 
 StreamName = Literal["stderr", "stdout"]
+_STREAM_NAMES: tuple[StreamName, StreamName] = ("stdout", "stderr")
+EventDataT = TypeVar("EventDataT")
 
 
 @dataclass
@@ -65,20 +67,41 @@ class ProcessView:
 MAIN_SPID = 1
 
 
-def _convert_event_data(
-    event: OperationEvent, return_type: type[ReturnType], error_class: type[MalformedEventError]
-) -> ReturnType:
-    try:
-        return convert_data_to_type(event.data, return_type)
-    except (TypeError, ValueError, BaseValidationError) as e:
-        raise error_class(data=event.data, error=str(e)) from e
+def _event_data(
+    event: OperationEvent, data_type: type[EventDataT], error_class: type[MalformedEventError]
+) -> EventDataT:
+    if isinstance(event.data, data_type):
+        return event.data
+    raise error_class(
+        data=event.data if isinstance(event.data, dict) else None,
+        error=f"unexpected payload for {event.type} event: {event.data!r}",
+    )
+
+
+def _unset_to_none(value: EventDataT | EllipsisType) -> EventDataT | None:
+    return None if isinstance(value, EllipsisType) else value
 
 
 class OperationWaiter:
     def __init__(self, client: _ContreeBase, operation_id: UUID):
         self.operation_id = operation_id
         self._client = client
-        self._output_by_spid = defaultdict(lambda: defaultdict(bytes))
+        self._output_limit = client.config.default_truncate_output_at
+        import_timeout = client.config.operation_import_timeout or client.config.operation_timeout
+        spawn_timeout = client.config.operation_run_timeout or client.config.operation_timeout
+        self._stream_retrier = CircuitRetrier(
+            exceptions=[
+                TooManyRequestsError,
+                ApiTimeoutError,
+                ContreeTransportError,
+                NotFoundError,
+                TooEarlyError,
+                EventStreamInterruptedError,
+            ],
+            retry_timeout=timedelta(seconds=max(spawn_timeout, import_timeout)),
+        )
+        self._output_by_spid = defaultdict(lambda: defaultdict(bytearray))
+        self._local_output_dropped: dict[int | None, dict[StreamName, int]] = defaultdict(lambda: defaultdict(int))
         # IO objects by spid and stream name
         self._readers_by_spid: dict[tuple[int | None, str], list[WriterWrapper]] = defaultdict(list)
 
@@ -90,13 +113,16 @@ class OperationWaiter:
         self._truncated: dict[int | None, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.completion: EventDataCompletion | None = None
 
+    def _set_output_limit(self, limit: int) -> None:
+        self._output_limit = limit
+
     async def _load_events(self):
         async with self._streaming_lock:
             if self._finished_event.is_set():
                 return
             try:
-                async for event in self._client._api.stream_operation_events(
-                    self.operation_id, since=self._last_event_id
+                async for event in self._client._api.iter_operation_events(
+                    str(self.operation_id), follow=True, since=self._last_event_id
                 ):
                     await self._process_event(event)
             except (NotFoundError, GoneError) as e:
@@ -108,35 +134,46 @@ class OperationWaiter:
 
     async def _process_event(self, event: OperationEvent):
         async with self._processing_lock:
-            if event.type in {
-                OperationEventType.STDERR,
-                OperationEventType.STDOUT,
-            }:
-                stream_name = str(event.type)
-                value = io_decode(_convert_event_data(event, StreamDescription, MalformedEventError))
-                self._output_by_spid[event.spid][stream_name] += value
-                for reader in self._readers_by_spid[event.spid, stream_name]:
+            spid = _unset_to_none(event.spid)
+            if event.type in {OperationEventType.STDERR, OperationEventType.STDOUT}:
+                value = _event_data(event, EventDataStream, MalformedEventError).as_bytes()
+                buffer = self._output_by_spid[spid][event.type]
+                retained = min(len(value), max(self._output_limit - len(buffer), 0))
+                buffer.extend(value[:retained])
+                self._local_output_dropped[spid][event.type] += len(value) - retained
+                for reader in self._readers_by_spid[spid, event.type]:
                     await reader.write(value)
             elif event.type == OperationEventType.EXIT:
-                self._exits[event.spid] = _convert_event_data(event, EventDataExit, MalformedEventError)
+                self._exits[spid] = _event_data(event, EventDataExit, MalformedEventError)
             elif event.type == OperationEventType.TRUNCATED:
-                truncated = _convert_event_data(event, EventDataTruncated, MalformedEventError)
-                self._truncated[event.spid][truncated.stream] = truncated
+                truncated = _event_data(event, EventDataTruncated, MalformedEventError)
+                self._truncated[spid][truncated.stream] = truncated
             elif event.type == OperationEventType.COMPLETION:
-                self.completion = _convert_event_data(event, EventDataCompletion, MalformedEventError)
+                completion = _event_data(event, EventDataCompletion, MalformedEventError)
+                self.completion = dataclasses.replace(
+                    completion,
+                    result_image_uuid=_unset_to_none(completion.result_image_uuid),
+                    error=_unset_to_none(completion.error),
+                )
                 await self._finish()
 
             self._last_event_id = event.id
 
     async def iter_chunks(self, spid: int):
         queues: dict[StreamName, Queue] = {}
-        for key in ("stdout", "stderr"):
-            queue = Queue()
-            queues[key] = queue
-            await self.connect_output(output=WriterToQueue(queue=queue), stream_name=key, spid=spid)
-        tasks = {create_task(queue.get()): key for key, queue in queues.items()}
+        queue_writers: dict[StreamName, WriterToQueue] = {}
+        wrappers: dict[StreamName, WriterWrapper] = {}
+        tasks = {}
 
         try:
+            for key in _STREAM_NAMES:
+                queue = Queue(maxsize=1)
+                queues[key] = queue
+                queue_writer = WriterToQueue(queue=queue)
+                queue_writers[key] = queue_writer
+                tasks[create_task(queue.get())] = key
+                wrappers[key] = await self.connect_output(output=queue_writer, stream_name=key, spid=spid)
+
             while tasks:
                 done, _ = await asyncio.wait(
                     tasks,
@@ -156,27 +193,46 @@ class OperationWaiter:
 
                     tasks[create_task(queues[key].get())] = key
         finally:
+            for writer in queue_writers.values():
+                writer.close()
+
             for task in tasks:
                 task.cancel()
 
             await gather(*tasks, return_exceptions=True)
+
+            async with self._processing_lock:
+                for key, wrapper in wrappers.items():
+                    with suppress(ValueError):
+                        self._readers_by_spid[spid, key].remove(wrapper)
 
     async def connect_output(self, *, output: AsyncWritable | Writable, spid: int, stream_name: str):
         wrapper = WriterWrapper(output)
 
         async with self._processing_lock:
             if self._output_by_spid[spid][stream_name]:
-                await wrapper.write(self._output_by_spid[spid][stream_name])
+                await wrapper.write(bytes(self._output_by_spid[spid][stream_name]))
             if self._finished_event.is_set():
                 await wrapper.finalize()
-                return
-            self._readers_by_spid[spid, stream_name].append(wrapper)
+            else:
+                self._readers_by_spid[spid, stream_name].append(wrapper)
+            return wrapper
 
     def process_view(self, spid: int = MAIN_SPID) -> ProcessView:
+        truncated = dict(self._truncated[spid])
+        for stream_name, bytes_dropped in self._local_output_dropped[spid].items():
+            if not bytes_dropped:
+                continue
+            server_truncation = truncated.get(stream_name)
+            truncated[stream_name] = EventDataTruncated(
+                stream=stream_name,
+                bytes_emitted=len(self._output_by_spid[spid][stream_name]),
+                bytes_dropped=bytes_dropped + (server_truncation.bytes_dropped if server_truncation else 0),
+            )
         return ProcessView(
             exit=self._exits.get(spid),
-            outputs={name: self._output_by_spid[spid][name] for name in ("stdout", "stderr")},
-            truncated=dict(self._truncated[spid]),
+            outputs={name: bytes(self._output_by_spid[spid][name]) for name in _STREAM_NAMES},
+            truncated=truncated,
         )
 
     @overload
@@ -191,10 +247,9 @@ class OperationWaiter:
     async def wait_for_result(
         self, *, operation_timeout: float | None = None, spid: int | None = MAIN_SPID
     ) -> tuple[EventDataCompletion, EventDataExit | None]:
-        retrier = self._client._default_retrier
         try:
             async with self._operation_canceller(), timeout(operation_timeout):
-                await retrier(self._load_events)
+                await self._stream_retrier(self._load_events)
         except (TimeoutError, asyncio.TimeoutError) as e:
             raise OperationTimedOutError(operation_uuid=self.operation_id) from e
 
@@ -202,7 +257,9 @@ class OperationWaiter:
         if completion is None or completion.status == OperationStatus.CANCELLED:
             raise CancelledOperationError(operation_uuid=self.operation_id)
         if completion.status == OperationStatus.FAILED:
-            raise FailedOperationError(operation_uuid=self.operation_id, error=completion.error or "Unknown error")
+            raise FailedOperationError(
+                operation_uuid=self.operation_id, error=_unset_to_none(completion.error) or "Unknown error"
+            )
 
         exit_event = self._exits.get(spid)
         if spid is not None and exit_event is None:
@@ -212,7 +269,7 @@ class OperationWaiter:
         return completion, exit_event
 
     async def _cancel_operation(self):
-        await self._client._api.cancel_operation(self.operation_id)
+        await self._client._api.cancel_operation(str(self.operation_id))
 
     @asynccontextmanager
     async def _operation_canceller(self):

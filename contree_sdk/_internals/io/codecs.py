@@ -1,35 +1,6 @@
 from collections.abc import Callable
-from functools import partial
 
-from contree_sdk._internals.models.instance import StreamDescription
-from contree_sdk.utils.models.stream import StreamEncoding
-
-
-def _decode_base64(value: str) -> bytes:
-    import base64
-
-    return base64.b64decode(value)
-
-
-def _decode_ascii(value: str) -> bytes:
-    return value.encode()
-
-
-_DECODERS: dict[str, Callable[[str], bytes]] = {
-    "base64": _decode_base64,
-    "ascii": _decode_ascii,
-}
-
-
-def _fallback_decoder(value: str) -> bytes:
-    return value.encode("latin-1")
-
-
-def io_decode(value: StreamDescription) -> bytes:
-    # todo use truncated
-    encoding = value.encoding.lower()
-    decoder = _DECODERS.get(encoding, partial(_fallback_decoder))
-    return decoder(value.value)
+from contree_sdk.utils.models.stream import StreamDescription, StreamEncoding
 
 
 def _encode_base64(value: bytes) -> str:

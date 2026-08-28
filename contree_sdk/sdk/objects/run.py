@@ -1,11 +1,18 @@
 from asyncio import to_thread
+from base64 import b64encode
 from dataclasses import dataclass, field
 
-from contree_sdk._internals.io.codecs import io_encode
+from contree_client.models import ClosableStreamRepr
+
 from contree_sdk._internals.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk._internals.io.wiring import read_input
 from contree_sdk.utils.models.file import UploadFileSpec
-from contree_sdk.utils.models.stream import StreamDescription
+
+
+def _encode_stdin(value: str | bytes) -> ClosableStreamRepr:
+    if isinstance(value, str):
+        return ClosableStreamRepr(value=value, encoding="ascii")
+    return ClosableStreamRepr(value=b64encode(value).decode("ascii"), encoding="base64")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -31,6 +38,6 @@ class RunRequest:
 
     preserve_env: bool = False
 
-    async def _read_stdin(self) -> StreamDescription:
+    async def _read_stdin(self) -> ClosableStreamRepr:
         value = await read_input(self.stdin)
-        return await to_thread(io_encode, value)
+        return await to_thread(_encode_stdin, value)

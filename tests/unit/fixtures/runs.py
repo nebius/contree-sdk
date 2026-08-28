@@ -1,11 +1,11 @@
 from uuid import UUID, uuid4
 
 import pytest
+from contree_client.models import EventResources
 from pytest_httpx import HTTPXMock
 
-from contree_sdk._internals.models.instance import ProcessResources, ProcessState
 from tests.unit.fixtures.files import add_file_responses
-from tests.unit.fixtures.operations import SlowEventStream, add_base_responses, add_operation_responses
+from tests.unit.fixtures.operations import ProcessState, SlowEventStream, add_base_responses, add_operation_responses
 from tests.unit.fixtures.utils import r
 
 
@@ -34,7 +34,7 @@ def add_multiple_run_operations(
     httpx_mock: HTTPXMock,
     image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     stdout_values: list[str],
 ):
     for stdout in stdout_values:
@@ -80,24 +80,23 @@ def process_state() -> ProcessState:
 
 
 @pytest.fixture
-def resource_usage() -> ProcessResources:
-    return ProcessResources(
-        block_input=0,
-        block_output=0,
-        cost=0.25,
-        elapsed_time=0.5,
-        involuntary_switches=0,
-        max_rss=1024,
-        monotonic_time=0.5,
-        page_faults=0,
-        page_faults_io=0,
+def resource_usage() -> EventResources:
+    return EventResources(
+        user_time_us=100_000,
+        sys_time_us=100_000,
+        max_rss_kb=1024,
         shared_memory=0,
-        signals=0,
-        swaps=0,
-        system_cpu_time=0.1,
         unshared_memory=0,
-        user_cpu_time=0.1,
-        voluntary_switches=0,
+        swaps=0,
+        minor_faults=0,
+        major_faults=0,
+        voluntary_ctx_switches=0,
+        involuntary_ctx_switches=0,
+        block_input_ops=0,
+        block_output_ops=0,
+        ipc_msgs_sent=0,
+        ipc_msgs_received=0,
+        signals_received=0,
     )
 
 
@@ -120,7 +119,7 @@ def api_fake_run(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -140,7 +139,7 @@ def api_fake_run_deferred(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -161,7 +160,7 @@ def api_fake_run_with_files(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -182,7 +181,7 @@ def api_fake_apply_files(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_with_files: HTTPXMock,
 ) -> HTTPXMock:
     second_op_id = str(uuid4())
@@ -210,7 +209,7 @@ def api_fake_apply_files(
 def api_fake_run_preserve_env(
     image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_multiple_run_operations(
@@ -227,7 +226,7 @@ def api_fake_run_preserve_env(
 def api_fake_run_without_preserve_env(
     image_uuid: UUID,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_multiple_run_operations(
@@ -246,7 +245,7 @@ def api_fake_run_truncated(
     result_image_uuid: UUID,
     operation_id: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -267,7 +266,7 @@ def api_fake_session_multiple_runs(
     file_uuid: str,
     file_sha256: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     add_file_responses(strict_httpx, file_uuid, file_sha256)
@@ -318,7 +317,7 @@ def api_fake_popen(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     ls_output = """total 0
@@ -347,7 +346,7 @@ def api_fake_popen_error(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     error_stderr = "ls: cannot access '/totally/fake/directory': No such file or directory\n"
@@ -370,7 +369,7 @@ def api_fake_popen_shell(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -391,7 +390,7 @@ def api_fake_popen_stdin(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -412,7 +411,7 @@ def api_fake_popen_communicate(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -433,7 +432,7 @@ def api_fake_popen_env(
     image_uuid: UUID,
     result_image_uuid: UUID,
     operation_id: str,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     api_fake_run_base: HTTPXMock,
 ) -> HTTPXMock:
     add_operation_responses(
@@ -456,7 +455,7 @@ def api_fake_thread_pool(
     file_uuid: str,
     file_sha256: str,
     process_state: ProcessState,
-    resource_usage: ProcessResources,
+    resource_usage: EventResources,
     strict_httpx: HTTPXMock,
 ) -> HTTPXMock:
     from tests.unit.fixtures.images import add_inspect_by_tag_response
