@@ -1,4 +1,4 @@
-from contree_sdk._internals.io.typing import (
+from contree_sdk.sdk.io.typing import (
     INPUT_TYPES,
     OUTPUT_REQUEST_TYPES,
     OUTPUT_TYPES,

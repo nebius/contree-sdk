@@ -2,9 +2,10 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from contree_client.exceptions import NotFoundError
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.sdk.exceptions import FailedOperationError, NotFoundError, OperationTimedOutError
+from contree_sdk.sdk.exceptions import FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.utils.models.image import ImageKind
@@ -31,12 +32,30 @@ async def test_get_all_images(client_type, contree: Contree, contree_s: ContreeS
     assert was_str_tag
 
 
+async def test_oci_image_by_tag(contree: Contree, image_tag):
+    image = await contree.images.oci(image_tag, tag="")
+
+    assert isinstance(image.uuid, UUID)
+    assert isinstance(image, ContreeImage)
+    assert image.tag == image_tag
+
+
 def test_oci_image_by_tag_s(contree_s: ContreeSync, image_tag):
     image = contree_s.images.oci(image_tag, tag="")
 
     assert isinstance(image.uuid, UUID)
     assert isinstance(image, ContreeImageSync)
     assert image.tag == image_tag
+
+
+async def test_oci_public_image(contree: Contree):
+    url = "docker://ghcr.io/linuxserver/code-server:latest"
+    image = await contree.images.oci(url, timeout=250)
+    assert isinstance(image, ContreeImage)
+    assert isinstance(image.uuid, UUID)
+    assert image.state == ImageState.PULLED
+    assert image.tag
+    assert "code-server:latest" in image.tag
 
 
 def test_oci_public_image_s(contree_s: ContreeSync):
@@ -49,9 +68,21 @@ def test_oci_public_image_s(contree_s: ContreeSync):
     assert "code-server:latest" in image.tag
 
 
+async def test_oci_nonexistent_uuid(contree: Contree):
+    with pytest.raises(NotFoundError):
+        await contree.images.oci(uuid4())
+
+
 def test_oci_nonexistent_uuid_s(contree_s: ContreeSync):
     with pytest.raises(NotFoundError):
         contree_s.images.oci(uuid4())
+
+
+async def test_use_strict_by_uuid(contree: Contree, image_uuid):
+    image = await contree.images.use(str(image_uuid), strict=True)
+    assert isinstance(image.uuid, UUID)
+    assert isinstance(image, ContreeImage)
+    assert image.uuid == image_uuid
 
 
 def test_use_strict_by_uuid_s(contree_s: ContreeSync, image_uuid):
@@ -61,6 +92,13 @@ def test_use_strict_by_uuid_s(contree_s: ContreeSync, image_uuid):
     assert image.uuid == image_uuid
 
 
+async def test_use_strict_by_tag(contree: Contree, image_tag):
+    image = await contree.images.use(image_tag, strict=True)
+    assert isinstance(image.uuid, UUID)
+    assert isinstance(image, ContreeImage)
+    assert image.tag == image_tag
+
+
 def test_use_strict_by_tag_s(contree_s: ContreeSync, image_tag):
     image = contree_s.images.use(image_tag, strict=True)
     assert isinstance(image.uuid, UUID)
@@ -68,9 +106,19 @@ def test_use_strict_by_tag_s(contree_s: ContreeSync, image_tag):
     assert image.tag == image_tag
 
 
+async def test_use_strict_nonexistent_uuid(contree: Contree):
+    with pytest.raises(NotFoundError):
+        await contree.images.use(uuid4(), strict=True)
+
+
 def test_use_strict_nonexistent_uuid_s(contree_s: ContreeSync):
     with pytest.raises(NotFoundError):
         contree_s.images.use(uuid4(), strict=True)
+
+
+async def test_use_strict_nonexistent_tag(contree: Contree):
+    with pytest.raises(NotFoundError):
+        await contree.images.use("totally-random-tag-" + str(uuid4())[:4], strict=True)
 
 
 def test_use_strict_nonexistent_tag_s(contree_s: ContreeSync):
@@ -78,25 +126,11 @@ def test_use_strict_nonexistent_tag_s(contree_s: ContreeSync):
         contree_s.images.use("totally-random-tag-" + str(uuid4())[:4], strict=True)
 
 
-def test_pull_image_by_uuid_s(contree_s: ContreeSync, image_uuid):
-    image = contree_s.images.pull(str(image_uuid))
-    assert isinstance(image.uuid, UUID)
-    assert isinstance(image, ContreeImageSync)
-    assert image.uuid == image_uuid
-
-
-def test_pull_image_by_tag_s(contree_s: ContreeSync, image_tag):
-    image = contree_s.images.pull(image_tag)
-    assert isinstance(image.uuid, UUID)
-    assert isinstance(image, ContreeImageSync)
-    assert image.tag == image_tag
-
-
 @pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
-def test_pull_public_image_s(contree_s: ContreeSync):
+async def test_import_public_image(contree: Contree):
     url = "docker://ghcr.io/linuxserver/code-server:latest"
-    image = contree_s.images.pull(url, timeout=250)
-    assert isinstance(image, ContreeImageSync)
+    image = await contree.images.import_from(url, timeout=250)
+    assert isinstance(image, ContreeImage)
     assert isinstance(image.uuid, UUID)
     assert image.tag == "ghcr.io/linuxserver/code-server:latest"
     assert image.state == ImageState.PULLED
@@ -112,14 +146,11 @@ def test_import_public_image_s(contree_s: ContreeSync):
     assert image.state == ImageState.PULLED
 
 
-def test_pull_nonexistent_uuid_image_s(contree_s: ContreeSync):
-    with pytest.raises(NotFoundError):
-        contree_s.images.pull(uuid4())
-
-
-def test_pull_nonexistent_tag_image_s(contree_s: ContreeSync):
-    with pytest.raises(NotFoundError):
-        contree_s.images.pull("totally-random-tag-" + str(uuid4())[:4])
+@pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
+async def test_import_not_real_image(contree: Contree):
+    url = f"docker://ghcr.io/linuxserver/random-image-{uuid4()}:latest"
+    with pytest.raises(FailedOperationError):
+        await contree.images.import_from(url)
 
 
 @pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")

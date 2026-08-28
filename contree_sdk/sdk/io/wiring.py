@@ -7,18 +7,13 @@ from pathlib import Path
 from subprocess import PIPE
 from typing import TYPE_CHECKING, NamedTuple, cast
 
-from contree_sdk._internals.io.operation_waiter import MAIN_SPID, OperationWaiter, ProcessView
-from contree_sdk._internals.io.typing import (
-    INPUT_TYPES,
-    OUTPUT_REQUEST_TYPES,
-    OUTPUT_TYPES,
-    AsyncWritable,
-    PipeIO,
-    Writable,
-)
+from contree_client.models import ClosableStreamRepr, StreamRepr
+
+from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES, AsyncWritable, PipeIO, Writable
 
 
 if TYPE_CHECKING:
+    from contree_sdk.sdk.objects.image_like.waiter_common import ProcessView
     from contree_sdk.sdk.objects.run import RunRequest
 
 
@@ -37,6 +32,31 @@ async def read_input(request: INPUT_TYPES | None) -> str | bytes:
     return cast("str | bytes", data)
 
 
+def read_input_sync(request: INPUT_TYPES | None) -> str | bytes:
+    if request is None:
+        return ""
+    if isinstance(request, (str, bytes)):
+        return request
+    if isinstance(request, Path):
+        return request.read_bytes()
+    return cast("str | bytes", request.read())
+
+
+def to_stream_repr(value: str | bytes) -> ClosableStreamRepr:
+    data = value.encode() if isinstance(value, str) else value
+    encoded = StreamRepr.from_bytes(data)
+    return ClosableStreamRepr(value=encoded.value, encoding=encoded.encoding)
+
+
+async def read_stdin(request: INPUT_TYPES | None) -> ClosableStreamRepr:
+    value = await read_input(request)
+    return await to_thread(to_stream_repr, value)
+
+
+def read_stdin_sync(request: INPUT_TYPES | None) -> ClosableStreamRepr:
+    return to_stream_repr(read_input_sync(request))
+
+
 class FinalizedOutputs(NamedTuple):
     stdout: OUTPUT_TYPES | Path | None
     stderr: OUTPUT_TYPES | Path | None
@@ -44,6 +64,14 @@ class FinalizedOutputs(NamedTuple):
 
 @dataclass
 class OperationOutputs:
+    """Where a run's stdout/stderr should end up, resolved from the request.
+
+    Connecting these to a live event stream (registering them with a
+    waiter) is the sync/async caller's job, since that step is I/O
+    and differs by variant; this dataclass only resolves *what* to
+    write to and finalizes the result once the run is done.
+    """
+
     stdout_request: OUTPUT_REQUEST_TYPES | None
     stderr_request: OUTPUT_REQUEST_TYPES | None
     stdout: Writable | AsyncWritable | None
@@ -57,12 +85,6 @@ class OperationOutputs:
             stdout=get_output_obj(request.stdout),
             stderr=get_output_obj(request.stderr),
         )
-
-    async def connect(self, waiter: OperationWaiter, spid: int = MAIN_SPID) -> None:
-        for stream_name, output in (("stdout", self.stdout), ("stderr", self.stderr)):
-            if output is None:
-                continue
-            await waiter.connect_output(output=output, spid=spid, stream_name=stream_name)
 
     def finalize(self, view: ProcessView) -> FinalizedOutputs:
         return FinalizedOutputs(

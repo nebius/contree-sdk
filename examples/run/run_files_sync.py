@@ -1,10 +1,14 @@
 from tempfile import NamedTemporaryFile
 
+from contree_client.base import ContreeSyncClient
+
 from contree_sdk import ContreeSync
+from contree_sdk.utils.models.file import UploadFileSpec
 
 
-def main(client: ContreeSync):
-    image = client.images.use("busybox:latest")
+def main(api_client: ContreeSyncClient):
+    sdk = ContreeSync(api_client)
+    image = sdk.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: Local file upload to image")
@@ -20,10 +24,13 @@ def main(client: ContreeSync):
         script_file.write("#!/bin/sh\necho 'Hello from uploaded script'\necho 'Working directory:'\npwd\n")
         script_file.flush()
 
-        uploaded_file = client.files.upload(script_file.name)
+        uploaded_file = sdk.files.upload(script_file.name)
         print(f"Uploaded file: {uploaded_file=}")
 
-        result = image.run(shell="sh /file.sh", files={"file.sh": uploaded_file}).wait()
+        result = image.run(
+            shell="sh /file.sh",
+            files={"file.sh": UploadFileSpec(source=uploaded_file)},
+        ).wait()
         print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 
     print("\nExample 3: Bake files into a new image with apply_files")
@@ -55,7 +62,12 @@ def main(client: ContreeSync):
         print(f"Multiple files result: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 
 
+def run_example() -> None:
+    from contree_client.sync import ContreeClient as DefaultContreeClient
+
+    with DefaultContreeClient.from_profile() as api_client:
+        main(api_client)
+
+
 if __name__ == "__main__":
-    main(
-        client=ContreeSync(),
-    )
+    run_example()

@@ -2,7 +2,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 from subprocess import PIPE
 
-from contree_sdk._internals.io.wiring import finalize_output, get_output_obj, read_input
+from contree_sdk.sdk.io.wiring import finalize_output, get_output_obj, read_input
 from contree_sdk.utils.io import PipeIO
 
 

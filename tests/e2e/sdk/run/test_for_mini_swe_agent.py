@@ -1,12 +1,14 @@
 from concurrent.futures.thread import ThreadPoolExecutor
+from contextlib import ExitStack
 from random import choices
 
+from contree_client.sync import ContreeClient
 from rich.live import Live
 from rich.text import Text
 
 from contree_sdk import ContreeSync
-from contree_sdk.config import ContreeConfig
 from contree_sdk.sdk.objects.image import ContreeImageSync
+from tests.e2e.conftest import TOKEN_FACTORY_SANDBOXES_URL
 
 
 RANDOM_INT_COMMAND = "od -An -N2 -tu2 /dev/urandom"
@@ -23,25 +25,31 @@ def test_threaded_pool_run_same_client(image_s: ContreeImageSync):
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_threaded_pool_run_different_clients(contree_config: ContreeConfig):
-    pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = []
-    for _ in range(N_RUNS):
-        image_s = choices(ContreeSync(contree_config).images())[0]
-        futures.append(pool.submit(image_s.run(shell=RANDOM_INT_COMMAND).wait))
+def test_threaded_pool_run_different_clients(_contree_token: str):
+    # Each client must stay open until its submitted .wait() actually runs on
+    # a worker thread, so the ExitStack closes them only after every future
+    # (not just its cheap, synchronous .run() setup) has completed.
+    with ExitStack() as clients, ThreadPoolExecutor(max_workers=N_WORKERS) as pool:
+        futures = []
+        for _ in range(N_RUNS):
+            api = clients.enter_context(ContreeClient(_contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL))
+            image_s = choices(ContreeSync(api).images())[0]
+            futures.append(pool.submit(image_s.run(shell=RANDOM_INT_COMMAND).wait))
 
-    raw_results = [fut.result().stdout for fut in futures]
+        raw_results = [fut.result().stdout for fut in futures]
+
     results = list(map(int, raw_results))
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfig, image_tag):
-    def _run():
-        image_s = ContreeSync(contree_config).images.pull(image_tag)
-        return image_s.run(shell=RANDOM_INT_COMMAND).wait()
+def test_threaded_pool_create_run_and_create_client(_contree_token: str, image_tag):
+    def run_once():
+        with ContreeClient(_contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL) as api:
+            image_s = ContreeSync(api).images.use(image_tag)
+            return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = [pool.submit(_run) for _ in range(N_RUNS)]
+    futures = [pool.submit(run_once) for _ in range(N_RUNS)]
 
     raw_results = [fut.result().stdout for fut in futures]
     results = list(map(int, raw_results))
@@ -49,26 +57,27 @@ def test_threaded_pool_create_run_and_create_client(contree_config: ContreeConfi
 
 
 def test_thread_pool_create_run_same_client(contree_s: ContreeSync, image_tag):
-    def _run():
-        image_s = contree_s.images.pull(image_tag)
+    def run_once():
+        image_s = contree_s.images.use(image_tag)
         return image_s.run(shell=RANDOM_INT_COMMAND).wait()
 
     pool = ThreadPoolExecutor(max_workers=N_WORKERS)
-    futures = [pool.submit(_run) for _ in range(N_RUNS)]
+    futures = [pool.submit(run_once) for _ in range(N_RUNS)]
 
     raw_results = [fut.result().stdout for fut in futures]
     results = list(map(int, raw_results))
     assert len(set(results)) == len(results) == len(futures) == N_RUNS
 
 
-def test_threaded_pool_with_rich_live_context(contree_config: ContreeConfig, image_tag):
-    def _run():
-        client = ContreeSync(contree_config)
-        session = client.images.pull(image_tag).session()
-        return session.run(shell=RANDOM_INT_COMMAND).wait()
+def test_threaded_pool_with_rich_live_context(_contree_token: str, image_tag):
+    def run_once():
+        with ContreeClient(_contree_token, base_url=TOKEN_FACTORY_SANDBOXES_URL) as api:
+            client = ContreeSync(api)
+            session = client.images.use(image_tag).session()
+            return session.run(shell=RANDOM_INT_COMMAND).wait()
 
     with Live(Text("Testing..."), refresh_per_second=40), ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
-        futures = [executor.submit(_run) for _ in range(N_RUNS)]
+        futures = [executor.submit(run_once) for _ in range(N_RUNS)]
         raw_results = [fut.result().stdout for fut in futures]
 
     results = list(map(int, raw_results))

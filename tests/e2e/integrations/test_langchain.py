@@ -1,3 +1,5 @@
+from os import getenv
+
 import pytest
 
 
@@ -9,20 +11,17 @@ except ImportError:
         allow_module_level=True,
     )
 
+from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSync
-from contree_sdk.auth import IAMAuth
-from contree_sdk.config import ContreeConfig
 from contree_sdk.langchain.sandbox import ContreeSandbox
 
 
 class TestConTreeSandbox(SandboxIntegrationTests):
     @pytest.fixture(scope="class")
     async def sandbox(self):
-        config = ContreeConfig(
-            auth=IAMAuth(
-                token="CONTREE_SDK_TOKEN_E2E_TESTS",
-            )
-        )
-        client = ContreeSync(config=config)
+        token = getenv("CONTREE_SDK_TOKEN_E2E_TESTS") or ""
+        api = ContreeClient(token)
+        client = ContreeSync(api)
         session = client.images.oci("python:3.12").session()
-        return ContreeSandbox(session=session)
+        return ContreeSandbox(session)

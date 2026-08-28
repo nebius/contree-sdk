@@ -1,10 +1,13 @@
 from tempfile import NamedTemporaryFile
 
+from contree_client.base import ContreeSyncClient
+
 from contree_sdk import ContreeSync
 
 
-def main(client: ContreeSync):
-    image = client.images.use("busybox:latest")
+def main(api_client: ContreeSyncClient):
+    sdk = ContreeSync(api_client)
+    image = sdk.images.use("busybox:latest")
     print(f"Using {image=}")
 
     print("\nExample 1: Create file and download it")
@@ -30,7 +33,12 @@ def main(client: ContreeSync):
         print(f"System passwd file (first 3 lines): {passwd_content.splitlines()[:3]}")
 
 
+def run_example() -> None:
+    from contree_client.sync import ContreeClient as DefaultContreeClient
+
+    with DefaultContreeClient.from_profile() as api_client:
+        main(api_client)
+
+
 if __name__ == "__main__":
-    main(
-        client=ContreeSync(),
-    )
+    run_example()

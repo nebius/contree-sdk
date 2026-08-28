@@ -1,20 +1,46 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Literal
-
-from contree_client.models import FileItem
-
-from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, _ImageLikeBase
+from typing import Any, Literal
 
 
 @dataclass
-class _ImageFsEntryBase(FileItem):
-    _image: _ImageLikeBase
-    _path: PurePosixPath
+class FileItemModel:
+    """Mirrors `contree_client.models.FileItem` field-for-field.
+
+    Kept as a plain dataclass here (rather than importing `FileItem`
+    directly) so `ImageFsEntryBase` can add its own `image`/`base_path`
+    fields on top via normal dataclass inheritance.
+    """
+
+    size: int
+    path: str
+    owner: str | int
+    group: str | int
+    uid: int
+    gid: int
+    mode: int
+    mtime: int
+    nlink: int
+    is_dir: bool
+    is_regular: bool
+    is_symlink: bool
+    is_socket: bool
+    is_fifo: bool
+    symlink_to: str
+
+
+@dataclass
+class ImageFsEntryBase(FileItemModel):
+    # loosely typed: the concrete sync/async image-like object defines
+    # `read`/`download`/`list_entries`, not the shared `ImageLikeBase`
+    image: Any
+    base_path: PurePosixPath
 
     @property
     def full_path(self) -> PurePosixPath:
-        return self._path.joinpath(self.path)
+        return self.base_path.joinpath(self.path)
 
     @property
     def name(self) -> str:
@@ -26,15 +52,10 @@ class _ImageFsEntryBase(FileItem):
 
 
 @dataclass
-class _ImageFileBase(_ImageFsEntryBase):
+class ImageFileBase(ImageFsEntryBase):
     is_dir: Literal[False]  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass
-class _ImageDirectoryBase(_ImageFsEntryBase):
+class ImageDirectoryBase(ImageFsEntryBase):
     is_dir: Literal[True]  # pyright: ignore[reportIncompatibleVariableOverride]
-
-    async def _ls(
-        self, path: str | PurePosixPath, file_type: type[FileTypeT], dir_type: type[DirTypeT]
-    ) -> list[FileTypeT | DirTypeT]:
-        return await self._image._ls(self.full_path.joinpath(path), file_type, dir_type)

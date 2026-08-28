@@ -1,10 +1,13 @@
 from asyncio import run
 
+from contree_client.base import ContreeAsyncClient
+
 from contree_sdk import Contree
 
 
-async def main(client: Contree):
-    image = await client.images.use("alpine:3.20", strict=True)
+async def main(api_client: ContreeAsyncClient):
+    sdk = Contree(api_client)
+    image = await sdk.images.use("alpine:3.20", strict=True)
     print(f"Pulled {image=}")
 
     print("\nExample 1: Simple command execution")
@@ -30,9 +33,13 @@ async def main(client: Contree):
     print(f"Result: {result.stdout=}, {result.exit_code=}")
 
 
+async def run_example():
+    from contree_client.asyncio import ContreeAsyncClient as DefaultContreeAsyncClient
+
+    # The application owns one resource-bearing client and reuses it through the SDK.
+    async with DefaultContreeAsyncClient.from_profile() as api_client:
+        await main(api_client)
+
+
 if __name__ == "__main__":
-    run(
-        main(
-            client=Contree(),
-        )
-    )
+    run(run_example())

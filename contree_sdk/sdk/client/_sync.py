@@ -1,45 +1,45 @@
 from __future__ import annotations
 
-from types import TracebackType
+from contree_client.base import ContreeSyncClient
 
-from typing_extensions import Self
-
-from contree_sdk._internals.utils.typing import keep_signature
-from contree_sdk._internals.utils.wrapper import coro_sync
-from contree_sdk.sdk.client._base import _ContreeBase
+from contree_sdk.sdk.client._base import (
+    DEFAULT_IMAGES_LIST_BATCH_SIZE,
+    DEFAULT_OPERATION_TIMEOUT,
+    DEFAULT_TRUNCATE_OUTPUT_AT,
+    ContreeBase,
+)
 from contree_sdk.sdk.managers.files._sync import FilesManagerSync
 from contree_sdk.sdk.managers.images._sync import ImagesManagerSync
-from contree_sdk.utils.models.auth import WhoAmI
 
 
-class ContreeSync(_ContreeBase):
-    """Synchronous ConTree SDK client."""
+class ContreeSync(ContreeBase):
+    """Synchronous ConTree SDK client.
+
+    `client` is any `contree_client.base.ContreeSyncClient` (e.g.
+    `contree_client.httpx.ContreeClient`); contree_sdk never builds one
+    itself, so callers control transport, retries and auth.
+    """
 
     images: ImagesManagerSync
     files: FilesManagerSync
 
-    _prefer_sync_transport = True
-
-    @keep_signature(_ContreeBase.__init__)
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        client: ContreeSyncClient,
+        *,
+        operation_timeout: float = DEFAULT_OPERATION_TIMEOUT,
+        operation_run_timeout: float | None = None,
+        operation_import_timeout: float | None = None,
+        images_list_batch_size: int = DEFAULT_IMAGES_LIST_BATCH_SIZE,
+        default_truncate_output_at: int = DEFAULT_TRUNCATE_OUTPUT_AT,
+    ) -> None:
+        super().__init__(
+            client,
+            operation_timeout=operation_timeout,
+            operation_run_timeout=operation_run_timeout,
+            operation_import_timeout=operation_import_timeout,
+            images_list_batch_size=images_list_batch_size,
+            default_truncate_output_at=default_truncate_output_at,
+        )
         self.images = ImagesManagerSync(client=self)
         self.files = FilesManagerSync(client=self)
-
-    def get_token_info(self, refresh: bool = False) -> WhoAmI:
-        return coro_sync(self._get_token_info(refresh=refresh))
-
-    def close(self) -> None:
-        """Close the transport used by the synchronous facade."""
-        coro_sync(self._transport.aclose())
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()

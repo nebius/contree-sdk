@@ -1,27 +1,17 @@
-from minisweagent.agents.default import DefaultAgent
-from minisweagent.environments.extra.contree import ContreeEnvironment
-from minisweagent.models import get_model
+"""Report the current mini-swe-agent integration incompatibility.
 
-from contree_sdk.auth import IAMAuth
-from contree_sdk.config import ContreeConfig
+``minisweagent.environments.extra.contree.ContreeEnvironment`` still imports
+the removed ``contree_sdk.config.ContreeConfig`` type. It also constructs
+``ContreeSync`` from that configuration and cannot accept an explicit client.
+
+The integration must first add support for a user-provided
+``contree_client.base.ContreeSyncClient``. Until then, this example cannot use
+the current contree-sdk API.
+"""
 
 
-def main():
-    contree_env = ContreeEnvironment(
-        contree_config=ContreeConfig(
-            auth=IAMAuth(base_url="https://contree.dev/"),
-        ),
-        image="python:3.13-slim",
-        cwd="/workspace",
-    )
-
-    agent = DefaultAgent(
-        get_model(input_model_name="gemini/gemini-flash-latest"), contree_env, system_template="", instance_template=""
-    )
-    agent.run("Develop small calculator script and check it")
-
-    result = contree_env.session.run(shell="ls /workspace -lah").wait()
-    print(result.stdout)
+def main() -> None:
+    raise RuntimeError("mini-swe-agent's ContreeEnvironment does not support user-provided contree_client clients")
 
 
 if __name__ == "__main__":

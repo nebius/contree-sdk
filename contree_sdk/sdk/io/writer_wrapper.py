@@ -7,7 +7,7 @@ from functools import partial
 from inspect import iscoroutinefunction
 from io import IOBase, TextIOBase
 
-from contree_sdk._internals.io.typing import AsyncWritable, Writable
+from contree_sdk.sdk.io.typing import AsyncWritable, Writable
 
 
 EOF = object()
@@ -65,11 +65,12 @@ class WriterWrapper:
         else:
             return False
 
-    async def write(self, data: bytes):
+    async def write(self, data: bytes) -> None:
         await self._prepare()
         if self._decoder is not None:
-            return await self._write(self._decoder.decode(data))
-        return await self._write(data)
+            await self._write(self._decoder.decode(data))
+        else:
+            await self._write(data)
 
     async def finalize(self):
         if self._decoder is not None and (tail := self._decoder.decode(b"", final=True)):
@@ -83,3 +84,41 @@ class WriterWrapper:
             await flush()
         else:
             await to_thread(flush)
+
+
+def writer_is_text(writer: Writable) -> bool:
+    if isinstance(writer, TextIOBase):
+        return True
+    if isinstance(writer, IOBase):
+        return False
+    try:
+        writer.write(b"")
+    except TypeError:
+        return True
+    else:
+        return False
+
+
+class SyncWriterWrapper:
+    """Blocking analog of :class:`WriterWrapper` for the sync waiter.
+
+    No fan-out, no threads: a sync image-like object only ever has one
+    consumer of the event stream at a time, so writes happen inline.
+    """
+
+    def __init__(self, writer: Writable):
+        self.writer = writer
+        self.decoder = getincrementaldecoder("utf-8")(errors="replace") if writer_is_text(writer) else None
+
+    def write(self, data: bytes) -> None:
+        if self.decoder is not None:
+            self.writer.write(self.decoder.decode(data))
+        else:
+            self.writer.write(data)
+
+    def finalize(self) -> None:
+        if self.decoder is not None and (tail := self.decoder.decode(b"", final=True)):
+            self.writer.write(tail)
+        flush = getattr(self.writer, "flush", None)
+        if flush is not None:
+            flush()

@@ -1,42 +1,45 @@
 from __future__ import annotations
 
-from types import TracebackType
+from contree_client.base import ContreeAsyncClient
 
-from typing_extensions import Self
-
-from contree_sdk._internals.utils.typing import keep_signature
-from contree_sdk.sdk.client._base import _ContreeBase
+from contree_sdk.sdk.client._base import (
+    DEFAULT_IMAGES_LIST_BATCH_SIZE,
+    DEFAULT_OPERATION_TIMEOUT,
+    DEFAULT_TRUNCATE_OUTPUT_AT,
+    ContreeBase,
+)
 from contree_sdk.sdk.managers.files._async import FilesManager
 from contree_sdk.sdk.managers.images._async import ImagesManager
-from contree_sdk.utils.models.auth import WhoAmI
 
 
-class Contree(_ContreeBase):
-    """Asynchronous ConTree SDK client."""
+class Contree(ContreeBase):
+    """Asynchronous ConTree SDK client.
+
+    `client` is any `contree_client.base.ContreeAsyncClient` (e.g.
+    `contree_client.httpx.ContreeAsyncClient`); contree_sdk never builds
+    one itself, so callers control transport, retries and auth.
+    """
 
     files: FilesManager
     images: ImagesManager
 
-    @keep_signature(_ContreeBase.__init__)
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        client: ContreeAsyncClient,
+        *,
+        operation_timeout: float = DEFAULT_OPERATION_TIMEOUT,
+        operation_run_timeout: float | None = None,
+        operation_import_timeout: float | None = None,
+        images_list_batch_size: int = DEFAULT_IMAGES_LIST_BATCH_SIZE,
+        default_truncate_output_at: int = DEFAULT_TRUNCATE_OUTPUT_AT,
+    ) -> None:
+        super().__init__(
+            client,
+            operation_timeout=operation_timeout,
+            operation_run_timeout=operation_run_timeout,
+            operation_import_timeout=operation_import_timeout,
+            images_list_batch_size=images_list_batch_size,
+            default_truncate_output_at=default_truncate_output_at,
+        )
         self.images = ImagesManager(client=self)
         self.files = FilesManager(client=self)
-
-    async def get_token_info(self, refresh: bool = False) -> WhoAmI:
-        return await self._get_token_info(refresh=refresh)
-
-    async def aclose(self) -> None:
-        """Close the transport associated with the current event loop."""
-        await self._transport.aclose()
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        await self.aclose()
