@@ -1,11 +1,13 @@
 from uuid import UUID
 
 import pytest
-from contree_client.models import DirectoryList, FileItem
+from contree_client.models import DirectoryList, FileItem, GrepMatch, GrepResult
 
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from tests.e2e.sdk.images.test_inspect import test_download_file as _test_download_file
 from tests.e2e.sdk.images.test_inspect import test_download_file_s as _test_download_file_s
+from tests.e2e.sdk.images.test_inspect import test_grep as _test_grep
+from tests.e2e.sdk.images.test_inspect import test_grep_s as _test_grep_s
 from tests.e2e.sdk.images.test_inspect import test_image_ls as _test_image_ls
 from tests.e2e.sdk.images.test_inspect import test_image_ls_s as _test_image_ls_s
 from tests.e2e.sdk.images.test_inspect import test_read_file as _test_read_file
@@ -51,7 +53,7 @@ def api_fake_inspect_download(fake_api, fake_api_s, result_image_uuid: UUID, ran
         queue_run(api, result_image_uuid=str(result_image_uuid))
         queue_tag(api, result_image_uuid, "some-tag")
         api.mock("inspect_image_download", random_data)
-        api.mock("inspect_image_download", random_data)
+        api.mock("inspect_image_download_stream", [random_data])
         api.mock(
             "inspect_image_list",
             DirectoryList(path="/", files=[make_file_item("output.txt", size=len(random_data))]),
@@ -81,3 +83,34 @@ async def test_read_file(api_fake_inspect_download, fake_image: ContreeImage, ra
 
 def test_read_file_s(api_fake_inspect_download, fake_image_s: ContreeImageSync, random_data: bytes):
     _test_read_file_s(fake_image_s, random_data)
+
+
+@pytest.fixture
+def api_fake_inspect_grep(fake_api, fake_api_s, result_image_uuid: UUID):
+    grep_result = GrepResult(
+        path="/",
+        patterns=["beta"],
+        matches=[
+            GrepMatch(
+                path="/grep_test.txt",
+                line_number=2,
+                absolute_offset=6,
+                line_text="beta\n",
+                line_bytes=5,
+                submatches=[],
+                type="match",
+            )
+        ],
+        truncated=False,
+    )
+    for api in (fake_api, fake_api_s):
+        queue_run(api, result_image_uuid=str(result_image_uuid))
+        api.mock("inspect_image_grep", grep_result)
+
+
+async def test_grep(api_fake_inspect_grep, fake_image: ContreeImage):
+    await _test_grep(fake_image)
+
+
+def test_grep_s(api_fake_inspect_grep, fake_image_s: ContreeImageSync):
+    _test_grep_s(fake_image_s)

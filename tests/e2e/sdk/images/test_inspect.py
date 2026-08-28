@@ -71,6 +71,18 @@ def test_download_file_s(image_s: ContreeImageSync, tmp_file, random_data):
     assert tmp_file.read_bytes() == random_data
 
 
+async def test_grep(image: ContreeImage):
+    res = await image.run(shell="printf 'alpha\\nbeta\\ngamma\\n' > /grep_test.txt", disposable=False)
+    result = await res.grep("beta")
+    assert any("beta" in match.line_text for match in result.matches)
+
+
+def test_grep_s(image_s: ContreeImageSync):
+    res = image_s.run(shell="printf 'alpha\\nbeta\\ngamma\\n' > /grep_test.txt", disposable=False).wait()
+    result = res.grep("beta")
+    assert any("beta" in match.line_text for match in result.matches)
+
+
 def test_read_file_s(image_s: ContreeImageSync, random_data):
     test_tag = f"test-e2e-{uuid4().hex[:8]}"
     res = image_s.run(shell="cat > /output.txt", stdin=random_data, tag=test_tag, disposable=False).wait()

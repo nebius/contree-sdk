@@ -74,21 +74,24 @@ def bypass_local_filesystem(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     """Make the README's illustrative local paths (``/local/files/...``) work
     without existing on the real filesystem.
 
-    Reads always return a fixed payload; writes land under `tmp_path` (keyed
-    by the target's file name) instead of the literal absolute path shown in
-    the docs.
+    Reads always return a fixed payload; writes (including the streaming
+    ``open(mode="wb")`` that `download()` uses, which `write_bytes` itself
+    delegates to) land under `tmp_path` (keyed by the target's file name)
+    instead of the literal absolute path shown in the docs.
     """
     payload = b"contree docs fixture content"
-    original_write_bytes = Path.write_bytes
+    original_open = Path.open
 
     def read_bytes(path: Path) -> bytes:
         return payload
 
-    def write_bytes(path: Path, data: bytes) -> int:
-        return original_write_bytes(tmp_path / path.name, data)
+    def open_(path: Path, mode: str = "r"):
+        if any(flag in mode for flag in "wax"):
+            path = tmp_path / path.name
+        return original_open(path, mode)
 
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
-    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    monkeypatch.setattr(Path, "open", open_)
 
 
 @pytest.fixture
@@ -156,6 +159,7 @@ def api_fake_quick_start(
         # ls()/download()/read() calls
         api.mock("inspect_image_list", DirectoryList(path="/", files=[DIRECTORY_LISTING_FILE]))
         api.mock("inspect_image_download", b"contree docs fixture content")
+        api.mock("inspect_image_download_stream", [b"contree docs fixture content"])
 
 
 @pytest.fixture

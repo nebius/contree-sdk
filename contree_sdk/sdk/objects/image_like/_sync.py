@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import TypeVar
+from typing import Literal, TypeVar
 from uuid import UUID
 
-from contree_client.models import FileSpec
+from contree_client.models import FileSpec, GrepResult
 
 from contree_sdk.sdk.exceptions import ContreeError
 from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
@@ -171,6 +171,8 @@ class ImageLikeSync(ImageLikeBase):
     def download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path:
         """Download a file from the image to local filesystem.
 
+        Streams the file directly to disk instead of buffering it in memory.
+
         Args:
             image_path: Path to the file inside the image.
             local_path: Local destination path. Defaults to filename from image_path.
@@ -182,8 +184,52 @@ class ImageLikeSync(ImageLikeBase):
         image_path = PurePosixPath(image_path)
         if local_path is None:
             local_path = image_path.name
-        Path(local_path).write_bytes(self.read(image_path))
+        uuid = self.image_uuid()
+        with Path(local_path).open("wb") as file:
+            for chunk in self.client.api.inspect_image_download_stream(uuid, str(image_path)):
+                file.write(chunk)
         return Path(local_path)
+
+    def grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        """Search file contents in the image.
+
+        Args:
+            pattern: Search pattern or patterns.
+            path: Path or paths to search. Defaults to the image root.
+            glob: Glob filter or filters.
+            max_count: Maximum matches per file.
+            max_total: Maximum matches across all files.
+            case: Case matching mode.
+            before: Number of context lines before each match.
+            after: Number of context lines after each match.
+
+        Returns:
+            Typed grep result with matches and truncation status.
+
+        """
+        uuid = self.image_uuid()
+        return self.client.api.inspect_image_grep(
+            uuid,
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
 
     def popen(
         self,
