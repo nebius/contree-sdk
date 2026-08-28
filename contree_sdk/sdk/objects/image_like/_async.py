@@ -13,7 +13,7 @@ from contree_sdk.sdk.exceptions import ContreeError
 from contree_sdk.sdk.io.wiring import OperationOutputs, read_stdin
 from contree_sdk.sdk.objects.image_fs._async import ImageDirectory, ImageFile
 from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, ImageLikeBase
-from contree_sdk.sdk.objects.image_like.result import ContreeResult
+from contree_sdk.sdk.objects.image_like.result import ContreeResult, extract_operation_cost
 from contree_sdk.sdk.objects.image_like.state import Executing, Failed, ImageState, Prepared, Succeeded
 from contree_sdk.sdk.objects.image_like.waiter_async import OperationWaiter
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID, OutputChunk
@@ -112,6 +112,7 @@ class ImageLikeAsync(ImageLikeBase):
             stdout=finalized.stdout,
             stderr=finalized.stderr,
             truncated=view.truncated,
+            cost=extract_operation_cost(operation_data),
         )
         self.set_state(Succeeded(request=executing.request, result=result))
         new_uuid = value_or_none(operation_data.result_image_uuid)

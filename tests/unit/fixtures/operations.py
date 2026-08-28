@@ -10,8 +10,11 @@ from contree_client.models import (
     EventDataExit,
     EventDataStream,
     EventResources,
+    InstanceResult,
+    InstanceResultResources,
     InstanceSpawnResponse,
     OperationEvent,
+    OperationInstanceMetadata,
     OperationResponse,
     OperationStatus,
 )
@@ -124,6 +127,7 @@ def queue_run(
     status: OperationStatus = OperationStatus.SUCCESS,
     result_image_uuid: str | None = None,
     error: str | None = None,
+    cost: float | None = None,
 ) -> str:
     """Queue one full spawn -> events -> status cycle on a contree_client testing double."""
     operation_id = operation_id or str(uuid4())
@@ -140,8 +144,17 @@ def queue_run(
             error=error,
         ),
     )
+    metadata = (
+        OperationInstanceMetadata(
+            command="true", image="", result=InstanceResult(resources=InstanceResultResources(cost=cost))
+        )
+        if cost is not None
+        else ...
+    )
     api.mock(
         "get_operation_status",
-        OperationResponse(uuid=operation_id, status=status, result_image_uuid=result_image_uuid, error=error),
+        OperationResponse(
+            uuid=operation_id, status=status, result_image_uuid=result_image_uuid, error=error, metadata=metadata
+        ),
     )
     return operation_id
