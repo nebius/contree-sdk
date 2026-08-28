@@ -1,8 +1,12 @@
-from uuid import UUID
+from datetime import datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
+from contree_client.models import Image, ImageListResponse
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
+import contree_sdk.sdk.managers.images._async as images_async_module
+import contree_sdk.sdk.managers.images._sync as images_sync_module
 from contree_sdk import Contree, ContreeSync
 from tests.e2e.sdk.images.test_images import test_get_all_images as _test_get_all_images
 from tests.e2e.sdk.images.test_images import test_iter_images as _test_iter_images
@@ -157,6 +161,54 @@ def test_get_image_by_uuid_string_s(
     queue_image_lookup(fake_api_s, image_uuid, image_tag)
     image = fake_contree_s.images.get_image_by_uuid(str(image_uuid))
     assert image.uuid == image_uuid
+
+
+async def test_iter_images_reanchors_relative_window_across_pages(fake_api: ContreeAsyncClient, monkeypatch):
+    started = datetime(2026, 1, 1, 12, 0, 0)
+
+    class FakeDateTime(datetime):
+        values = iter([started, started, started + timedelta(seconds=5)])
+
+        @classmethod
+        def now(cls, tz=None):
+            return next(cls.values)
+
+    monkeypatch.setattr(images_async_module, "datetime", FakeDateTime)
+
+    contree = Contree(fake_api, images_list_batch_size=1)
+    fake_api.mock("list_images", ImageListResponse(images=[Image(uuid=str(uuid4()), tag="a")]))
+    fake_api.mock("list_images", ImageListResponse(images=[]))
+
+    result = [image async for image in contree.images.iter_images(since=timedelta(hours=1))]
+    assert len(result) == 1
+
+    first_call, second_call = fake_api.calls_for("list_images")
+    assert first_call.kwargs["since"] == "3600s"
+    assert second_call.kwargs["since"] == "3605s"
+
+
+def test_iter_images_reanchors_relative_window_across_pages_s(fake_api_s: ContreeClient, monkeypatch):
+    started = datetime(2026, 1, 1, 12, 0, 0)
+
+    class FakeDateTime(datetime):
+        values = iter([started, started, started + timedelta(seconds=5)])
+
+        @classmethod
+        def now(cls, tz=None):
+            return next(cls.values)
+
+    monkeypatch.setattr(images_sync_module, "datetime", FakeDateTime)
+
+    contree_s = ContreeSync(fake_api_s, images_list_batch_size=1)
+    fake_api_s.mock("list_images", ImageListResponse(images=[Image(uuid=str(uuid4()), tag="a")]))
+    fake_api_s.mock("list_images", ImageListResponse(images=[]))
+
+    result = list(contree_s.images.iter_images(since=timedelta(hours=1)))
+    assert len(result) == 1
+
+    first_call, second_call = fake_api_s.calls_for("list_images")
+    assert first_call.kwargs["since"] == "3600s"
+    assert second_call.kwargs["since"] == "3605s"
 
 
 async def test_oci_with_tag_override(

@@ -49,15 +49,37 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
         since: datetime | timedelta | None = None,
         until: datetime | timedelta | None = None,
     ):
-        now = datetime.now()
-        for image in self.client.api.iter_images(
-            tagged=tagged,
-            since=process_time_param(since, offset=timedelta(0)),
-            until=process_time_param(until or now, offset=timedelta(0)),
-            limit=number,
-            page_size=self.client.images_list_batch_size,
-        ):
-            yield self.image_by_data(image)
+        # Re-anchor the relative since/until window to `started` on every page,
+        # correcting for elapsed time -- otherwise a fixed relative string like
+        # "1h" is re-evaluated against each page request's own wall-clock time
+        # server-side, and the window silently creeps forward page to page.
+        started = datetime.now()
+        page_size = self.client.images_list_batch_size
+        fetched = 0
+        offset = 0
+        while True:
+            size = page_size if number is None else min(page_size, number - fetched)
+            if size <= 0:
+                return
+            elapsed = datetime.now() - started
+            response = self.client.api.list_images(
+                tagged=tagged,
+                since=process_time_param(since, offset=elapsed),
+                until=process_time_param(until or started, offset=elapsed),
+                limit=size,
+                offset=offset,
+            )
+            page = value_or_none(response.images) or []
+            if not page:
+                return
+            for item in page:
+                yield self.image_by_data(item)
+                fetched += 1
+                if number is not None and fetched >= number:
+                    return
+            if len(page) < size:
+                return
+            offset += len(page)
 
     def use_image(self, ref: str | UUID | OCIReference, strict: bool = False) -> ContreeImageSync:
         """Resolve a reference to an image object without importing.
