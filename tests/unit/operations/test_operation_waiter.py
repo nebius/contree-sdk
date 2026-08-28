@@ -5,7 +5,6 @@ from uuid import UUID
 import pytest
 from contree_client.models import OperationResponse, OperationStatus
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.objects.image_like.waiter_async import OperationWaiter as AsyncOperationWaiter
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID
 from contree_sdk.sdk.objects.image_like.waiter_sync import OperationWaiter as SyncOperationWaiter
@@ -63,7 +62,7 @@ async def test_wait_for_result_failed(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, status=OperationStatus.FAILED, error="boom")
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         await waiter.wait_for_result()
 
 
@@ -71,7 +70,7 @@ def test_wait_for_result_failed_sync(fake_api_s, operation_id: str):
     queue_events_and_status(fake_api_s, operation_id, status=OperationStatus.FAILED, error="boom")
 
     waiter = SyncOperationWaiter(fake_api_s, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         waiter.wait_for_result()
 
 
@@ -79,7 +78,7 @@ async def test_wait_for_result_cancelled_status(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, status=OperationStatus.CANCELLED)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(CancelledOperationError):
+    with pytest.raises(RuntimeError):
         await waiter.wait_for_result()
 
 
@@ -98,7 +97,7 @@ async def test_wait_for_result_missing_exit_event_raises(fake_api, operation_id:
     queue_events_and_status(fake_api, operation_id)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         await waiter.wait_for_result(spid=2)
 
 
@@ -106,7 +105,7 @@ async def test_wait_for_result_process_timed_out(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, timed_out=True)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await waiter.wait_for_result()
 
 
@@ -115,7 +114,7 @@ async def test_wait_timeout_cancels_operation(fake_api, operation_id: str):
     fake_api.mock("cancel_operation", None)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await waiter.wait_for_result(timeout=0.01)
 
     assert fake_api.calls_for("cancel_operation")
@@ -126,7 +125,7 @@ def test_wait_timeout_cancels_operation_sync(fake_api_s, operation_id: str):
     fake_api_s.mock("cancel_operation", None)
 
     waiter = SyncOperationWaiter(fake_api_s, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         waiter.wait_for_result(timeout=0.01)
 
     assert fake_api_s.calls_for("cancel_operation")
@@ -160,7 +159,7 @@ async def test_cancel_failure_does_not_mask_original_error(fake_api, operation_i
     fake_api.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await waiter.wait_for_result(timeout=0.01)
 
 
@@ -169,7 +168,7 @@ def test_cancel_failure_does_not_mask_original_error_sync(fake_api_s, operation_
     fake_api_s.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
 
     waiter = SyncOperationWaiter(fake_api_s, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         waiter.wait_for_result(timeout=0.01)
 
 

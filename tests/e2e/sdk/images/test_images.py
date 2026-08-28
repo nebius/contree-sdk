@@ -5,7 +5,6 @@ import pytest
 from contree_client.exceptions import NotFoundError
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.sdk.exceptions import FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from contree_sdk.utils.models.image import ImageKind
@@ -126,7 +125,7 @@ def test_use_strict_nonexistent_tag_s(contree_s: ContreeSync):
         contree_s.images.use("totally-random-tag-" + str(uuid4())[:4], strict=True)
 
 
-@pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
+@pytest.mark.xfail(raises=TimeoutError, reason="server does not emit events for import operations yet")
 async def test_import_public_image(contree: Contree):
     url = "docker://ghcr.io/linuxserver/code-server:latest"
     image = await contree.images.import_from(url, timeout=250)
@@ -136,7 +135,7 @@ async def test_import_public_image(contree: Contree):
     assert image.state == ImageState.PULLED
 
 
-@pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
+@pytest.mark.xfail(raises=TimeoutError, reason="server does not emit events for import operations yet")
 def test_import_public_image_s(contree_s: ContreeSync):
     url = "docker://ghcr.io/linuxserver/code-server:latest"
     image = contree_s.images.import_from(url, timeout=250)
@@ -146,17 +145,17 @@ def test_import_public_image_s(contree_s: ContreeSync):
     assert image.state == ImageState.PULLED
 
 
-@pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
+@pytest.mark.xfail(raises=TimeoutError, reason="server does not emit events for import operations yet")
 async def test_import_not_real_image(contree: Contree):
     url = f"docker://ghcr.io/linuxserver/random-image-{uuid4()}:latest"
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         await contree.images.import_from(url)
 
 
-@pytest.mark.xfail(raises=OperationTimedOutError, reason="server does not emit events for import operations yet")
+@pytest.mark.xfail(raises=TimeoutError, reason="server does not emit events for import operations yet")
 def test_import_not_real_image_s(contree_s: ContreeSync):
     url = f"docker://ghcr.io/linuxserver/random-image-{uuid4()}:latest"
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         contree_s.images.import_from(url)
 
 

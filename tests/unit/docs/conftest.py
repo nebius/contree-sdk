@@ -125,7 +125,7 @@ def api_fake_session_multiple_runs(
 ) -> None:
     # a session mutates itself in place, so each queued run must keep handing
     # back a live `uuid` -- otherwise the next `.run()` in the chain sees an
-    # unreferenceable (disposed) image and raises `DisposableImageRunError`.
+    # unreferenceable (disposed) image and raises `RuntimeError`.
     for api in (api_client, api_client_s):
         for stdout in ("", "some other step\n", "some data"):
             queue_run(api, stdout=stdout, result_image_uuid=str(result_image_uuid))

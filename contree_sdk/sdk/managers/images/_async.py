@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from datetime import datetime, timedelta
 from uuid import UUID
 
 from contree_client.exceptions import NotFoundError
 from contree_client.models import Image, ImageImportRegistry, ImageImportRegistryCredentials, OperationStatus
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.managers.images._base import ImagesBaseManager, process_time_param
 from contree_sdk.sdk.objects.image import ContreeImage
 from contree_sdk.utils.oci import OCIReference
@@ -112,9 +112,8 @@ class ImagesManager(ImagesBaseManager[ContreeImage]):
 
         Raises:
             ValueError: If image is a UUID or credentials are incomplete.
-            FailedOperationError: If the import operation completes without returning an image.
-            CancelledOperationError: If the import operation was cancelled.
-            OperationTimedOutError: If the import operation did not complete within `timeout`.
+            RuntimeError: If the operation was cancelled, failed, or completed without an image.
+            TimeoutError: If the import operation did not complete within `timeout`.
 
         """
         ref = self.parse_ref(image)
@@ -139,21 +138,20 @@ class ImagesManager(ImagesBaseManager[ContreeImage]):
         operation_id = await self.client.api.import_image(registry, tag=new_tag, timeout=round(timeout))
         try:
             response = await self.client.api.wait_operation(operation_id, timeout=timeout)
-        except TimeoutError as e:
-            raise OperationTimedOutError(operation_uuid=UUID(operation_id)) from e
+        except TimeoutError:
+            with suppress(Exception):
+                await self.client.api.cancel_operation(operation_id)
+            raise
 
         if response.status == OperationStatus.CANCELLED:
-            raise CancelledOperationError(operation_uuid=UUID(operation_id))
+            raise RuntimeError(f"Operation {operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
-            raise FailedOperationError(operation_uuid=UUID(operation_id), error=error)
+            raise RuntimeError(f"Operation {operation_id} has failed: {error}")
 
         result_image_uuid = value_or_none(response.result_image_uuid)
         if result_image_uuid is None:
-            raise FailedOperationError(
-                operation_uuid=UUID(operation_id),
-                error="Image import returned no image uuid",
-            )
+            raise RuntimeError(f"Operation {operation_id}: image import returned no image uuid")
         return self.image_by_data(Image(uuid=result_image_uuid, tag=new_tag))
 
     async def pull_image_by_oci(

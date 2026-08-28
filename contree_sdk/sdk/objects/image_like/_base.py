@@ -7,7 +7,6 @@ from math import ceil
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 from uuid import UUID
 
-from contree_sdk.sdk.exceptions import ContreeImageStateError, DisposableImageRunError
 from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES, OUTPUT_TYPES
 from contree_sdk.sdk.objects.image_like.state import (
     STATE_MACHINE,
@@ -157,12 +156,12 @@ class ImageLikeBase:
             New image instance configured for execution.
 
         Raises:
-            DisposableImageRunError: If attempting to run on a disposed image.
+            RuntimeError: If attempting to run on a disposed image.
             ValueError: If neither command nor shell is provided.
 
         """
         if not self.uuid and not self.tag:
-            raise DisposableImageRunError
+            raise RuntimeError("Disposable image run cannot be used for running")
         if shell is not None:
             command = shell
         if command is None:
@@ -200,13 +199,15 @@ class ImageLikeBase:
     def ensure_state(self, state_type: type[StateDataT]) -> StateDataT:
         data = self.state_data
         if not isinstance(data, state_type):
-            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=[state_type.state])
+            raise ValueError(  # noqa: TRY004 -- state-machine mismatch, not a static type error
+                f'Image "{self.uuid}" has state {self.state}, it only can be in [{state_type.state}]'
+            )
         return data
 
     def set_state(self, data: StateData) -> None:
         possible_states = STATE_MACHINE.get(self.state, frozenset())
         if data.state not in possible_states:
-            raise ContreeImageStateError(image_uuid=self.uuid, state=self.state, states=list(possible_states))
+            raise ValueError(f'Image "{self.uuid}" has state {self.state}, it only can be in {list(possible_states)}')
         self.state_data = data
 
     @property
@@ -221,7 +222,7 @@ class ImageLikeBase:
         try:
             result = self.result
             result_str = f", result={result}"
-        except ContreeImageStateError:
+        except ValueError:
             result_str = ""
         return f"{type(self).__name__}(uuid={self.uuid!r}, state={self.state!r}{other}{result_str})"
 

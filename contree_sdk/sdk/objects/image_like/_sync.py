@@ -123,7 +123,12 @@ class ImageLikeSync(ImageLikeBase):
 
     def iter_output(self) -> Iterator[OutputChunk]:
         new_self, executing = self.ensure_started()
-        yield from executing.waiter.iter_chunks(MAIN_SPID, executing.timeout)
+        try:
+            yield from executing.waiter.iter_chunks(MAIN_SPID, executing.timeout)
+        except Exception:
+            if new_self.state_data is executing:
+                new_self.set_state(Failed(request=executing.request))
+            raise
         new_self.collect_result(executing)
 
     # inspect methods

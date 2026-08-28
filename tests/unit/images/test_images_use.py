@@ -3,7 +3,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.sdk.exceptions import DisposableImageRunError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from tests.unit.fixtures.operations import queue_run
 from tests.unit.fixtures.runs import RUN_STDERR, RUN_STDOUT
@@ -32,7 +31,7 @@ async def test_use_image_run_does_not_raise(fake_contree: Contree):
 
 async def test_use_image_no_tag_raises_disposable_error(fake_contree: Contree):
     image = ContreeImage(client=fake_contree, uuid=None, tag=None)
-    with pytest.raises(DisposableImageRunError):
+    with pytest.raises(RuntimeError):
         image.run(command="echo hello")
 
 

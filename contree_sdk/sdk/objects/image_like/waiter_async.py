@@ -4,11 +4,9 @@ import asyncio
 from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING, overload
-from uuid import UUID
 
 from contree_client.models import EventDataExit, EventDataTruncated, OperationStatus, decode_chunk
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 from contree_sdk.sdk.objects.image_like.waiter_common import (
     MAIN_SPID,
@@ -154,8 +152,6 @@ class OperationWaiter:
         task = self.ensure_loading(timeout)
         try:
             await task
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            raise OperationTimedOutError(operation_uuid=UUID(self.operation_id)) from e
         finally:
             if not self.completed:
                 # Shielded: the cleanup call must finish even if we're being cancelled too.
@@ -163,22 +159,19 @@ class OperationWaiter:
 
         response = await self.api.get_operation_status(self.operation_id)
         if response.status == OperationStatus.CANCELLED:
-            raise CancelledOperationError(operation_uuid=UUID(self.operation_id))
+            raise RuntimeError(f"Operation {self.operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
-            raise FailedOperationError(operation_uuid=UUID(self.operation_id), error=error)
+            raise RuntimeError(f"Operation {self.operation_id} has failed: {error}")
 
         exit_event = self.exits.get(spid) if spid is not None else None
         if spid is not None and exit_event is None:
             # self.exits non-empty means another spid's exit is a genuine gap, not a fallback-mode blackout.
             if response.status != OperationStatus.SUCCESS or self.exits:
-                raise FailedOperationError(
-                    operation_uuid=UUID(self.operation_id),
-                    error=f"no exit event received for spid {spid}",
-                )
+                raise RuntimeError(f"no exit event received for spid {spid}")
             # Fallback transport mode: only a completion event, no exit -- synthesize one.
             duration_ms = round((value_or_none(response.duration) or 0) * 1000)
             exit_event = synthetic_exit_event(pid=spid, duration_ms=duration_ms)
         if exit_event is not None and exit_event.timed_out:
-            raise OperationTimedOutError(operation_uuid=UUID(self.operation_id))
+            raise TimeoutError(f"Operation {self.operation_id} timed out")
         return response, exit_event

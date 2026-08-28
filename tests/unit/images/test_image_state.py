@@ -3,7 +3,6 @@ from uuid import UUID, uuid4
 import pytest
 from contree_client.models import InstanceSpawnResponse
 
-from contree_sdk.sdk.exceptions import ContreeImageStateError
 from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
 from contree_sdk.sdk.objects.image_like.state import ImageState
 from tests.unit.fixtures.operations import queue_run
@@ -12,7 +11,7 @@ from tests.unit.fixtures.runs import RUN_STDERR, RUN_STDOUT
 
 def test_pulled_image_has_no_result(fake_image: ContreeImage):
     assert fake_image.state == ImageState.PULLED
-    with pytest.raises(ContreeImageStateError):
+    with pytest.raises(ValueError):
         _ = fake_image.result
 
 
@@ -24,7 +23,7 @@ def test_run_prepares_a_copy(fake_image: ContreeImage):
 
 
 async def test_await_unprepared_raises(fake_image: ContreeImage):
-    with pytest.raises(ContreeImageStateError):
+    with pytest.raises(ValueError):
         await fake_image
 
 
@@ -33,7 +32,7 @@ async def test_executing_image_cannot_be_reconfigured(fake_image: ContreeImage, 
     started = await fake_image.run(shell="true").start()
 
     assert started.state == ImageState.EXECUTING
-    with pytest.raises(ContreeImageStateError):
+    with pytest.raises(ValueError):
         started.run(shell="again")
 
 
@@ -46,7 +45,7 @@ async def test_succeeded_image_can_run_again(fake_image: ContreeImage, result_im
 
 
 async def test_transport_failure_transitions_to_failed(fake_image: ContreeImage):
-    # Not a ContreeError of either hierarchy -- the state machine must still notice.
+    # A plain builtin exception -- the state machine must still notice.
     fake_image.client.api.mock("spawn_instance", InstanceSpawnResponse(uuid=str(uuid4())))
     fake_image.client.api.mock("follow_operation_events", error=ConnectionError("transport blew up"))
 
