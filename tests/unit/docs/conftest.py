@@ -28,6 +28,7 @@ __all__ = [
     "api_fake_session_multiple_runs",
     "api_fake_stable_uuid",
     "docs_file_upload",
+    "docs_profile_config",
     "fake_api",
     "fake_api_s",
     "fake_contree",
@@ -89,6 +90,21 @@ def bypass_local_filesystem(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
     monkeypatch.setattr(Path, "write_bytes", write_bytes)
+
+
+@pytest.fixture
+def docs_profile_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A real, on-disk Contree profile so `from_profile()` genuinely resolves
+    credentials via `CONTREE_HOME`/`auth.ini`, instead of mocking `contree_client.profiles`.
+
+    `CONTREE_HOME` takes priority over `~/.config/contree`, so this is isolated
+    from whatever profile happens to exist on the machine running the tests.
+    """
+    (tmp_path / "auth.ini").write_text(
+        "[profile:default]\ntoken = docs-example-token\nurl = https://api.tokenfactory.nebius.com/sandboxes\n"
+    )
+    monkeypatch.setenv("CONTREE_HOME", str(tmp_path))
+    monkeypatch.delenv("CONTREE_PROFILE", raising=False)
 
 
 @pytest.fixture

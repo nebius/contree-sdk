@@ -18,7 +18,7 @@ api_client = ContreeAsyncClient("YOUR-NEBIUS-API-KEY", base_url="https://your-in
 
 `contree_client` clients can also be built from a saved profile with `from_profile()`, which resolves credentials in this order: an explicit `profile` argument, then the `CONTREE_PROFILE` environment variable, then the active profile recorded in the profile config file (`$CONTREE_HOME/auth.ini`, defaulting to `~/.config/contree/auth.ini`):
 
-```python notest
+```python fixture:docs_profile_config fixture:name:test_getting_started_from_profile
 from contree_client.httpx import ContreeAsyncClient
 
 api_client = ContreeAsyncClient.from_profile()
