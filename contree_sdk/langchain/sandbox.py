@@ -4,8 +4,16 @@ from typing import overload
 from uuid import uuid4
 
 from contree_client.exceptions import NotFoundError, UnprocessableEntityError
-from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
-from deepagents.backends.sandbox import BaseSandbox
+
+
+try:
+    from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
+    from deepagents.backends.sandbox import BaseSandbox
+except ImportError as e:
+    raise ImportError(
+        'contree_sdk.langchain needs the "langchain" extra (deepagents, Python >= 3.11): '
+        'install with `pip install "contree-sdk[langchain]"`.'
+    ) from e
 
 from contree_sdk.sdk.objects.image_like.result import ContreeResult
 from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync

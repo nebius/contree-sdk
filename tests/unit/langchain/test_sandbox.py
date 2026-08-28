@@ -236,3 +236,14 @@ def test_execute_sync(fake_session_s: ContreeSessionSync, fake_api_s: ContreeCli
 
     assert response.output == "hi\n"
     assert response.exit_code == 0
+
+
+def test_import_without_deepagents_raises_clear_error(monkeypatch: pytest.MonkeyPatch):
+    import sys
+
+    monkeypatch.delitem(sys.modules, "contree_sdk.langchain.sandbox", raising=False)
+    for name in ("deepagents", "deepagents.backends.protocol", "deepagents.backends.sandbox"):
+        monkeypatch.setitem(sys.modules, name, None)
+
+    with pytest.raises(ImportError, match="langchain"):
+        import contree_sdk.langchain.sandbox  # noqa: F401
