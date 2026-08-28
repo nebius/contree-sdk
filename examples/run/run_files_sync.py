@@ -1,4 +1,5 @@
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from contree_client.base import ContreeSyncClient
 
@@ -12,19 +13,19 @@ def main(api_client: ContreeSyncClient):
     print(f"Using {image=}")
 
     print("\nExample 1: Local file upload to image")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as test_file:
-        test_file.write("some txt file\nsecond line\n\nlast line\n")
-        test_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        test_file = Path(tmpdir) / "test.txt"
+        test_file.write_text("some txt file\nsecond line\n\nlast line\n")
 
-        result = image.run(shell=f"cat /{test_file.name.split('/')[-1]} | grep line", files=[test_file.name]).wait()
+        result = image.run(shell=f"cat /{test_file.name} | grep line", files=[test_file]).wait()
         print(f"Run with local file: {result.stdout=}, {result.exit_code=}")
 
     print("\nExample 2: Upload file via contree.files and use in image")
-    with NamedTemporaryFile(mode="w", suffix=".sh") as script_file:
-        script_file.write("#!/bin/sh\necho 'Hello from uploaded script'\necho 'Working directory:'\npwd\n")
-        script_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        script_file = Path(tmpdir) / "script.sh"
+        script_file.write_text("#!/bin/sh\necho 'Hello from uploaded script'\necho 'Working directory:'\npwd\n")
 
-        uploaded_file = sdk.files.upload(script_file.name)
+        uploaded_file = sdk.files.upload(script_file)
         print(f"Uploaded file: {uploaded_file=}")
 
         result = image.run(
@@ -34,30 +35,27 @@ def main(api_client: ContreeSyncClient):
         print(f"Run with uploaded file: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 
     print("\nExample 3: Bake files into a new image with apply_files")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as f:
-        f.write("hello from baked file\n")
-        f.flush()
-        baked = image.apply_files({"baked.txt": f.name})
+    with TemporaryDirectory() as tmpdir:
+        baked_file = Path(tmpdir) / "baked.txt"
+        baked_file.write_text("hello from baked file\n")
+        baked = image.apply_files({"baked.txt": baked_file})
         result = baked.run(shell="cat /baked.txt").wait()
         print(f"File is present in new image: {result.stdout=}")
 
     print("\nExample 4: Multiple files working together")
-    with (
-        NamedTemporaryFile(mode="w", suffix=".txt") as data_file,
-        NamedTemporaryFile(mode="w", suffix=".sh") as script_file,
-    ):
-        data_file.write("apple\nbanana\ncherry\ndate\n")
-        data_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        data_file = Path(tmpdir) / "data.txt"
+        data_file.write_text("apple\nbanana\ncherry\ndate\n")
 
-        script_file.write(
+        script_file = Path(tmpdir) / "script.sh"
+        script_file.write_text(
             "#!/bin/bash\necho 'Processing data:'\ncat /data.txt | grep -E '^[ab]'"
             "\necho 'Found items starting with a or b'"
         )
-        script_file.flush()
 
         result = image.run(
             shell="chmod +x /script.sh && sh /script.sh",
-            files={"data.txt": data_file.name, "script.sh": script_file.name},
+            files={"data.txt": data_file, "script.sh": script_file},
         ).wait()
         print(f"Multiple files result: {result.stdout=}, {result.stderr=}, {result.exit_code=}")
 

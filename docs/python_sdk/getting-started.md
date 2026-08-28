@@ -18,7 +18,7 @@ api_client = ContreeAsyncClient("YOUR-NEBIUS-API-KEY", base_url="https://your-in
 
 `contree_client` clients can also be built from a saved profile with `from_profile()`, which resolves credentials in this order: an explicit `profile` argument, then the `CONTREE_PROFILE` environment variable, then the active profile recorded in the profile config file (`$CONTREE_HOME/auth.ini`, defaulting to `~/.config/contree/auth.ini`):
 
-```python
+```python fixture:docs_profile_config fixture:name:test_getting_started_from_profile
 from contree_client.httpx import ContreeAsyncClient
 
 api_client = ContreeAsyncClient.from_profile()
@@ -59,16 +59,22 @@ See {class}`~contree_sdk.ContreeSync` for all client options.
 Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
 
 ````{tab} Async
-```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
+```{literalinclude} ../../examples/images/use_by_tag.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
 ````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
+```{literalinclude} ../../examples/images/use_by_tag_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 

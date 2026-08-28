@@ -37,6 +37,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       PYTHONUTF8: "1"
+      COVERAGE_FILE: .coverage.${{ matrix.python-version }}-${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +67,36 @@ jobs:
             coverage.xml
             report.xml
             report.html
+
+      - name: Store coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-${{ matrix.python-version }}-${{ matrix.os }}
+          path: .coverage.${{ matrix.python-version }}-${{ matrix.os }}
+          include-hidden-files: true
+
+  coverage-comment:
+    needs: pytest
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Coverage comment
+        uses: py-cov-action/python-coverage-comment-action@v4.3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MERGE_COVERAGE_FILES: true
 
   pytest-after-build:
     needs: build-matrix

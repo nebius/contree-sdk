@@ -1,6 +1,6 @@
 from asyncio import run
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 
 from contree_client.base import ContreeAsyncClient
 
@@ -13,35 +13,32 @@ async def main(api_client: ContreeAsyncClient):
     print(f"Using {image=}")
 
     print("\nExample 1: File as stdin input")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as input_file:
-        input_file.write("apple\nbanana\ncherry\ndate\nfig\n")
-        input_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        input_file = Path(tmpdir) / "input.txt"
+        input_file.write_text("apple\nbanana\ncherry\ndate\nfig\n")
 
-        result = await image.run(shell="cat | grep 'a' | sort", stdin=Path(input_file.name))
+        result = await image.run(shell="cat | grep 'a' | sort", stdin=input_file)
         print(f"Filter and sort result: {result.stdout=}, {result.exit_code=}")
 
     print("\nExample 2: File as stdout output")
-    with NamedTemporaryFile(mode="w", suffix=".txt") as output_file:
-        result = await image.run(shell="ls -la /bin | head -5", stdout=output_file.name)
+    with TemporaryDirectory() as tmpdir:
+        output_file = Path(tmpdir) / "output.txt"
+        result = await image.run(shell="ls -la /bin | head -5", stdout=output_file)
         print(f"Command exit code: {result.exit_code=}")
 
-        with open(output_file.name) as f:
-            content = f.read()
+        content = output_file.read_text()
         print(f"Output written to file: {content.strip()}")
 
     print("\nExample 3: File pipeline - stdin to stdout")
-    with (
-        NamedTemporaryFile(mode="w", suffix=".txt") as input_file,
-        NamedTemporaryFile(mode="w", suffix=".txt") as output_file,
-    ):
-        input_file.write("The quick brown fox\njumps over the lazy dog\nHello World")
-        input_file.flush()
+    with TemporaryDirectory() as tmpdir:
+        input_file = Path(tmpdir) / "input.txt"
+        input_file.write_text("The quick brown fox\njumps over the lazy dog\nHello World")
 
-        result = await image.run(shell="grep -i 'o' | wc -l", stdin=Path(input_file.name), stdout=output_file.name)
+        output_file = Path(tmpdir) / "output.txt"
+        result = await image.run(shell="grep -i 'o' | wc -l", stdin=input_file, stdout=output_file)
         print(f"Pipeline exit code: {result.exit_code=}")
 
-        with open(output_file.name) as f:
-            line_count = f.read().strip()
+        line_count = output_file.read_text().strip()
         print(f'Lines containing "o": {line_count}')
 
 

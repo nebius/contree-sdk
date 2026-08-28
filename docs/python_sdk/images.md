@@ -11,16 +11,22 @@ ConTree SDK provides several ways to reference and import container images. For 
 The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
 
 ````{tab} Async
-```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
+```{literalinclude} ../../examples/images/use_by_tag.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
 ````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
+```{literalinclude} ../../examples/images/use_by_tag_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
@@ -110,16 +116,22 @@ See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.tag_as` and {meth}`~c
 You can also tag the result of a `run()` directly by passing `tag=` to the call — the resulting image will be tagged after execution completes:
 
 ````{tab} Async
-```python
-result = await image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False)
-print(result.tag)  # "myapp:ready"
+```{literalinclude} ../../examples/images/tag_on_run.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
 ````{tab} Sync
-```python
-result = image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False).wait()
-print(result.tag)  # "myapp:ready"
+```{literalinclude} ../../examples/images/tag_on_run_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 

@@ -75,26 +75,22 @@ with `disposable=False` when those variables should be written into the resultin
 later commands:
 
 ````{tab} Async
-```python
-prepared = await image.run(
-    shell="true",
-    env={"MY_PERSISTED_VAR": "persisted_value"},
-    preserve_env=True,
-    disposable=False,
-)
-result = await prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
+```{literalinclude} ../../examples/run/preserve_env.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 
 ````{tab} Sync
-```python
-prepared = image.run(
-    shell="true",
-    env={"MY_PERSISTED_VAR": "persisted_value"},
-    preserve_env=True,
-    disposable=False,
-).wait()
-result = prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"]).wait()
+```{literalinclude} ../../examples/run/preserve_env_sync.py
+:language: python
+:linenos:
+:pyobject: main
+:dedent: 4
+:start-after: def main(
 ```
 ````
 

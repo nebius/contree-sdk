@@ -112,6 +112,11 @@ only-include = [
 [tool.hatch.build]
 only-packages = true
 
+[tool.coverage.run]
+# store paths relative to the repo root so `coverage combine` can merge data
+# recorded on ubuntu/macos/windows runners, whose absolute paths differ
+relative_files = true
+
 [tool.ruff]
 line-length = 120
 src = ["contree_sdk"]
