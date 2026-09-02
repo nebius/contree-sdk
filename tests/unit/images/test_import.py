@@ -107,7 +107,7 @@ async def test_import_cancelled_raises(fake_contree: Contree, fake_api: ContreeA
     fake_api.mock("import_image", operation_id)
     fake_api.mock("wait_operation", OperationResponse(uuid=operation_id, status=OperationStatus.CANCELLED))
 
-    with pytest.raises(RuntimeError, match="was cancelled"):
+    with pytest.raises(InterruptedError, match="was cancelled"):
         await fake_contree.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
 
 
@@ -116,7 +116,7 @@ def test_import_cancelled_raises_s(fake_contree_s: ContreeSync, fake_api_s: Cont
     fake_api_s.mock("import_image", operation_id)
     fake_api_s.mock("wait_operation", OperationResponse(uuid=operation_id, status=OperationStatus.CANCELLED))
 
-    with pytest.raises(RuntimeError, match="was cancelled"):
+    with pytest.raises(InterruptedError, match="was cancelled"):
         fake_contree_s.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
 
 

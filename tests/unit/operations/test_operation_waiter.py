@@ -80,8 +80,17 @@ async def test_wait_for_result_cancelled_status(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, status=OperationStatus.CANCELLED)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(RuntimeError):
+    # InterruptedError, not RuntimeError -- callers must be able to tell cancelled from failed.
+    with pytest.raises(InterruptedError):
         await waiter.wait_for_result()
+
+
+def test_wait_for_result_cancelled_status_sync(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, status=OperationStatus.CANCELLED)
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    with pytest.raises(InterruptedError):
+        waiter.wait_for_result()
 
 
 async def test_wait_for_result_without_process(fake_api, operation_id: str, result_image_uuid: UUID):

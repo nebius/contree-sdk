@@ -162,7 +162,7 @@ class OperationWaiter:
 
         response = await self.api.get_operation_status(self.operation_id)
         if response.status == OperationStatus.CANCELLED:
-            raise RuntimeError(f"Operation {self.operation_id} was cancelled")
+            raise InterruptedError(f"Operation {self.operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
             raise RuntimeError(f"Operation {self.operation_id} has failed: {error}")

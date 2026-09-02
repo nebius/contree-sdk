@@ -119,7 +119,8 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
 
         Raises:
             ValueError: If image is a UUID or credentials are incomplete.
-            RuntimeError: If the operation was cancelled, failed, or completed without an image.
+            InterruptedError: If the operation was cancelled.
+            RuntimeError: If the operation failed or completed without an image.
             TimeoutError: If the import operation did not complete within `timeout`.
 
         """
@@ -151,7 +152,7 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
             raise
 
         if response.status == OperationStatus.CANCELLED:
-            raise RuntimeError(f"Operation {operation_id} was cancelled")
+            raise InterruptedError(f"Operation {operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
             raise RuntimeError(f"Operation {operation_id} has failed: {error}")
