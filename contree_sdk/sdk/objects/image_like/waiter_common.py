@@ -30,13 +30,18 @@ ZERO_RESOURCES = EventResources(
 def synthetic_exit_event(*, pid: int, duration_ms: int) -> EventDataExit:
     """Stand in for the exit event the fallback transport never sends.
 
+    The fallback transport (used when the events/SSE endpoint is unreachable)
+    never carries a real exit code for any process -- only a completion
+    signal for the operation as a whole. `code=0` below is inferred from the
+    operation's own SUCCESS status, not observed from the process itself.
+
     Returns:
-        A clean, non-timed-out exit with an unknown-but-successful code.
+        A clean, non-timed-out exit with an inferred-successful code.
 
     """
     return EventDataExit(
         pid=pid,
-        code=0,
+        code=0,  # inferred from SUCCESS status, not observed -- see docstring
         signal=-1,
         timed_out=False,
         duration_ms=duration_ms,
