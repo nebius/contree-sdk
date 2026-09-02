@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from datetime import datetime, timedelta
 from typing import Generic, TypeVar
 from uuid import UUID
 
@@ -14,16 +13,6 @@ from contree_sdk.utils.sentinels import value_or_none
 
 
 ImageT = TypeVar("ImageT", bound=ContreeImageBase)
-
-
-def process_time_param(value: datetime | timedelta | None, offset: timedelta) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    value += offset
-    seconds = value.total_seconds()
-    return f"{seconds:.0f}s"
 
 
 class ImagesBaseManager(BaseManager, Generic[ImageT]):

@@ -163,15 +163,13 @@ def test_get_image_by_uuid_string_s(
     assert image.uuid == image_uuid
 
 
-async def test_iter_images_reanchors_relative_window_across_pages(fake_api: ContreeAsyncClient, monkeypatch):
-    started = datetime(2026, 1, 1, 12, 0, 0)
+async def test_iter_images_resolves_relative_since_to_stable_datetime(fake_api: ContreeAsyncClient, monkeypatch):
+    now = datetime(2026, 1, 1, 12, 0, 0)
 
     class FakeDateTime(datetime):
-        values = iter([started, started, started + timedelta(seconds=5)])
-
         @classmethod
         def now(cls, tz=None):
-            return next(cls.values)
+            return now
 
     monkeypatch.setattr(images_async_module, "datetime", FakeDateTime)
 
@@ -182,20 +180,19 @@ async def test_iter_images_reanchors_relative_window_across_pages(fake_api: Cont
     result = [image async for image in contree.images.iter_images(since=timedelta(hours=1))]
     assert len(result) == 1
 
+    expected_since = now - timedelta(hours=1)
     first_call, second_call = fake_api.calls_for("list_images")
-    assert first_call.kwargs["since"] == "3600s"
-    assert second_call.kwargs["since"] == "3605s"
+    assert first_call.kwargs["since"] == expected_since
+    assert second_call.kwargs["since"] == expected_since
 
 
-def test_iter_images_reanchors_relative_window_across_pages_s(fake_api_s: ContreeClient, monkeypatch):
-    started = datetime(2026, 1, 1, 12, 0, 0)
+def test_iter_images_resolves_relative_since_to_stable_datetime_s(fake_api_s: ContreeClient, monkeypatch):
+    now = datetime(2026, 1, 1, 12, 0, 0)
 
     class FakeDateTime(datetime):
-        values = iter([started, started, started + timedelta(seconds=5)])
-
         @classmethod
         def now(cls, tz=None):
-            return next(cls.values)
+            return now
 
     monkeypatch.setattr(images_sync_module, "datetime", FakeDateTime)
 
@@ -206,9 +203,10 @@ def test_iter_images_reanchors_relative_window_across_pages_s(fake_api_s: Contre
     result = list(contree_s.images.iter_images(since=timedelta(hours=1)))
     assert len(result) == 1
 
+    expected_since = now - timedelta(hours=1)
     first_call, second_call = fake_api_s.calls_for("list_images")
-    assert first_call.kwargs["since"] == "3600s"
-    assert second_call.kwargs["since"] == "3605s"
+    assert first_call.kwargs["since"] == expected_since
+    assert second_call.kwargs["since"] == expected_since
 
 
 async def test_oci_with_tag_override(
