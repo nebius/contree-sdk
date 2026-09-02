@@ -1,9 +1,11 @@
 import asyncio
+import threading
+import time
 from io import BytesIO
 from uuid import UUID
 
 import pytest
-from contree_client.models import OperationResponse, OperationStatus
+from contree_client.models import OperationEvent, OperationResponse, OperationStatus
 
 from contree_sdk.sdk.objects.image_like.waiter_async import OperationWaiter as AsyncOperationWaiter
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID
@@ -182,6 +184,62 @@ def test_sync_iter_chunks_after_exhausted_does_not_resubscribe(fake_api_s, opera
     # A second iteration must not re-subscribe and double the accumulated output.
     assert list(waiter.iter_chunks(MAIN_SPID, timeout=None)) == []
     assert len(fake_api_s.calls_for("follow_operation_events")) == 1
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+
+def test_sync_wait_for_result_concurrent_from_two_threads_does_not_double_count(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+
+    first_arrived = threading.Event()
+    let_first_finish = threading.Event()
+    gated_once = threading.Lock()
+
+    class GatedWaiter(SyncOperationWaiter):
+        def process_event(self, event: OperationEvent) -> bytes | None:
+            result = super().process_event(event)
+            if event.type == "stdout" and gated_once.acquire(blocking=False):
+                first_arrived.set()
+                let_first_finish.wait(timeout=2)
+            return result
+
+    waiter = GatedWaiter(fake_api_s, operation_id)
+
+    threads = [threading.Thread(target=waiter.wait_for_result) for _ in range(2)]
+    threads[0].start()
+    assert first_arrived.wait(timeout=2)
+    threads[1].start()
+    time.sleep(0.05)
+    let_first_finish.set()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    # Without the lock, the second thread's concurrent iter_events would re-subscribe
+    # and double-count this output instead of blocking until the first thread is done.
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+    assert len(fake_api_s.calls_for("follow_operation_events")) == 1
+
+
+def test_sync_waiter_lock_is_reentrant_for_same_thread(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+    reentered = []
+
+    class ReentrantWaiter(SyncOperationWaiter):
+        def process_event(self, event: OperationEvent) -> bytes | None:
+            result = super().process_event(event)
+            if event.type == "stdout" and not reentered:
+                reentered.append(True)
+                # Same-thread reentrant call into iter_events' locked section (e.g. an
+                # iter_output()-style caller also consuming iter_chunks directly).
+                # exhausted is already True by this point, so this returns empty --
+                # the point is that a plain threading.Lock would deadlock reaching it.
+                assert list(self.iter_chunks(MAIN_SPID, timeout=None)) == []
+            return result
+
+    waiter = ReentrantWaiter(fake_api_s, operation_id)
+    response, _exit_event = waiter.wait_for_result()
+
+    assert reentered == [True]
+    assert response.status == OperationStatus.SUCCESS
     assert waiter.process_view().outputs["stdout"] == b"hi\n"
 
 

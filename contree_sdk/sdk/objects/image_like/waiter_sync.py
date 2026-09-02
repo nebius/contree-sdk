@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING
@@ -44,6 +45,9 @@ class OperationWaiter:
         self.exits: dict[int, EventDataExit] = {}
         self.truncated: dict[int, dict[str, EventDataTruncated]] = defaultdict(dict)
         self.exhausted = False
+        # Reentrant: iter_output()-style composition can call back into wait_for_result()
+        # from the same thread while it's still inside iter_events' locked section.
+        self.lock = threading.RLock()
         # Caps self.outputs growth only; writers still get the full chunk.
         self.output_limit = output_limit
 
@@ -80,21 +84,23 @@ class OperationWaiter:
             self.api.cancel_operation(self.operation_id)
 
     def iter_events(self, timeout: float | None) -> Iterator[tuple[OperationEvent, bytes | None]]:
-        # Run at most once per instance (see class docstring) to avoid double-counting output.
-        if self.exhausted:
-            return
-        completed = False
-        try:
-            for event in self.api.follow_operation_events(self.operation_id, timeout=timeout):
-                chunk = self.process_event(event)
-                yield event, chunk
-                if event.type == "completion":
-                    completed = True
-        finally:
+        # Locked for the whole body (not just the check) so a second thread calling
+        # this concurrently blocks until the first is done, instead of double-subscribing.
+        with self.lock:
+            if self.exhausted:
+                return
             self.exhausted = True
-            if not completed:
-                self.cancel()
-            self.finalize_writers()
+            completed = False
+            try:
+                for event in self.api.follow_operation_events(self.operation_id, timeout=timeout):
+                    chunk = self.process_event(event)
+                    yield event, chunk
+                    if event.type == "completion":
+                        completed = True
+            finally:
+                if not completed:
+                    self.cancel()
+                self.finalize_writers()
 
     def iter_chunks(self, spid: int, timeout: float | None) -> Iterator[OutputChunk]:
         for event, chunk in self.iter_events(timeout):
