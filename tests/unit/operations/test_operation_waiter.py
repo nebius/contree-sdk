@@ -326,6 +326,30 @@ async def test_wait_for_result_shields_cancel_from_outer_cancellation(fake_api, 
     assert cancel_finished.is_set()
 
 
+async def test_wait_for_result_cancels_load_task_on_outer_cancellation(fake_api, operation_id: str):
+    async def hang_forever(*args, **kwargs):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover -- unreachable, satisfies the async-generator shape
+
+    async def noop_cancel(*args, **kwargs):
+        return None
+
+    fake_api.follow_operation_events = hang_forever
+    fake_api.cancel_operation = noop_cancel
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    task = asyncio.create_task(waiter.wait_for_result())
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The background load_task must not be left running after the waiter is torn down.
+    assert waiter.load_task is not None
+    assert waiter.load_task.cancelled()
+
+
 async def test_connect_output_after_finish(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, stdout="hi\n")
 

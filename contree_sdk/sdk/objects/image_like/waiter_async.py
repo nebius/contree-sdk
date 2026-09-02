@@ -154,6 +154,9 @@ class OperationWaiter:
             await task
         finally:
             if not self.completed:
+                # Explicit, not relying on the outer task's cancellation cascading into `task`.
+                if not task.done():
+                    task.cancel()
                 # Shielded: the cleanup call must finish even if we're being cancelled too.
                 await asyncio.shield(self.cancel())
 
