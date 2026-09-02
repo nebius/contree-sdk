@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from datetime import datetime, timedelta
 from uuid import UUID
 
 from contree_client.exceptions import NotFoundError
 from contree_client.models import Image, ImageImportRegistry, ImageImportRegistryCredentials, OperationStatus
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
-from contree_sdk.sdk.managers.images._base import ImagesBaseManager, process_time_param
+from contree_sdk.sdk.managers.images._base import ImagesBaseManager
 from contree_sdk.sdk.objects.image import ContreeImageSync
 from contree_sdk.utils.oci import OCIReference
 from contree_sdk.utils.sentinels import value_or_none
@@ -49,11 +49,18 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
         since: datetime | timedelta | None = None,
         until: datetime | timedelta | None = None,
     ):
+        # Resolve since/until to an absolute datetime once, up front -- a
+        # relative timedelta re-stringified per page drifts forward as pages
+        # are fetched, since the server re-evaluates it against each
+        # request's own wall-clock time. contree_client formats a raw
+        # datetime itself, so no local string conversion is needed here.
         now = datetime.now()
+        resolved_since = now - since if isinstance(since, timedelta) else since
+        resolved_until = now - until if isinstance(until, timedelta) else (until or now)
         for image in self.client.api.iter_images(
             tagged=tagged,
-            since=process_time_param(since, offset=timedelta(0)),
-            until=process_time_param(until or now, offset=timedelta(0)),
+            since=resolved_since,
+            until=resolved_until,
             limit=number,
             page_size=self.client.images_list_batch_size,
         ):
@@ -112,9 +119,9 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
 
         Raises:
             ValueError: If image is a UUID or credentials are incomplete.
-            FailedOperationError: If the import operation completes without returning an image.
-            CancelledOperationError: If the import operation was cancelled.
-            OperationTimedOutError: If the import operation did not complete within `timeout`.
+            InterruptedError: If the operation was cancelled.
+            RuntimeError: If the operation failed or completed without an image.
+            TimeoutError: If the import operation did not complete within `timeout`.
 
         """
         ref = self.parse_ref(image)
@@ -139,21 +146,20 @@ class ImagesManagerSync(ImagesBaseManager[ContreeImageSync]):
         operation_id = self.client.api.import_image(registry, tag=new_tag, timeout=round(timeout))
         try:
             response = self.client.api.wait_operation(operation_id, timeout=timeout)
-        except TimeoutError as e:
-            raise OperationTimedOutError(operation_uuid=UUID(operation_id)) from e
+        except TimeoutError:
+            with suppress(Exception):
+                self.client.api.cancel_operation(operation_id)
+            raise
 
         if response.status == OperationStatus.CANCELLED:
-            raise CancelledOperationError(operation_uuid=UUID(operation_id))
+            raise InterruptedError(f"Operation {operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
-            raise FailedOperationError(operation_uuid=UUID(operation_id), error=error)
+            raise RuntimeError(f"Operation {operation_id} has failed: {error}")
 
         result_image_uuid = value_or_none(response.result_image_uuid)
         if result_image_uuid is None:
-            raise FailedOperationError(
-                operation_uuid=UUID(operation_id),
-                error="Image import returned no image uuid",
-            )
+            raise RuntimeError(f"Operation {operation_id}: image import returned no image uuid")
         return self.image_by_data(Image(uuid=result_image_uuid, tag=new_tag))
 
     def pull_image_by_oci(

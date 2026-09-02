@@ -1,14 +1,16 @@
+import asyncio
+import threading
+import time
 from io import BytesIO
 from uuid import UUID
 
 import pytest
-from contree_client.models import OperationResponse, OperationStatus
+from contree_client.models import OperationEvent, OperationResponse, OperationStatus
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.objects.image_like.waiter_async import OperationWaiter as AsyncOperationWaiter
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID
 from contree_sdk.sdk.objects.image_like.waiter_sync import OperationWaiter as SyncOperationWaiter
-from tests.unit.fixtures.operations import run_events
+from tests.unit.fixtures.operations import completion_event, run_events
 
 
 def queue_events_and_status(
@@ -62,7 +64,7 @@ async def test_wait_for_result_failed(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, status=OperationStatus.FAILED, error="boom")
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         await waiter.wait_for_result()
 
 
@@ -70,7 +72,7 @@ def test_wait_for_result_failed_sync(fake_api_s, operation_id: str):
     queue_events_and_status(fake_api_s, operation_id, status=OperationStatus.FAILED, error="boom")
 
     waiter = SyncOperationWaiter(fake_api_s, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         waiter.wait_for_result()
 
 
@@ -78,8 +80,17 @@ async def test_wait_for_result_cancelled_status(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, status=OperationStatus.CANCELLED)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(CancelledOperationError):
+    # InterruptedError, not RuntimeError -- callers must be able to tell cancelled from failed.
+    with pytest.raises(InterruptedError):
         await waiter.wait_for_result()
+
+
+def test_wait_for_result_cancelled_status_sync(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, status=OperationStatus.CANCELLED)
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    with pytest.raises(InterruptedError):
+        waiter.wait_for_result()
 
 
 async def test_wait_for_result_without_process(fake_api, operation_id: str, result_image_uuid: UUID):
@@ -97,7 +108,7 @@ async def test_wait_for_result_missing_exit_event_raises(fake_api, operation_id:
     queue_events_and_status(fake_api, operation_id)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(FailedOperationError):
+    with pytest.raises(RuntimeError):
         await waiter.wait_for_result(spid=2)
 
 
@@ -105,7 +116,7 @@ async def test_wait_for_result_process_timed_out(fake_api, operation_id: str):
     queue_events_and_status(fake_api, operation_id, timed_out=True)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await waiter.wait_for_result()
 
 
@@ -114,7 +125,7 @@ async def test_wait_timeout_cancels_operation(fake_api, operation_id: str):
     fake_api.mock("cancel_operation", None)
 
     waiter = AsyncOperationWaiter(fake_api, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await waiter.wait_for_result(timeout=0.01)
 
     assert fake_api.calls_for("cancel_operation")
@@ -125,7 +136,7 @@ def test_wait_timeout_cancels_operation_sync(fake_api_s, operation_id: str):
     fake_api_s.mock("cancel_operation", None)
 
     waiter = SyncOperationWaiter(fake_api_s, operation_id)
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         waiter.wait_for_result(timeout=0.01)
 
     assert fake_api_s.calls_for("cancel_operation")
@@ -151,6 +162,201 @@ async def test_multiple_waiters_share_result(fake_api, operation_id: str):
 
     assert first == second
     assert len(fake_api.calls_for("follow_operation_events")) == 1
+
+
+async def test_cancel_failure_does_not_mask_original_error(fake_api, operation_id: str):
+    # cancel_operation raising must not replace the already-propagating timeout error.
+    fake_api.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    with pytest.raises(TimeoutError):
+        await waiter.wait_for_result(timeout=0.01)
+
+
+def test_cancel_failure_does_not_mask_original_error_sync(fake_api_s, operation_id: str):
+    fake_api_s.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api_s.mock("cancel_operation", error=RuntimeError("cancel transport blew up"))
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    with pytest.raises(TimeoutError):
+        waiter.wait_for_result(timeout=0.01)
+
+
+def test_sync_iter_chunks_after_exhausted_does_not_resubscribe(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    waiter.wait_for_result()
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+    # A second iteration must not re-subscribe and double the accumulated output.
+    assert list(waiter.iter_chunks(MAIN_SPID, timeout=None)) == []
+    assert len(fake_api_s.calls_for("follow_operation_events")) == 1
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+
+def test_sync_wait_for_result_concurrent_from_two_threads_does_not_double_count(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+
+    first_arrived = threading.Event()
+    let_first_finish = threading.Event()
+    gated_once = threading.Lock()
+
+    class GatedWaiter(SyncOperationWaiter):
+        def process_event(self, event: OperationEvent) -> bytes | None:
+            result = super().process_event(event)
+            if event.type == "stdout" and gated_once.acquire(blocking=False):
+                first_arrived.set()
+                let_first_finish.wait(timeout=2)
+            return result
+
+    waiter = GatedWaiter(fake_api_s, operation_id)
+
+    threads = [threading.Thread(target=waiter.wait_for_result) for _ in range(2)]
+    threads[0].start()
+    assert first_arrived.wait(timeout=2)
+    threads[1].start()
+    time.sleep(0.05)
+    let_first_finish.set()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    # Without the lock, the second thread's concurrent iter_events would re-subscribe
+    # and double-count this output instead of blocking until the first thread is done.
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+    assert len(fake_api_s.calls_for("follow_operation_events")) == 1
+
+
+def test_sync_waiter_lock_is_reentrant_for_same_thread(fake_api_s, operation_id: str):
+    queue_events_and_status(fake_api_s, operation_id, stdout="hi\n")
+    reentered = []
+
+    class ReentrantWaiter(SyncOperationWaiter):
+        def process_event(self, event: OperationEvent) -> bytes | None:
+            result = super().process_event(event)
+            if event.type == "stdout" and not reentered:
+                reentered.append(True)
+                # Same-thread reentrant call into iter_events' locked section (e.g. an
+                # iter_output()-style caller also consuming iter_chunks directly).
+                # exhausted is already True by this point, so this returns empty --
+                # the point is that a plain threading.Lock would deadlock reaching it.
+                assert list(self.iter_chunks(MAIN_SPID, timeout=None)) == []
+            return result
+
+    waiter = ReentrantWaiter(fake_api_s, operation_id)
+    response, _exit_event = waiter.wait_for_result()
+
+    assert reentered == [True]
+    assert response.status == OperationStatus.SUCCESS
+    assert waiter.process_view().outputs["stdout"] == b"hi\n"
+
+
+async def test_output_limit_caps_accumulated_buffer(fake_api, operation_id: str):
+    waiter = AsyncOperationWaiter(fake_api, operation_id, output_limit=4)
+    buffer = BytesIO()
+    await waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
+    for event in run_events(stdout="hello world"):
+        if event.type == "stdout":
+            await waiter.process_event(event)
+
+    assert bytes(waiter.outputs[MAIN_SPID]["stdout"]) == b"hell"
+    assert buffer.getvalue() == b"hello world"
+
+
+def test_output_limit_caps_accumulated_buffer_sync(fake_api_s, operation_id: str):
+    waiter = SyncOperationWaiter(fake_api_s, operation_id, output_limit=4)
+    buffer = BytesIO()
+    waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
+    for event in run_events(stdout="hello world"):
+        if event.type == "stdout":
+            waiter.process_event(event)
+
+    assert bytes(waiter.outputs[MAIN_SPID]["stdout"]) == b"hell"
+    assert buffer.getvalue() == b"hello world"
+
+
+async def test_fallback_completion_without_exit_does_not_fail_a_success(fake_api, operation_id: str):
+    # Fallback mode's completion-only event must not fail a genuinely successful operation.
+    fake_api.mock("follow_operation_events", [completion_event(0, status=OperationStatus.SUCCESS)])
+    fake_api.mock("get_operation_status", OperationResponse(uuid=operation_id, status=OperationStatus.SUCCESS))
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    response, exit_event = await waiter.wait_for_result()
+
+    assert response.status == OperationStatus.SUCCESS
+    assert exit_event is not None
+    assert exit_event.code == 0
+    assert exit_event.timed_out is False
+
+
+def test_fallback_completion_without_exit_does_not_fail_a_success_sync(fake_api_s, operation_id: str):
+    fake_api_s.mock("follow_operation_events", [completion_event(0, status=OperationStatus.SUCCESS)])
+    fake_api_s.mock("get_operation_status", OperationResponse(uuid=operation_id, status=OperationStatus.SUCCESS))
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    response, exit_event = waiter.wait_for_result()
+
+    assert response.status == OperationStatus.SUCCESS
+    assert exit_event is not None
+    assert exit_event.code == 0
+    assert exit_event.timed_out is False
+
+
+async def test_wait_for_result_shields_cancel_from_outer_cancellation(fake_api, operation_id: str):
+    cancel_started = asyncio.Event()
+    cancel_finished = asyncio.Event()
+
+    async def slow_cancel(*args, **kwargs):
+        cancel_started.set()
+        await asyncio.sleep(0.05)
+        cancel_finished.set()
+
+    async def hang_forever(*args, **kwargs):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover -- unreachable, satisfies the async-generator shape
+
+    fake_api.cancel_operation = slow_cancel
+    fake_api.follow_operation_events = hang_forever
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    task = asyncio.create_task(waiter.wait_for_result())
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    # A second cancel while cleanup is in flight is what shield actually guards against.
+    await cancel_started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(cancel_finished.wait(), timeout=1)
+    assert cancel_finished.is_set()
+
+
+async def test_wait_for_result_cancels_load_task_on_outer_cancellation(fake_api, operation_id: str):
+    async def hang_forever(*args, **kwargs):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover -- unreachable, satisfies the async-generator shape
+
+    async def noop_cancel(*args, **kwargs):
+        return None
+
+    fake_api.follow_operation_events = hang_forever
+    fake_api.cancel_operation = noop_cancel
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    task = asyncio.create_task(waiter.wait_for_result())
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The background load_task must not be left running after the waiter is torn down.
+    assert waiter.load_task is not None
+    assert waiter.load_task.cancelled()
 
 
 async def test_connect_output_after_finish(fake_api, operation_id: str):

@@ -22,7 +22,7 @@ from tests.e2e.sdk.run.test_basic_run import (
     test_run_without_preserve_env_does_not_persist_env_s as _test_run_without_preserve_env_does_not_persist_env_s,
 )
 from tests.unit.fixtures.files import queue_upload
-from tests.unit.fixtures.operations import queue_run
+from tests.unit.fixtures.operations import OPERATION_COST, queue_run
 from tests.unit.fixtures.runs import FILE_SHA256, FILE_UUID, RUN_STDERR, RUN_STDOUT
 
 
@@ -45,11 +45,29 @@ async def test_run_flushes_caller_supplied_writer(fake_image, tmp_path, result_i
 
 
 async def test_run_result_exposes_cost(fake_image, result_image_uuid: UUID):
+    # Cost comes from get_operation_status, not the exit event.
+    queue_run(
+        fake_image.client.api,
+        stdout=RUN_STDOUT,
+        stderr=RUN_STDERR,
+        result_image_uuid=str(result_image_uuid),
+        cost=OPERATION_COST,
+    )
+    result = await fake_image.run(shell="true")
+
+    assert result.result.cost == OPERATION_COST
+
+
+async def test_run_caps_client_side_output_at_truncate_output_at(fake_image, result_image_uuid: UUID):
+    # The waiter enforces truncate_output_at client-side too, not just the server.
+    queue_run(fake_image.client.api, stdout="hello world", stderr="", result_image_uuid=str(result_image_uuid))
+    result = await fake_image.run(shell="true", truncate_output_at=4, stdout=bytes)
+
+    assert result.result.stdout == b"hell"
+
+
+async def test_run_result_cost_is_none_when_unavailable(fake_image, result_image_uuid: UUID):
     queue_run(fake_image.client.api, stdout=RUN_STDOUT, stderr=RUN_STDERR, result_image_uuid=str(result_image_uuid))
-    # `contree_client.models.EventDataExit.resources` (`EventResources`) has no
-    # cost figure at all -- the old API's untyped exit-event `resources` dict
-    # happened to carry one, the new typed model doesn't, so `cost` is always
-    # None now.
     result = await fake_image.run(shell="true")
 
     assert result.result.cost is None

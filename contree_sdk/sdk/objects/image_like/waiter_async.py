@@ -4,12 +4,9 @@ import asyncio
 from collections import defaultdict
 from contextlib import suppress
 from typing import TYPE_CHECKING, overload
-from uuid import UUID
 
-from contree_client.exceptions import ContreeAPIError
 from contree_client.models import EventDataExit, EventDataTruncated, OperationStatus, decode_chunk
 
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from contree_sdk.sdk.io.writer_wrapper import EOF, WriterToQueue, WriterWrapper
 from contree_sdk.sdk.objects.image_like.waiter_common import (
     MAIN_SPID,
@@ -17,6 +14,7 @@ from contree_sdk.sdk.objects.image_like.waiter_common import (
     OutputChunk,
     ProcessView,
     StreamName,
+    synthetic_exit_event,
 )
 from contree_sdk.utils.sentinels import value_or_none
 
@@ -41,13 +39,15 @@ class OperationWaiter:
     `connect_output`/`iter_chunks` shape).
     """
 
-    def __init__(self, api: ContreeAsyncClient, operation_id: str) -> None:
+    def __init__(self, api: ContreeAsyncClient, operation_id: str, *, output_limit: int | None = None) -> None:
         self.api = api
         self.operation_id = operation_id
         self.outputs: dict[int, dict[str, bytearray]] = defaultdict(lambda: defaultdict(bytearray))
         self.readers: dict[tuple[int, str], list[WriterWrapper]] = defaultdict(list)
         self.exits: dict[int, EventDataExit] = {}
         self.truncated: dict[int, dict[str, EventDataTruncated]] = defaultdict(dict)
+        # Caps self.outputs growth only; readers still get the full chunk.
+        self.output_limit = output_limit
         self.finished = asyncio.Event()
         # True only once a `completion` event was actually observed -- as
         # opposed to `finished`, which also gets set when the load loop
@@ -81,7 +81,12 @@ class OperationWaiter:
         async with self.lock:
             if event.type in {"stdout", "stderr"}:
                 chunk = decode_chunk(event.data)
-                self.outputs[spid][event.type] += chunk
+                buffer = self.outputs[spid][event.type]
+                if self.output_limit is not None:
+                    retained = min(len(chunk), max(self.output_limit - len(buffer), 0))
+                    buffer += chunk[:retained]
+                else:
+                    buffer += chunk
                 for reader in self.readers[spid, event.type]:
                     await reader.write(chunk)
             elif isinstance(event.data, EventDataExit):
@@ -130,7 +135,8 @@ class OperationWaiter:
         )
 
     async def cancel(self) -> None:
-        with suppress(ContreeAPIError):
+        # Best-effort cleanup: never let this mask an exception already propagating.
+        with suppress(Exception):
             await self.api.cancel_operation(self.operation_id)
 
     @overload
@@ -146,25 +152,29 @@ class OperationWaiter:
         task = self.ensure_loading(timeout)
         try:
             await task
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            raise OperationTimedOutError(operation_uuid=UUID(self.operation_id)) from e
         finally:
             if not self.completed:
-                await self.cancel()
+                # Explicit, not relying on the outer task's cancellation cascading into `task`.
+                if not task.done():
+                    task.cancel()
+                # Shielded: the cleanup call must finish even if we're being cancelled too.
+                await asyncio.shield(self.cancel())
 
         response = await self.api.get_operation_status(self.operation_id)
         if response.status == OperationStatus.CANCELLED:
-            raise CancelledOperationError(operation_uuid=UUID(self.operation_id))
+            raise InterruptedError(f"Operation {self.operation_id} was cancelled")
         if response.status == OperationStatus.FAILED:
             error = value_or_none(response.error) or "Unknown error"
-            raise FailedOperationError(operation_uuid=UUID(self.operation_id), error=error)
+            raise RuntimeError(f"Operation {self.operation_id} has failed: {error}")
 
         exit_event = self.exits.get(spid) if spid is not None else None
         if spid is not None and exit_event is None:
-            raise FailedOperationError(
-                operation_uuid=UUID(self.operation_id),
-                error=f"no exit event received for spid {spid}",
-            )
+            # self.exits non-empty means another spid's exit is a genuine gap, not a fallback-mode blackout.
+            if response.status != OperationStatus.SUCCESS or self.exits:
+                raise RuntimeError(f"no exit event received for spid {spid}")
+            # Fallback transport mode: only a completion event, no exit -- synthesize one.
+            duration_ms = round((value_or_none(response.duration) or 0) * 1000)
+            exit_event = synthetic_exit_event(pid=spid, duration_ms=duration_ms)
         if exit_event is not None and exit_event.timed_out:
-            raise OperationTimedOutError(operation_uuid=UUID(self.operation_id))
+            raise TimeoutError(f"Operation {self.operation_id} timed out")
         return response, exit_event

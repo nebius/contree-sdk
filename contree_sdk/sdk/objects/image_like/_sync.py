@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import TypeVar
+from typing import Literal, TypeVar
 from uuid import UUID
 
-from contree_client.models import FileSpec
+from contree_client.models import FileSpec, GrepResult
 
-from contree_sdk.sdk.exceptions import ContreeError
 from contree_sdk.sdk.io.typing import INPUT_TYPES, OUTPUT_REQUEST_TYPES
 from contree_sdk.sdk.io.wiring import OperationOutputs, read_stdin_sync
 from contree_sdk.sdk.objects.image_fs._sync import ImageDirectorySync, ImageFileSync
 from contree_sdk.sdk.objects.image_like._base import DirTypeT, FileTypeT, ImageLikeBase
-from contree_sdk.sdk.objects.image_like.result import ContreeResult
+from contree_sdk.sdk.objects.image_like.result import ContreeResult, extract_operation_cost
 from contree_sdk.sdk.objects.image_like.state import Executing, Failed, ImageState, Prepared, Succeeded
 from contree_sdk.sdk.objects.image_like.waiter_common import MAIN_SPID, OutputChunk
 from contree_sdk.sdk.objects.image_like.waiter_sync import OperationWaiter
@@ -55,6 +54,7 @@ class ImageLikeSync(ImageLikeBase):
         if timeout is None:
             timeout = self.client.operation_run_timeout or self.client.operation_timeout
 
+        truncate_output_at = req.truncate_output_at or self.client.default_truncate_output_at
         response = self.client.api.spawn_instance(
             req.command,
             f"tag:{self.tag}" if self.uuid is None else str(self.uuid),
@@ -67,11 +67,11 @@ class ImageLikeSync(ImageLikeBase):
             timeout=round(timeout),
             stdin=stdin,
             files=files,
-            truncate_output_at=req.truncate_output_at or self.client.default_truncate_output_at,
+            truncate_output_at=truncate_output_at,
             preserve_env=req.preserve_env,
         )
         operation_id = str(response.uuid)
-        waiter = OperationWaiter(self.client.api, operation_id)
+        waiter = OperationWaiter(self.client.api, operation_id, output_limit=truncate_output_at)
         for stream_name, output in (("stdout", outputs.stdout), ("stderr", outputs.stderr)):
             if output is not None:
                 waiter.connect_output(output=output, spid=MAIN_SPID, stream_name=stream_name)
@@ -96,7 +96,7 @@ class ImageLikeSync(ImageLikeBase):
     def collect_result(self: ImageLikeSyncT, executing: Executing) -> ImageLikeSyncT:
         try:
             operation_data, process_result = executing.waiter.wait_for_result(timeout=executing.timeout)
-        except ContreeError:
+        except Exception:
             if self.state_data is executing:
                 self.set_state(Failed(request=executing.request))
             raise
@@ -111,6 +111,7 @@ class ImageLikeSync(ImageLikeBase):
             stdout=finalized.stdout,
             stderr=finalized.stderr,
             truncated=view.truncated,
+            cost=extract_operation_cost(operation_data),
         )
         self.set_state(Succeeded(request=executing.request, result=result))
         new_uuid = value_or_none(operation_data.result_image_uuid)
@@ -122,7 +123,12 @@ class ImageLikeSync(ImageLikeBase):
 
     def iter_output(self) -> Iterator[OutputChunk]:
         new_self, executing = self.ensure_started()
-        yield from executing.waiter.iter_chunks(MAIN_SPID, executing.timeout)
+        try:
+            yield from executing.waiter.iter_chunks(MAIN_SPID, executing.timeout)
+        except Exception:
+            if new_self.state_data is executing:
+                new_self.set_state(Failed(request=executing.request))
+            raise
         new_self.collect_result(executing)
 
     # inspect methods
@@ -171,6 +177,8 @@ class ImageLikeSync(ImageLikeBase):
     def download(self, image_path: str | PurePosixPath, local_path: str | Path | None = None) -> Path:
         """Download a file from the image to local filesystem.
 
+        Streams the file directly to disk instead of buffering it in memory.
+
         Args:
             image_path: Path to the file inside the image.
             local_path: Local destination path. Defaults to filename from image_path.
@@ -182,8 +190,52 @@ class ImageLikeSync(ImageLikeBase):
         image_path = PurePosixPath(image_path)
         if local_path is None:
             local_path = image_path.name
-        Path(local_path).write_bytes(self.read(image_path))
+        uuid = self.image_uuid()
+        with Path(local_path).open("wb") as file:
+            for chunk in self.client.api.inspect_image_download_stream(uuid, str(image_path)):
+                file.write(chunk)
         return Path(local_path)
+
+    def grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        """Search file contents in the image.
+
+        Args:
+            pattern: Search pattern or patterns.
+            path: Path or paths to search. Defaults to the image root.
+            glob: Glob filter or filters.
+            max_count: Maximum matches per file.
+            max_total: Maximum matches across all files.
+            case: Case matching mode.
+            before: Number of context lines before each match.
+            after: Number of context lines after each match.
+
+        Returns:
+            Typed grep result with matches and truncation status.
+
+        """
+        uuid = self.image_uuid()
+        return self.client.api.inspect_image_grep(
+            uuid,
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
 
     def popen(
         self,

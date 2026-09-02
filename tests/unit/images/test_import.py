@@ -5,7 +5,6 @@ from contree_client.models import OperationResponse, OperationStatus
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import Contree, ContreeSync
-from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
 from tests.e2e.sdk.images.test_images import test_import_not_real_image as _test_import_not_real_image
 from tests.e2e.sdk.images.test_images import test_import_not_real_image_s as _test_import_not_real_image_s
 from tests.e2e.sdk.images.test_images import test_import_public_image as _test_import_public_image
@@ -108,7 +107,7 @@ async def test_import_cancelled_raises(fake_contree: Contree, fake_api: ContreeA
     fake_api.mock("import_image", operation_id)
     fake_api.mock("wait_operation", OperationResponse(uuid=operation_id, status=OperationStatus.CANCELLED))
 
-    with pytest.raises(CancelledOperationError):
+    with pytest.raises(InterruptedError, match="was cancelled"):
         await fake_contree.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
 
 
@@ -117,35 +116,41 @@ def test_import_cancelled_raises_s(fake_contree_s: ContreeSync, fake_api_s: Cont
     fake_api_s.mock("import_image", operation_id)
     fake_api_s.mock("wait_operation", OperationResponse(uuid=operation_id, status=OperationStatus.CANCELLED))
 
-    with pytest.raises(CancelledOperationError):
+    with pytest.raises(InterruptedError, match="was cancelled"):
         fake_contree_s.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
 
 
 async def test_import_timed_out_raises(fake_contree: Contree, fake_api: ContreeAsyncClient):
     fake_api.mock("import_image", str(uuid4()))
     fake_api.mock("wait_operation", error=TimeoutError("operation did not complete"))
+    fake_api.mock("cancel_operation", None)
 
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         await fake_contree.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
+
+    assert fake_api.calls_for("cancel_operation")
 
 
 def test_import_timed_out_raises_s(fake_contree_s: ContreeSync, fake_api_s: ContreeClient):
     fake_api_s.mock("import_image", str(uuid4()))
     fake_api_s.mock("wait_operation", error=TimeoutError("operation did not complete"))
+    fake_api_s.mock("cancel_operation", None)
 
-    with pytest.raises(OperationTimedOutError):
+    with pytest.raises(TimeoutError):
         fake_contree_s.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
+
+    assert fake_api_s.calls_for("cancel_operation")
 
 
 async def test_import_without_result_uuid_raises(fake_contree: Contree, fake_api: ContreeAsyncClient):
     queue_import(fake_api, result_image_uuid=None)
 
-    with pytest.raises(FailedOperationError, match="no image uuid"):
+    with pytest.raises(RuntimeError, match="no image uuid"):
         await fake_contree.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")
 
 
 def test_import_without_result_uuid_raises_s(fake_contree_s: ContreeSync, fake_api_s: ContreeClient):
     queue_import(fake_api_s, result_image_uuid=None)
 
-    with pytest.raises(FailedOperationError, match="no image uuid"):
+    with pytest.raises(RuntimeError, match="no image uuid"):
         fake_contree_s.images.import_from("docker://ghcr.io/linuxserver/code-server:latest")

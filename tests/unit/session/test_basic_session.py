@@ -63,7 +63,7 @@ def fake_session_multiple(
     # a session mutates itself in place (`copy_self` is a no-op), so each
     # queued run must keep handing back a live `uuid` -- otherwise the next
     # `.run()` in the chain sees an unreferenceable (disposed) image and
-    # raises `DisposableImageRunError`.
+    # raises `RuntimeError`.
     for stdout in ("", "some other step\n", "some data"):
         queue_run(fake_api_s, stdout=stdout, result_image_uuid=str(result_image_uuid))
     return fake_image_s.session()
