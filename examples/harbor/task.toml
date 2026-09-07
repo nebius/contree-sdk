@@ -1,0 +1,19 @@
+schema_version = "1.4"
+
+[task]
+name = "contree/hello-world"
+version = "1.0.0"
+
+[agent]
+timeout_sec = 60
+
+[verifier]
+timeout_sec = 60
+
+[environment]
+docker_image = "docker.io/library/ubuntu:24.04"
+build_timeout_sec = 180
+workdir = "/app"
+
+[environment.env]
+GREETING = "Hello from ConTree"
