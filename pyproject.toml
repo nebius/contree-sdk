@@ -20,7 +20,7 @@ classifiers = [
 dependencies = [
     "strenum",
     "typing-extensions; python_version < '3.13'",
-    "contree-client>=0.2.1",
+    "contree-client>=0.2.1,<0.3",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +72,10 @@ urllib3 = [
 ]
 langchain = [
     "deepagents; python_version >= '3.11'",
+]
+harbor = [
+    "harbor>=0.22,<0.23; python_version >= '3.12'",
+    "contree-client[httpx]>=0.2.1,<0.3; python_version >= '3.12'",
 ]
 
 docs = [
