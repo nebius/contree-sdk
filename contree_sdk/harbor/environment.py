@@ -226,14 +226,19 @@ class ConTreeEnvironment(BaseEnvironment):
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("Command timeout must be finite and positive.")
         previous_uuid = session.uuid
+        # ConTree does not initialize HOME from the executing user's passwd
+        # entry. Bash's unqualified tilde expansion does so when HOME is unset,
+        # without overriding image-defined or Harbor-provided values.
+        command = f'if [ -z "${{HOME+x}}" ]; then export HOME=~; fi\n{command}'
         run = session.run(
-            shell=command,
-            env={**(self._merge_env(env) or {}), "SHELL": "/bin/bash"},
+            command="/bin/bash",
+            args=["-c", command],
+            env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
             timeout=timeout,
             files=files,
             disposable=False,
-            preserve_env=False,
+            preserve_env=True,
             stdout=bytes,
             stderr=bytes,
             truncate_output_at=_OUTPUT_LIMIT,

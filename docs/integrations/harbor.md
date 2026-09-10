@@ -73,7 +73,8 @@ and artifacts into its job directory.
 | Docker Compose and overlays | Unsupported. |
 | `build_timeout_sec` | Bounds image import and environment preparation. |
 | `workdir` | Default command directory; per-command `cwd` overrides it. |
-| Task/trial/command environment variables | Harbor resolves host substitutions. Precedence: task, trial, command, then scoped Harbor overrides. Bash is selected through `SHELL=/bin/bash`. Per-command variables are not saved into subsequent snapshots. |
+| Task/trial/command environment variables | Harbor resolves host substitutions. Precedence: task, trial, command, then scoped Harbor overrides. Commands invoke `/bin/bash -c` directly, independently of `SHELL`. Supplied variables are saved into subsequent snapshots with `preserve_env=True`. |
+| `HOME` | When unset, initialized from the executing user's home directory using Bash. Image-defined and explicit Harbor values, including an empty value, are preserved. |
 | `cpus`, `memory_mb`, and numeric overrides | Not enforced. Harbor `auto` mode warns when a value is supplied; `ignore` explicitly accepts this. `limit`, `request`, and `guarantee` fail. |
 | `storage_mb` and `override_storage_mb` | Accepted with a warning and ignored. The override takes precedence when reporting the requested value. The client's writable-layer byte limit is not equivalent to a total storage allocation. |
 | GPUs, GPU types, TPUs, Windows | Unsupported. |

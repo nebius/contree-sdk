@@ -1,5 +1,8 @@
 import asyncio
 import io
+import os
+import pwd
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -170,12 +173,42 @@ async def test_env_precedence_workdir_and_user(environment, fake_api):
     with environment.scoped_exec_env({"X": "scoped"}):
         await environment.exec("pwd", env={"X": "call", "Y": "call"}, timeout_sec=17, user=0)
     call = fake_api.calls_for("spawn_instance")[-1]
-    assert call.kwargs["env"] == {"X": "scoped", "Y": "call", "SHELL": "/bin/bash"}
+    assert call.args[0] == "/bin/bash"
+    assert call.kwargs["shell"] is False
+    assert call.kwargs["args"][0] == "-c"
+    assert call.kwargs["env"] == {"X": "scoped", "Y": "call"}
     assert call.kwargs["cwd"] == "/app"
     assert call.kwargs["timeout"] == 17
-    assert call.kwargs["preserve_env"] is False
+    assert call.kwargs["preserve_env"] is True
     with environment.with_default_user("nobody"), pytest.raises(ValueError, match="switching users"):
         await environment.exec("id")
+
+
+@pytest.mark.parametrize(
+    ("image_env", "command_env", "expected"),
+    [
+        ({}, {}, None),
+        ({}, {"SHELL": "/nonexistent-shell"}, None),
+        ({"HOME": "/image home"}, {}, "/image home"),
+        ({"HOME": "/image home"}, {"HOME": "/command home"}, "/command home"),
+        ({}, {"HOME": ""}, ""),
+    ],
+)
+async def test_home_fallback(environment, fake_api, image_env, command_env, expected):
+    queue_run(fake_api, result_image_uuid=str(uuid4()))
+    await environment.exec("printenv HOME", env=command_env)
+    call = fake_api.calls_for("spawn_instance")[-1]
+    # Execute the actual executable and arguments sent to ConTree.
+    # The fallback must also export HOME to the command's child processes.
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [call.args[0], *call.kwargs["args"]],
+        env={**image_env, **call.kwargs["env"]},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == (pwd.getpwuid(os.getuid()).pw_dir if expected is None else expected) + "\n"
 
 
 async def test_output_callback(environment, fake_api):
@@ -281,7 +314,7 @@ async def test_upload_dir_includes_empty_dirs_and_symlinks(environment, fake_api
     queue_run(fake_api, result_image_uuid=str(uuid4()))
     await environment.upload_dir(source, "/solution with spaces")
     call = fake_api.calls_for("spawn_instance")[-1]
-    assert "'/solution with spaces'" in call.args[0]
+    assert "'/solution with spaces'" in call.kwargs["args"][1]
     assert len(call.kwargs["files"]) == 1
     uploaded = fake_api.calls_for("ensure_file")[-1].args[0]
     # The testing transport records the uploaded bytes before the temporary
@@ -304,8 +337,8 @@ async def test_startup_uploads_environment_to_image_workdir(
     env = ConTreeEnvironment(**env_kwargs)
     await env.start(force_build=False)
     calls = fake_api.calls_for("spawn_instance")
-    assert calls[-2].args[0] == "pwd"
-    assert "-C /workspace" in calls[-1].args[0]
+    assert calls[-2].kwargs["args"][1].endswith("\npwd")
+    assert "-C /workspace" in calls[-1].kwargs["args"][1]
     assert len(calls[-1].kwargs["files"]) == 1
     await env.stop(delete=True)
 
