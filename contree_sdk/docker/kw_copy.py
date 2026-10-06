@@ -17,13 +17,14 @@ import tarfile
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import IO, ClassVar, TypedDict
 
 from contree_client.exceptions import NotFoundError
 from contree_client.models import File, FileResponse
 
 from contree_sdk.exceptions import DockerBuildError
+from contree_sdk.files import UploadFileSpec
+from contree_sdk.upload_cache import async_upload_snapshot, upload_snapshot
 
 from .context import AsyncBuildContext, BuildContext, PendingFile, resolve_stage_ref
 from .keyword import DockerKeyword
@@ -184,22 +185,18 @@ def record_local_uuid(ctx: BuildContext, sha256: str, file_uuid: str) -> None:
 
 
 def upload_files(ctx: BuildContext, files: list[MappedFile]) -> dict[str, tuple[str, str]]:
-    # upload host files, returning host_path -> (file_uuid, sha256) - the hash is content-addressed
-    # and computed once here, both to key the cache and to reuse as the PendingFile's own sha256
     uploaded: dict[str, tuple[str, str]] = {}
     for mf in files:
-        sha256 = mf.sha256()
-        cached = cached_local_uuid(ctx, sha256)
-        if cached:
-            uploaded[mf.host_path] = (cached, sha256)
-            ctx.file_sources.record(cached, sha256, mf.host_path)
-            continue
-        with Path(mf.host_path).open("rb") as handle:
-            stored = ctx.client.ensure_file(handle, sha256=sha256)
-        file_uuid = str(stored.uuid)
-        uploaded[mf.host_path] = (file_uuid, sha256)
-        record_local_uuid(ctx, sha256, file_uuid)
-        ctx.file_sources.record(file_uuid, sha256, mf.host_path)
+        with upload_snapshot(UploadFileSpec(source=mf.host_path)) as snapshot:
+            sha256 = snapshot.sha256
+            file_uuid = cached_local_uuid(ctx, sha256)
+            if file_uuid is None:
+                with snapshot.open() as handle:
+                    stored = ctx.client.ensure_file(handle, sha256=sha256)
+                file_uuid = str(stored.uuid)
+                record_local_uuid(ctx, sha256, file_uuid)
+            uploaded[mf.host_path] = (file_uuid, sha256)
+            ctx.file_sources.record(file_uuid, sha256, mf.host_path)
     return uploaded
 
 
@@ -381,11 +378,6 @@ async def resolve_stage_image_async(ctx: AsyncBuildContext, ref: str) -> str:
     return await resolve_or_import_async(ctx, ref)
 
 
-async def hash_mapped_file(mf: MappedFile) -> tuple[MappedFile, str]:
-    sha256 = await asyncio.to_thread(mf.sha256)
-    return mf, sha256
-
-
 async def cached_local_uuid_async(ctx: AsyncBuildContext, sha256: str) -> str | None:
     cached = await ctx.cache.get(sha256, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE))
     if isinstance(cached, dict) and cached.get("uuid"):
@@ -399,35 +391,37 @@ async def record_local_uuid_async(ctx: AsyncBuildContext, sha256: str, file_uuid
     )
 
 
-async def upload_one_remote_async(ctx: AsyncBuildContext, mf: MappedFile, sha256: str) -> tuple[MappedFile, str, str]:
-    content = await asyncio.to_thread(Path(mf.host_path).read_bytes)
-    stored = await ctx.client.ensure_file(content, sha256=sha256)
-    return mf, str(stored.uuid), sha256
+async def upload_one_file_async(ctx: AsyncBuildContext, mf: MappedFile) -> tuple[str, str]:
+    async with async_upload_snapshot(UploadFileSpec(source=mf.host_path)) as snapshot:
+        sha256 = snapshot.sha256
+        file_uuid = await cached_local_uuid_async(ctx, sha256)
+        if file_uuid is None:
+            with snapshot.open() as handle:
+                stored = await ctx.client.ensure_file(handle, sha256=sha256)
+            file_uuid = str(stored.uuid)
+            await record_local_uuid_async(ctx, sha256, file_uuid)
+        await ctx.file_sources.record(file_uuid, sha256, mf.host_path)
+        return file_uuid, sha256
 
 
 async def upload_files_async(ctx: AsyncBuildContext, files: list[MappedFile]) -> dict[str, tuple[str, str]]:
-    # upload host files, returning host_path -> (file_uuid, sha256) - the hash is content-addressed
-    # and computed once here, both to key the cache and to reuse as the PendingFile's own sha256
-    hashed = await asyncio.gather(*(hash_mapped_file(mf) for mf in files))
-
+    if ctx.upload_concurrency < 1:
+        raise ValueError("upload_concurrency must be positive")
+    pending = iter(files)
     uploaded: dict[str, tuple[str, str]] = {}
-    pending: list[tuple[MappedFile, str]] = []
-    for mf, sha256 in hashed:
-        cached = await cached_local_uuid_async(ctx, sha256)
-        if cached:
-            uploaded[mf.host_path] = (cached, sha256)
-            await ctx.file_sources.record(cached, sha256, mf.host_path)
-        else:
-            pending.append((mf, sha256))
 
-    if not pending:
-        return uploaded
+    async def worker() -> None:
+        for mf in pending:
+            uploaded[mf.host_path] = await upload_one_file_async(ctx, mf)
 
-    results = await asyncio.gather(*(upload_one_remote_async(ctx, mf, sha256) for mf, sha256 in pending))
-    for mf, file_uuid, sha256 in results:
-        uploaded[mf.host_path] = (file_uuid, sha256)
-        await record_local_uuid_async(ctx, sha256, file_uuid)
-        await ctx.file_sources.record(file_uuid, sha256, mf.host_path)
+    tasks = [asyncio.create_task(worker()) for _ in range(min(ctx.upload_concurrency, len(files)))]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     return uploaded
 
 

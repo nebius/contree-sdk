@@ -1,5 +1,7 @@
 """Docker file and layer reuse must stay within its server scope."""
 
+from pathlib import Path
+
 import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeAsyncClient, ContreeClient
@@ -126,3 +128,94 @@ async def test_shared_layer_store_does_not_reuse_another_server_image(tmp_path, 
         assert await call(builder, "build", tmp_path, session_id="shared") == "result"
         assert len(client.calls_for("spawn_instance")) == 1
         assert len(client.calls_for("ensure_file")) == 1
+
+
+async def test_copy_uploads_the_bytes_used_for_its_fingerprint(cache_case, tmp_path, monkeypatch):
+    import hashlib
+
+    cache, _ = cache_case
+    ctx = context(cache, tmp_path)
+    path = tmp_path / "file"
+    path.write_bytes(b"original")
+    mapped = ctx.local.collect(("file",), "/file", uid=0, gid=0, mode_override=None)
+    handles = []
+
+    def receive(handle, *, sha256):
+        handles.append(handle)
+        path.write_bytes(b"replacement")
+        content = handle.read()
+        assert content == b"original"
+        assert hashlib.sha256(content).hexdigest() == sha256
+        return FileResponse(uuid="file", sha256=sha256, size=len(content))
+
+    async def receive_async(handle, *, sha256):
+        return receive(handle, sha256=sha256)
+
+    if isinstance(ctx, AsyncBuildContext):
+        monkeypatch.setattr(ctx.client, "ensure_file", receive_async)
+        await upload_files_async(ctx, mapped)
+    else:
+        monkeypatch.setattr(ctx.client, "ensure_file", receive)
+        upload_files(ctx, mapped)
+    assert handles[0].closed
+    assert not Path(handles[0].name).exists()
+
+
+async def test_url_stream_uses_temporary_file_and_closes_conditional_body(cache_case, tmp_path, monkeypatch):
+    import hashlib
+
+    cache, _ = cache_case
+    ctx = context(cache, tmp_path)
+    closed = []
+    handles = []
+    chunk = b"\0\xff" * 65536
+    expected = hashlib.sha256(chunk * 8).hexdigest()
+    statuses = iter([200, 304])
+
+    def body():
+        try:
+            for _ in range(8):
+                yield chunk
+        finally:
+            closed.append(True)
+
+    async def async_body():
+        try:
+            for _ in range(8):
+                yield chunk
+        finally:
+            closed.append(True)
+
+    def fetch(url, method, headers):
+        return next(statuses), [("ETag", "etag")], body()
+
+    async def fetch_async(url, method, headers):
+        return next(statuses), [("ETag", "etag")], async_body()
+
+    def receive(content, *, sha256):
+        assert not isinstance(content, bytes)
+        assert sha256 == expected
+        handles.append(content)
+        digest = hashlib.sha256()
+        while data := content.read(65536):
+            digest.update(data)
+        assert digest.hexdigest() == sha256
+        return FileResponse(uuid="url", sha256=sha256, size=len(chunk) * 8)
+
+    async def receive_async(content, *, sha256):
+        return receive(content, sha256=sha256)
+
+    url = "https://example.invalid/file"
+    if isinstance(ctx, AsyncBuildContext):
+        ctx.http_fetch_async = fetch_async
+        monkeypatch.setattr(ctx.client, "ensure_file", receive_async)
+        assert await fetch_url_async(ctx, url) == ("url", expected)
+        assert await fetch_url_async(ctx, url) == ("url", expected)
+    else:
+        ctx.http_fetch = fetch
+        monkeypatch.setattr(ctx.client, "ensure_file", receive)
+        assert fetch_url(ctx, url) == ("url", expected)
+        assert fetch_url(ctx, url) == ("url", expected)
+    assert len(handles) == 1
+    assert handles[0].closed
+    assert len(closed) == 2

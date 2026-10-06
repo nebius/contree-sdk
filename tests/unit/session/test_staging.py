@@ -159,7 +159,8 @@ async def test_stage_upload_is_not_repeated_when_the_source_changes(staging_sess
     path.unlink()
     complete(session)
     await call(session, "run", shell="cat /input", disposable=False)
-    assert session.client.calls_for("ensure_file")[0].args == (b"old contents",)
+    assert session.client.calls_for("ensure_file")[0].args[0].closed
+    assert session.client.calls_for("ensure_file")[0].args[0].name == str(path)
     assert len(session.client.calls_for("ensure_file")) == 1
     assert session.client.calls_for("spawn_instance")[0].kwargs["files"]["/input"].uuid == "upload"
 

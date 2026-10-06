@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+import tempfile
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import Any, ClassVar
+from typing import IO, Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
+from contree_sdk.file_io import run_file_io
 
 from .context import AsyncBuildContext, BuildContext, PendingFile
 from .keyword import DockerKeyword
@@ -125,35 +128,53 @@ def unchanged_by_etag(cached: Any, etag: str | None) -> bool:
     return bool(etag) and isinstance(cached, dict) and cached.get("etag") == etag
 
 
+def iter_url_body(body: Iterable[bytes]) -> Iterator[bytes]:
+    read = getattr(body, "read", None)
+    if read is None:
+        yield from body
+    else:
+        while chunk := read(64 * 1024):
+            yield chunk
+
+
+def write_url_chunk(handle: IO[bytes], chunk: bytes, digest: Any) -> None:
+    handle.write(chunk)
+    digest.update(chunk)
+
+
 def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
-    # conditional GET against the previously cached ETag/Last-Modified for this URL;
-    # a 304 (empty body) reuses the cached (file_uuid, sha256) without re-uploading
     cached = ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
-
     status, headers, body = ctx.http_fetch(url, "GET", conditional_headers_for(cached))
-    if status == HTTP_NOT_MODIFIED:
-        hit = cached_uuid_sha256(cached)
-        if hit is not None:
+    with tempfile.TemporaryFile() as content:
+        digest = hashlib.sha256()
+        try:
+            for chunk in iter_url_body(body):
+                write_url_chunk(content, chunk, digest)
+        finally:
+            close = getattr(body, "close", None)
+            if close is not None:
+                close()
+        if status == HTTP_NOT_MODIFIED:
+            hit = cached_uuid_sha256(cached)
+            if hit is None:
+                raise DockerBuildError("URL returned 304 without a valid cached upload")
             ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
+        if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
+            raise DockerBuildError(f"URL download failed with HTTP {status}")
 
-        raise DockerBuildError("URL returned 304 without a valid cached upload")
-    if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
-        raise DockerBuildError(f"URL download failed with HTTP {status}")
+        header_map = {key.lower(): value for key, value in headers}
+        etag = header_map.get("etag")
+        last_modified = header_map.get("last-modified")
+        if unchanged_by_etag(cached, etag):
+            hit = cached_uuid_sha256(cached)
+            if hit is not None:
+                ctx.file_sources.record(hit[0], hit[1], url, kind="url")
+                return hit
 
-    content = b"".join(body)
-    header_map = {key.lower(): value for key, value in headers}
-    etag = header_map.get("etag")
-    last_modified = header_map.get("last-modified")
-
-    if unchanged_by_etag(cached, etag):
-        hit = cached_uuid_sha256(cached)
-        if hit is not None:
-            ctx.file_sources.record(hit[0], hit[1], url, kind="url")
-            return hit
-
-    sha256 = hashlib.sha256(content).hexdigest()
-    stored = ctx.client.ensure_file(content, sha256=sha256)
+        sha256 = digest.hexdigest()
+        content.seek(0)
+        stored = ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
     ctx.cache.set(
         url,
@@ -185,32 +206,37 @@ def stage_urls(
 
 async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
     cached = await ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
-
     status, headers, body = await ctx.http_fetch_async(url, "GET", conditional_headers_for(cached))
-    if status == HTTP_NOT_MODIFIED:
-        hit = cached_uuid_sha256(cached)
-        if hit is not None:
+    with tempfile.TemporaryFile() as content:
+        digest = hashlib.sha256()
+        try:
+            async for chunk in body:
+                await run_file_io(write_url_chunk, content, chunk, digest)
+        finally:
+            close = getattr(body, "aclose", None)
+            if close is not None:
+                await close()
+        if status == HTTP_NOT_MODIFIED:
+            hit = cached_uuid_sha256(cached)
+            if hit is None:
+                raise DockerBuildError("URL returned 304 without a valid cached upload")
             await ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
+        if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
+            raise DockerBuildError(f"URL download failed with HTTP {status}")
 
-        raise DockerBuildError("URL returned 304 without a valid cached upload")
-    if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
-        raise DockerBuildError(f"URL download failed with HTTP {status}")
+        header_map = {key.lower(): value for key, value in headers}
+        etag = header_map.get("etag")
+        last_modified = header_map.get("last-modified")
+        if unchanged_by_etag(cached, etag):
+            hit = cached_uuid_sha256(cached)
+            if hit is not None:
+                await ctx.file_sources.record(hit[0], hit[1], url, kind="url")
+                return hit
 
-    chunks = [chunk async for chunk in body]
-    content = b"".join(chunks)
-    header_map = {key.lower(): value for key, value in headers}
-    etag = header_map.get("etag")
-    last_modified = header_map.get("last-modified")
-
-    if unchanged_by_etag(cached, etag):
-        hit = cached_uuid_sha256(cached)
-        if hit is not None:
-            await ctx.file_sources.record(hit[0], hit[1], url, kind="url")
-            return hit
-
-    sha256 = hashlib.sha256(content).hexdigest()
-    stored = await ctx.client.ensure_file(content, sha256=sha256)
+        sha256 = digest.hexdigest()
+        await run_file_io(content.seek, 0)
+        stored = await ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
     await ctx.cache.set(
         url,

@@ -77,7 +77,8 @@ assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 from pathlib import Path
 
 source_file = doc_api.sync.calls_for("ensure_file")[0].args[0]
-assert Path(source_file.name).read_bytes() == b"Hello from a built image!\n"
+assert source_file.closed
+assert not Path(source_file.name).exists()
 assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
 assert capsys.readouterr().out == "Hello from a built image!\n"
 ```
@@ -120,7 +121,7 @@ async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.env
 name: test_build_async
 ```python
 assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert doc_api.async_client.calls_for("ensure_file")[0].args == (b"Hello from a built image!\n",)
+assert doc_api.async_client.calls_for("ensure_file")[0].args[0].closed
 assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
 assert capsys.readouterr().out == "Hello from a built image!\n"
 ```
@@ -331,3 +332,9 @@ The default upload lifetime is 90 days. Cache hits and URL responses with status
 `context.upload_cache_ttl` to choose a shorter lifetime for your server. Expiry
 causes a new upload when the directive runs; it does not invalidate an existing
 image layer. A 304 response without a live cached upload raises `DockerBuildError`.
+
+Local COPY uses a temporary snapshot for its content hash and upload. Async COPY
+limits concurrent snapshots and uploads through `context.upload_concurrency`
+(default four). URL ADD streams into a temporary file before upload and closes the
+response body, including conditional responses. These paths bound memory usage;
+temporary disk space must hold the files currently being prepared.

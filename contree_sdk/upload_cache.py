@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections.abc import AsyncIterator, Iterator
+import io
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import IO
 
 from contree_client.models import FileSpec
 
@@ -28,6 +30,14 @@ class UploadSnapshot:
     sha256: str
     source: str | None = None
     directory: TemporaryDirectory[str] | None = None
+
+    def open(self) -> IO[bytes]:
+        source = self.file.source
+        if isinstance(source, bytes):
+            return io.BytesIO(source)
+        if isinstance(source, UploadedFile):
+            raise TypeError("uploaded references do not have local bytes")
+        return Path(source).open("rb")
 
     def close(self) -> None:
         if self.directory is not None:
@@ -110,6 +120,8 @@ class CachedFileTransfer(SyncFileTransfer):
     ) -> None:
         expiration(ttl, 0)
         self.transfer = transfer
+        self.max_concurrency = transfer.max_concurrency
+        self.on_progress = transfer.on_progress
         self.cache = ScopedSyncCache(cache, scope)
         self.ttl = ttl
         self.sources = sources if sources is not None else SyncFileSources(cache, scope)
@@ -131,6 +143,9 @@ class CachedFileTransfer(SyncFileTransfer):
 
     def read_file(self, image_uuid: str, path: str) -> bytes:
         return self.transfer.read_file(image_uuid, path)
+
+    def iter_file(self, image_uuid: str, path: str) -> Generator[bytes, None, None]:
+        return self.transfer.iter_file(image_uuid, path)
 
     def read_stdin(self, source: InputSource) -> str | bytes:
         return self.transfer.read_stdin(source)
@@ -154,6 +169,8 @@ class AsyncCachedFileTransfer(AsyncFileTransfer):
     ) -> None:
         expiration(ttl, 0)
         self.transfer = transfer
+        self.max_concurrency = transfer.max_concurrency
+        self.on_progress = transfer.on_progress
         self.cache = ScopedAsyncCache(cache, scope)
         self.ttl = ttl
         self.sources = sources if sources is not None else AsyncFileSources(cache, scope)
@@ -175,6 +192,9 @@ class AsyncCachedFileTransfer(AsyncFileTransfer):
 
     async def read_file(self, image_uuid: str, path: str) -> bytes:
         return await self.transfer.read_file(image_uuid, path)
+
+    def iter_file(self, image_uuid: str, path: str) -> AsyncGenerator[bytes, None]:
+        return self.transfer.iter_file(image_uuid, path)
 
     async def read_stdin(self, source: InputSource) -> str | bytes:
         return await self.transfer.read_stdin(source)

@@ -133,6 +133,7 @@ class BuildContext:
     progress: BuildProgress = field(default_factory=BuildProgress)
 
     upload_cache_ttl: float = 90 * 24 * 3600
+    upload_concurrency: int = 4
 
     def cache_namespace(self, namespace: str) -> str:
         return CacheScope.from_client(self.client).namespace(namespace)
@@ -372,6 +373,7 @@ class AsyncBuildContext:
             await self.directive_executor(directive, self)
 
     upload_cache_ttl: float = 90 * 24 * 3600
+    upload_concurrency: int = 4
 
     def cache_namespace(self, namespace: str) -> str:
         return CacheScope.from_client(self.client).namespace(namespace)

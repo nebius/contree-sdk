@@ -127,7 +127,12 @@ Inherit `SyncFileTransfer` or `AsyncFileTransfer` and implement:
 - `upload(UploadFileSpec) -> FileSpec`: return a file identifier valid on the session's server.
 - `read_file(image_uuid, path) -> bytes`: return exact bytes from the specified image.
 
-The default `prepare_files()` normalizes inputs and calls `upload()` for each file.
+The default `prepare_files()` expands directories, rejects destination conflicts,
+and calls `upload()` with a bounded worker count. Set `max_concurrency` on a custom
+transfer to select that limit. Override `iter_file()` to yield chunks and release
+its reader when the generator closes. Its default implementation buffers through
+`read_file()`. The inherited `download_file()` writes those chunks atomically.
+See {doc}`files` for tree preparation, callbacks, cancellation, and ownership.
 The async implementation cancels and joins sibling uploads if one fails. Override
 this method for batching or bounded concurrency. Override `read_stdin()` to support
 additional input handling. Never close a caller-owned input stream.
