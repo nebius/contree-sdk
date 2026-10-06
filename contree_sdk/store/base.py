@@ -5,7 +5,8 @@ from collections.abc import Iterable
 from types import EllipsisType
 
 from contree_sdk.compat import Self
-from contree_sdk.store.models import HistoryEntry, HistorySnapshot, SessionMetadata, SessionSummary
+from contree_sdk.exceptions import SessionConflictError
+from contree_sdk.store.models import HistoryEntry, HistorySnapshot, SessionMetadata, SessionSummary, StagedFile
 
 
 class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
@@ -27,6 +28,8 @@ class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
         """Append an entry and advance the named or active branch atomically.
@@ -103,6 +106,52 @@ class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
         head, or metadata. The returned view must not retain live store state.
         """
 
+    def stage_files(
+        self,
+        session_id: str,
+        attachments: Iterable[StagedFile],
+        *,
+        branch: str | None = None,
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        """Append staging to an existing branch without starting a VM.
+
+        Returns:
+            The staging entry on the selected branch.
+
+        Raises:
+            ValueError: The batch is empty, paths repeat, or the session or branch is missing.
+            SessionConflictError: The selected branch changed before staging could be saved.
+
+        """
+        batch = tuple(attachments)
+        if not batch:
+            raise ValueError("staging requires at least one attachment")
+        snapshot = self.read_session(session_id)
+        parent = snapshot.resolve(branch=branch)
+        name = branch if branch is not None else snapshot.summary().active_branch
+        if expected_tip is not Ellipsis and parent.id != expected_tip:
+            raise SessionConflictError(f"branch {name!r} changed in session {session_id!r}")
+        return self.append(
+            session_id,
+            image_uuid=parent.image_uuid,
+            parent_id=parent.id,
+            kind="stage",
+            branch=name,
+            attachments=batch,
+            expected_tip=parent.id,
+        )
+
+    def pending_files(
+        self,
+        session_id: str,
+        *,
+        history_id: int | None = None,
+        branch: str | None = None,
+    ) -> tuple[StagedFile, ...]:
+        snapshot = self.read_session(session_id)
+        return snapshot.pending_files(history_id=history_id, branch=branch)
+
     def resolve_history(
         self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None
     ) -> HistoryEntry:
@@ -169,6 +218,8 @@ class AsyncStore(ABC):  # noqa: PLR0904 - public extension contract
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
         """Append an entry and advance the named or active branch atomically.
@@ -244,6 +295,52 @@ class AsyncStore(ABC):  # noqa: PLR0904 - public extension contract
         Raise ValueError for an unknown session. Never change its active branch,
         head, or metadata. The returned view must not retain live store state.
         """
+
+    async def stage_files(
+        self,
+        session_id: str,
+        attachments: Iterable[StagedFile],
+        *,
+        branch: str | None = None,
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        """Append staging to an existing branch without starting a VM.
+
+        Returns:
+            The staging entry on the selected branch.
+
+        Raises:
+            ValueError: The batch is empty, paths repeat, or the session or branch is missing.
+            SessionConflictError: The selected branch changed before staging could be saved.
+
+        """
+        batch = tuple(attachments)
+        if not batch:
+            raise ValueError("staging requires at least one attachment")
+        snapshot = await self.read_session(session_id)
+        parent = snapshot.resolve(branch=branch)
+        name = branch if branch is not None else snapshot.summary().active_branch
+        if expected_tip is not Ellipsis and parent.id != expected_tip:
+            raise SessionConflictError(f"branch {name!r} changed in session {session_id!r}")
+        return await self.append(
+            session_id,
+            image_uuid=parent.image_uuid,
+            parent_id=parent.id,
+            kind="stage",
+            branch=name,
+            attachments=batch,
+            expected_tip=parent.id,
+        )
+
+    async def pending_files(
+        self,
+        session_id: str,
+        *,
+        history_id: int | None = None,
+        branch: str | None = None,
+    ) -> tuple[StagedFile, ...]:
+        snapshot = await self.read_session(session_id)
+        return snapshot.pending_files(history_id=history_id, branch=branch)
 
     async def resolve_history(
         self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None

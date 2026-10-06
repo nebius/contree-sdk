@@ -5,6 +5,62 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import PurePosixPath
+from types import EllipsisType
+
+from contree_client.models import FileSpec
+
+
+@dataclass(frozen=True)
+class StagedFile:
+    """An uploaded file and its destination metadata, detached from a local source."""
+
+    path: str
+    uuid: str
+    uid: int | None = 0
+    gid: int | None = 0
+    mode: int | None = 0o644
+
+    def __post_init__(self) -> None:
+        if not self.path or not self.uuid:
+            raise ValueError("staged files require a destination path and upload UUID")
+        object.__setattr__(self, "path", str(PurePosixPath(self.path)))
+
+    @classmethod
+    def from_spec(cls, path: str, spec: FileSpec) -> StagedFile:
+        """Copy a transport attachment, preserving omitted permission fields.
+
+        Returns:
+            A detached attachment with an octal mode converted to an integer.
+
+        Raises:
+            ValueError: The upload UUID is missing or the mode is not octal.
+
+        """
+        if spec.uuid is Ellipsis:
+            raise ValueError("staged files require an upload UUID")
+        mode = None if isinstance(spec.mode, EllipsisType) else spec.mode
+        return cls(
+            path,
+            spec.uuid,
+            None if isinstance(spec.uid, EllipsisType) else spec.uid,
+            None if isinstance(spec.gid, EllipsisType) else spec.gid,
+            int(mode, 8) if isinstance(mode, str) else mode,
+        )
+
+    def as_spec(self) -> FileSpec:
+        """Create a transport attachment without reading or uploading its source.
+
+        Returns:
+            A new FileSpec with the recorded metadata.
+
+        """
+        return FileSpec(
+            uuid=self.uuid,
+            uid=self.uid if self.uid is not None else ...,
+            gid=self.gid if self.gid is not None else ...,
+            mode=self.mode if self.mode is not None else ...,
+        )
 
 
 @dataclass(frozen=True)
@@ -19,6 +75,8 @@ class HistoryEntry:
     exit_code: int | None
     created_at: datetime
     files: tuple[str, ...] = ()
+    attachments: tuple[StagedFile, ...] = ()
+    applied_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -108,6 +166,28 @@ class HistorySnapshot:
             raise ValueError(f"history entry {entry.id} has no operation UUID")
         return entry.operation_uuid
 
+    def pending_files(self, *, history_id: int | None = None, branch: str | None = None) -> tuple[StagedFile, ...]:
+        """Read the newest unapplied attachment per path on the selected ancestry.
+
+        Returns:
+            Attachments ordered by destination path.
+
+        """
+        entry = self.resolve(history_id=history_id, branch=branch)
+        entries = {item.id: item for item in self.entries if item.session_id == self.session_id}
+        seen: set[str] = set()
+        pending: dict[str, StagedFile] = {}
+        while True:
+            for attachment in entry.attachments:
+                if attachment.path not in seen:
+                    pending[attachment.path] = attachment
+                    seen.add(attachment.path)
+            seen.update(entry.applied_files)
+            if entry.parent_id is None:
+                break
+            entry = entries[entry.parent_id]
+        return tuple(pending[path] for path in sorted(pending))
+
     def summary(self) -> SessionSummary:
         """Summarize the snapshot, including all entries in its DAG.
 
@@ -164,3 +244,8 @@ def validate_prune(prefix: str, keep: Iterable[str]) -> frozenset[str]:
     if isinstance(keep, str):
         raise TypeError("keep must be an iterable of branch names, not one string")
     return frozenset(keep)
+
+
+def validate_attachments(attachments: tuple[StagedFile, ...]) -> None:
+    if len({item.path for item in attachments}) != len(attachments):
+        raise ValueError("duplicate staged destination path")

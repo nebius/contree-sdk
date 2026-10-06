@@ -297,3 +297,19 @@ async def test_policy_future_failure_wakes_controller_and_preserves_error():
     await wait_state(lazy, lambda: lazy.phase == "failed")
     assert lazy.error is error
     await lazy.abort()
+
+
+async def test_staged_files_are_consumed_only_when_lazy_vm_is_snapshotted():
+    from contree_sdk.files import UploadedFile, UploadFileSpec
+
+    client = LiveAsyncClient()
+    base = ContreeAsyncSession(client, image="base")
+    staged = await base.stage_files({"/input": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
+    async with AsyncLazySession(base) as lazy:
+        await lazy.run("cat /input")
+        assert await base.pending_files() == staged.attachments
+        assert client.calls_for("spawn_instance")[0].kwargs["files"]["/input"].uuid == "upload"
+        await lazy.snapshot(timeout=2)
+        assert await base.pending_files() == ()
+    await base.rollback()
+    assert await base.pending_files() == staged.attachments

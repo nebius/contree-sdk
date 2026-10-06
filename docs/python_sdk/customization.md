@@ -82,7 +82,7 @@ The execution order is:
 1. Construct a `RunRequest` from `run()` or `spawn()` arguments, or pass it to `execute()` directly.
 2. Load session state. The synchronous session initializes in its constructor; the async session initializes on first use.
 3. Call `prepare_request()` before uploads or command submission.
-4. Capture the source image, history entry, and branch. Prepare files and stdin through the file-transfer component.
+4. Capture the source image, history entry, and branch. Load pending attachments from that entry, then overlay explicit files and prepare stdin through the file-transfer component.
 5. Call `submit_request()` with the effective request and prepared inputs.
 6. Call `create_operation()`. Bind its `OperationContext` to the effective request and source history position.
 7. For `execute()` or an awaited `run()`, wait for completion and commit the effective request when `disposable=False`.
@@ -364,3 +364,21 @@ assert session.image_uuid == "8a0269a2-7720-4daa-aa96-dca93b20bb33"
 assert session.client.calls_for("resolve_image") == []
 ```
 -->
+
+### Persist staged attachments in a custom store
+
+`append()` must save `attachments` and `applied_files` in the same transaction as
+the history entry and branch pointer. `get_entry()` and `read_session()` must
+restore both fields. `HistoryEntry.files` remains an informational list of paths;
+it does not control staging consumption.
+
+The default `stage_files()` uses `read_session()` and a conditional `append()`.
+It creates a history entry with the same image as its parent. The default
+`pending_files()` walks the selected ancestry through `HistorySnapshot`.
+For each destination, the newest attachment replaces older versions. An applied
+path hides earlier attachments on that ancestry. Attachments added on the same
+entry as an applied path remain pending; consumption applies to its ancestors.
+
+Deleting a session must also remove its attachment and consumption records.
+Native SQLite stores use additional v1 tables and retain existing v1 history.
+See {doc}`files` for executable staging and rollback examples.

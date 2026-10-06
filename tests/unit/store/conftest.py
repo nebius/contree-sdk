@@ -31,3 +31,19 @@ async def async_store(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIt
     store = AsyncSQLiteStore(tmp_path / "sessions.db")
     yield store
     await store.close()
+
+
+@pytest.fixture(params=["memory", "sqlite", "async-memory", "async-sqlite"])
+async def store_case(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIterator[SyncStore | AsyncStore]:
+    factories = {
+        "memory": SyncMemoryStore,
+        "sqlite": lambda: SyncSQLiteStore(tmp_path / "history.db"),
+        "async-memory": AsyncMemoryStore,
+        "async-sqlite": lambda: AsyncSQLiteStore(tmp_path / "history.db"),
+    }
+    store = factories[request.param]()
+    yield store
+    if isinstance(store, (AsyncMemoryStore, AsyncSQLiteStore)):
+        await store.close()
+    else:
+        store.close()

@@ -216,3 +216,144 @@ assert capsys.readouterr().out == "script output\n"
 -->
 
 ::::
+
+## Stage files for a later command
+
+`stage_files()` uploads content and appends a `stage` history entry. It does not
+start a VM or change the image. `pending_files()` returns the uploaded UUID,
+destination path, and permissions for each pending attachment.
+
+Use a SQLite store to keep staging between processes. The next `run()` or `spawn()`
+attaches pending files from its source history entry. Local sources are no longer
+needed after staging succeeds.
+
+This example stages a configuration file, closes the store, and resumes the session.
+A committed run consumes the attachment. Rolling back that run restores the pending
+attachment with its original permissions.
+
+::::{tab} Sync
+
+<!--
+name: test_durable_staging; fixtures: doc_api
+```python
+doc_api.complete()
+```
+-->
+
+```python
+from contree_client.sync import ContreeClient
+
+from contree_sdk import ContreeSession
+from contree_sdk.files import UploadFileSpec
+from contree_sdk.store import SyncSQLiteStore
+
+with ContreeClient.from_profile() as client:
+    with SyncSQLiteStore("staging.db") as store:
+        session = ContreeSession(client, image="tag:tutorial-base", session_id="edit-demo", store=store)
+        staged = session.stage_files(
+            {
+                "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
+            }
+        )
+        pending = session.pending_files()
+        assert pending[0].mode == 0o640
+
+    with SyncSQLiteStore("staging.db") as store:
+        session = ContreeSession(client, session_id="edit-demo", store=store)
+        assert session.pending_files() == pending
+        session.run(shell="cat /work/config.ini", disposable=False)
+        assert session.pending_files() == ()
+        session.rollback()
+        assert session.tip_id == staged.id
+        assert session.pending_files() == pending
+```
+
+<!--
+name: test_durable_staging
+```python
+assert len(doc_api.sync.calls_for("ensure_file")) == 1
+assert len(doc_api.sync.calls_for("spawn_instance")) == 1
+attached = doc_api.sync.calls_for("spawn_instance")[0].kwargs["files"]["/work/config.ini"]
+assert (attached.uuid, attached.uid, attached.gid, attached.mode) == ("uploaded-file", 1000, 1000, "0640")
+with SyncSQLiteStore("staging.db") as reopened:
+    assert reopened.pending_files("edit-demo") == pending
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_durable_staging_async; fixtures: doc_api
+```python
+doc_api.complete()
+```
+-->
+
+```python
+from contree_client.asyncio import ContreeAsyncClient
+
+from contree_sdk import ContreeAsyncSession
+from contree_sdk.files import UploadFileSpec
+from contree_sdk.store import AsyncSQLiteStore
+
+async with ContreeAsyncClient.from_profile() as client:
+    async with AsyncSQLiteStore("staging-async.db") as store:
+        session = ContreeAsyncSession(client, image="tag:tutorial-base", session_id="edit-demo", store=store)
+        staged = await session.stage_files(
+            {
+                "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
+            }
+        )
+        pending = await session.pending_files()
+        assert pending[0].mode == 0o640
+
+    async with AsyncSQLiteStore("staging-async.db") as store:
+        session = ContreeAsyncSession(client, session_id="edit-demo", store=store)
+        assert await session.pending_files() == pending
+        await session.run(shell="cat /work/config.ini", disposable=False)
+        assert await session.pending_files() == ()
+        await session.rollback()
+        assert session.tip_id == staged.id
+        assert await session.pending_files() == pending
+```
+
+<!--
+name: test_durable_staging_async
+```python
+assert len(doc_api.async_client.calls_for("ensure_file")) == 1
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
+attached = doc_api.async_client.calls_for("spawn_instance")[0].kwargs["files"]["/work/config.ini"]
+assert (attached.uuid, attached.uid, attached.gid, attached.mode) == ("uploaded-file", 1000, 1000, "0640")
+async with AsyncSQLiteStore("staging-async.db") as reopened:
+    assert await reopened.pending_files("edit-demo") == pending
+```
+-->
+
+::::
+
+Staging follows history ancestry. A new branch inherits the pending files at its
+starting entry. Staging another version of the same path changes only that branch.
+Rolling back a staging entry restores the previous version, if one exists.
+
+Explicit `run(files=...)` attachments take precedence over pending files with the
+same destination. A committed result records all attached paths as applied, including
+those explicit replacements. A disposable run, failed operation, cancelled operation,
+or failed commit leaves the source staging available. Nonzero command exit codes
+follow the session's normal commit behavior.
+
+Concurrent changes to the target branch raise `SessionConflictError`. The operation
+still has its result and context, so it can be committed to a new branch with
+`commit_result(operation, branch="result")`. Do not retry a stale commit against
+the changed branch without choosing which history to retain.
+
+`read_file()` reads the current image; staged attachments appear there only after a
+committed run. For `LazySession`, pending attachments enter the VM at startup and
+are consumed when its snapshot commits. Stage inputs before starting that VM.
+
+Custom integrations can use `store.stage_files(session_id, attachments, branch=...)`
+with public `StagedFile` values for already uploaded content. Store-level
+`pending_files()` accepts a history ID or exact branch name. Both native sync and
+async stores provide these methods. The store does not verify whether an uploaded
+UUID still exists on the server.

@@ -4,25 +4,10 @@ import inspect
 
 import pytest
 
-from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, SyncMemoryStore, SyncSQLiteStore
-
 
 async def call(store, method, *args, **kwargs):
     value = getattr(store, method)(*args, **kwargs)
     return await value if inspect.isawaitable(value) else value
-
-
-@pytest.fixture(params=["memory", "sqlite", "async-memory", "async-sqlite"])
-async def store_case(request, tmp_path):
-    factories = {
-        "memory": SyncMemoryStore,
-        "sqlite": lambda: SyncSQLiteStore(tmp_path / "history.db"),
-        "async-memory": AsyncMemoryStore,
-        "async-sqlite": lambda: AsyncSQLiteStore(tmp_path / "history.db"),
-    }
-    store = factories[request.param]()
-    yield store
-    await call(store, "close")
 
 
 async def populate(store):

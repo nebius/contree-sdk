@@ -13,7 +13,14 @@ from typing import Any
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
-from contree_sdk.store.models import HistorySnapshot, history_snapshot, prune_selection, validate_prune
+from contree_sdk.store.models import (
+    HistorySnapshot,
+    StagedFile,
+    history_snapshot,
+    prune_selection,
+    validate_attachments,
+    validate_prune,
+)
 
 
 try:
@@ -73,6 +80,23 @@ CREATE TABLE IF NOT EXISTS session_history_files_v1 (
     file_path  TEXT NOT NULL,
     PRIMARY KEY (history_id, file_path)
 );
+
+CREATE TABLE IF NOT EXISTS session_history_attachments_v1 (
+    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
+    file_path TEXT NOT NULL,
+    upload_uuid TEXT NOT NULL,
+    uid INTEGER,
+    gid INTEGER,
+    mode INTEGER,
+    PRIMARY KEY (history_id, file_path)
+);
+
+CREATE TABLE IF NOT EXISTS session_history_applied_files_v1 (
+    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
+    file_path TEXT NOT NULL,
+    PRIMARY KEY (history_id, file_path)
+);
+
 """
 
 
@@ -82,7 +106,16 @@ def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def entry_from_row(row: Any, files: tuple[str, ...] = ()) -> HistoryEntry:
+def attachment_from_row(row: Any) -> StagedFile:
+    return StagedFile(row["file_path"], row["upload_uuid"], row["uid"], row["gid"], row["mode"])
+
+
+def entry_from_row(
+    row: Any,
+    files: tuple[str, ...] = (),
+    attachments: tuple[StagedFile, ...] = (),
+    applied_files: tuple[str, ...] = (),
+) -> HistoryEntry:
     # column values are naive UTC (SQLite's strftime('%Y-%m-%dT%H:%M:%S','now')), so
     # attach tzinfo explicitly to match MemoryStore's datetime.now(timezone.utc)
     return HistoryEntry(
@@ -96,6 +129,8 @@ def entry_from_row(row: Any, files: tuple[str, ...] = ()) -> HistoryEntry:
         exit_code=row["exit_code"],
         created_at=datetime.fromisoformat(row["created_at"]).replace(tzinfo=timezone.utc),
         files=files,
+        attachments=attachments,
+        applied_files=applied_files,
     )
 
 
@@ -111,7 +146,7 @@ class SyncSQLiteStore(SyncStore):
     `session_env_v1`, `session_history_files_v1`. A future schema change
     bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
     tables in place - old data under the previous suffix is abandoned, not
-    migrated forward.
+    migrated forward. Additive attachment and consumption tables preserve v1 history.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -161,7 +196,21 @@ class SyncSQLiteStore(SyncStore):
             ).fetchone()
         if row is None:
             raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-        return entry_from_row(row, self.files_for(history_id))
+        with self.rlock:
+            attachments = self.conn.execute(
+                "SELECT * FROM session_history_attachments_v1 WHERE history_id = ? ORDER BY file_path",
+                (history_id,),
+            ).fetchall()
+            applied = self.conn.execute(
+                "SELECT file_path FROM session_history_applied_files_v1 WHERE history_id = ? ORDER BY file_path",
+                (history_id,),
+            ).fetchall()
+            return entry_from_row(
+                row,
+                self.files_for(history_id),
+                tuple(attachment_from_row(item) for item in attachments),
+                tuple(item["file_path"] for item in applied),
+            )
 
     def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         return self.get_entry_row(session_id, history_id)
@@ -232,8 +281,11 @@ class SyncSQLiteStore(SyncStore):
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
+        validate_attachments(attachments)
         with self.rlock, self.transaction():
             self.conn.execute("BEGIN IMMEDIATE")
             branch_name = branch or self.active_branch(session_id) or "main"
@@ -259,6 +311,15 @@ class SyncSQLiteStore(SyncStore):
                     "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
                     (new_id, path),
                 )
+            self.conn.executemany(
+                "INSERT INTO session_history_attachments_v1 "
+                "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
+                [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
+            )
+            self.conn.executemany(
+                "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
+                [(new_id, path) for path in sorted(set(applied_files))],
+            )
             self.conn.execute(
                 """
                 INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
@@ -467,6 +528,16 @@ class SyncSQLiteStore(SyncStore):
                 """,
                 (session_id,),
             )
+            self.conn.execute(
+                "DELETE FROM session_history_attachments_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
+                (session_id,),
+            )
+            self.conn.execute(
+                "DELETE FROM session_history_applied_files_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
+                (session_id,),
+            )
             self.conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
@@ -489,6 +560,16 @@ class SyncSQLiteStore(SyncStore):
                 """,
                 (session_id,),
             ).fetchall()
+            attachment_rows = self.conn.execute(
+                "SELECT * FROM session_history_attachments_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
+                (session_id,),
+            ).fetchall()
+            applied_rows = self.conn.execute(
+                "SELECT * FROM session_history_applied_files_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
+                (session_id,),
+            ).fetchall()
             branch_rows = self.conn.execute(
                 "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
                 (session_id,),
@@ -496,7 +577,21 @@ class SyncSQLiteStore(SyncStore):
         files_map: dict[int, list[str]] = {}
         for row in file_rows:
             files_map.setdefault(row["history_id"], []).append(row["file_path"])
-        entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
+        attachments_map: dict[int, list[StagedFile]] = {}
+        for row in attachment_rows:
+            attachments_map.setdefault(row["history_id"], []).append(attachment_from_row(row))
+        applied_map: dict[int, list[str]] = {}
+        for row in applied_rows:
+            applied_map.setdefault(row["history_id"], []).append(row["file_path"])
+        entries = [
+            entry_from_row(
+                row,
+                tuple(files_map.get(row["id"], ())),
+                tuple(attachments_map.get(row["id"], ())),
+                tuple(applied_map.get(row["id"], ())),
+            )
+            for row in rows
+        ]
         branch_map: dict[int, list[str]] = {}
         for row in branch_rows:
             branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
@@ -528,7 +623,20 @@ async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> Hi
     row = await cursor.fetchone()
     if row is None:
         raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-    return entry_from_row(row, await files_for_async(conn, history_id))
+    attachment_cursor = await conn.execute(
+        "SELECT * FROM session_history_attachments_v1 WHERE history_id = ? ORDER BY file_path",
+        (history_id,),
+    )
+    applied_cursor = await conn.execute(
+        "SELECT file_path FROM session_history_applied_files_v1 WHERE history_id = ? ORDER BY file_path",
+        (history_id,),
+    )
+    return entry_from_row(
+        row,
+        await files_for_async(conn, history_id),
+        tuple(attachment_from_row(item) for item in await attachment_cursor.fetchall()),
+        tuple(item["file_path"] for item in await applied_cursor.fetchall()),
+    )
 
 
 async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
@@ -573,6 +681,18 @@ async def history_dag_async(conn: Any, session_id: str) -> tuple[list[HistoryEnt
         (session_id,),
     )
     file_rows = await file_cursor.fetchall()
+    attachment_cursor = await conn.execute(
+        "SELECT * FROM session_history_attachments_v1 WHERE history_id IN "
+        "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
+        (session_id,),
+    )
+    attachment_rows = await attachment_cursor.fetchall()
+    applied_cursor = await conn.execute(
+        "SELECT * FROM session_history_applied_files_v1 WHERE history_id IN "
+        "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
+        (session_id,),
+    )
+    applied_rows = await applied_cursor.fetchall()
     branch_cursor = await conn.execute(
         "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
         (session_id,),
@@ -581,7 +701,21 @@ async def history_dag_async(conn: Any, session_id: str) -> tuple[list[HistoryEnt
     files_map: dict[int, list[str]] = {}
     for row in file_rows:
         files_map.setdefault(row["history_id"], []).append(row["file_path"])
-    entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
+    attachments_map: dict[int, list[StagedFile]] = {}
+    for row in attachment_rows:
+        attachments_map.setdefault(row["history_id"], []).append(attachment_from_row(row))
+    applied_map: dict[int, list[str]] = {}
+    for row in applied_rows:
+        applied_map.setdefault(row["history_id"], []).append(row["file_path"])
+    entries = [
+        entry_from_row(
+            row,
+            tuple(files_map.get(row["id"], ())),
+            tuple(attachments_map.get(row["id"], ())),
+            tuple(applied_map.get(row["id"], ())),
+        )
+        for row in rows
+    ]
     branch_map: dict[int, list[str]] = {}
     for row in branch_rows:
         branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
@@ -602,7 +736,7 @@ class AsyncSQLiteStore(AsyncStore):
     `session_env_v1`, `session_history_files_v1`. A future schema change
     bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
     tables in place - old data under the previous suffix is abandoned, not
-    migrated forward.
+    migrated forward. Additive attachment and consumption tables preserve v1 history.
     """
 
     def __init__(self, db_path: str | Path) -> None:
@@ -704,8 +838,11 @@ class AsyncSQLiteStore(AsyncStore):
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
+        validate_attachments(attachments)
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
             await conn.execute("BEGIN IMMEDIATE")
@@ -732,6 +869,15 @@ class AsyncSQLiteStore(AsyncStore):
                     "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
                     (new_id, path),
                 )
+            await conn.executemany(
+                "INSERT INTO session_history_attachments_v1 "
+                "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
+                [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
+            )
+            await conn.executemany(
+                "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
+                [(new_id, path) for path in sorted(set(applied_files))],
+            )
             await conn.execute(
                 """
                 INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
@@ -961,6 +1107,16 @@ class AsyncSQLiteStore(AsyncStore):
                 DELETE FROM session_history_files_v1
                 WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
                 """,
+                (session_id,),
+            )
+            await conn.execute(
+                "DELETE FROM session_history_attachments_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
+                (session_id,),
+            )
+            await conn.execute(
+                "DELETE FROM session_history_applied_files_v1 WHERE history_id IN "
+                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
                 (session_id,),
             )
             await conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))

@@ -15,7 +15,7 @@ from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, SyncFil
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.contracts import OperationContract
 from contree_sdk.session.operation_sync import Operation
-from contree_sdk.store import HistoryEntry, SyncMemoryStore, SyncStore
+from contree_sdk.store import HistoryEntry, StagedFile, SyncMemoryStore, SyncStore
 
 
 class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
@@ -66,6 +66,37 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
 
     def build_files(self, files: RunFiles) -> dict[str, FileSpec] | None:
         return self.file_transfer.prepare_files(files)
+
+    def stage_files(self, files: RunFiles) -> HistoryEntry:
+        """Upload and persist attachments without starting a VM.
+
+        Returns:
+            The new staging history entry, which becomes the branch head.
+
+        """
+        parent_id = self.tip_id
+        snapshot = self.store.read_session(self.session_id)
+        branch = snapshot.summary().active_branch
+        attachments = tuple(StagedFile.from_spec(path, spec) for path, spec in (self.build_files(files) or {}).items())
+        entry = self.store.stage_files(
+            self.session_id,
+            attachments,
+            branch=branch,
+            expected_tip=parent_id,
+        )
+        tip = self.store.tip(self.session_id)
+        if tip is not None:
+            self.refresh_from_entry(tip)
+        return entry
+
+    def pending_files(self) -> tuple[StagedFile, ...]:
+        """Read unapplied attachments at this session object's current history position.
+
+        Returns:
+            Attachments ordered by destination path.
+
+        """
+        return self.store.pending_files(self.session_id, history_id=self.tip_id)
 
     def spawn(
         self,
@@ -131,6 +162,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             exit_code=exit_code_of(result),
             branch=branch or context.branch,
             files=files if files is not None else context.files,
+            applied_files=context.files,
         )
         tip = (
             self.store.switch_branch(self.session_id, branch) if branch is not None else self.store.tip(self.session_id)
@@ -274,13 +306,15 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
         parent_id = self.tip_id
         branch = self.store.active_branch(self.session_id)
-        files = self.build_files(request.files)
+        staged = self.store.pending_files(self.session_id, history_id=parent_id)
+        files = {item.path: item.as_spec() for item in staged}
+        files.update(self.build_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
             data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
             stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(request, self.session_id, image_uuid, parent_id, branch, tuple(files or ()))
-        response = self.submit_request(request, image_uuid, files=files, stdin=stdin)
+        response = self.submit_request(request, image_uuid, files=files or None, stdin=stdin)
         try:
             operation = self.create_operation(response, context)
             operation.context = context

@@ -8,7 +8,14 @@ from types import EllipsisType
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
-from contree_sdk.store.models import HistorySnapshot, history_snapshot, prune_selection, validate_prune
+from contree_sdk.store.models import (
+    HistorySnapshot,
+    StagedFile,
+    history_snapshot,
+    prune_selection,
+    validate_attachments,
+    validate_prune,
+)
 
 
 class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
@@ -38,8 +45,11 @@ class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
+        validate_attachments(attachments)
         with self.lock:
             branch_name = branch or self.active_branches.get(session_id) or "main"
             if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
@@ -57,6 +67,8 @@ class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
                 exit_code=exit_code,
                 created_at=datetime.now(timezone.utc),
                 files=files,
+                attachments=tuple(attachments),
+                applied_files=tuple(applied_files),
             )
             self.entries[entry.id] = entry
             self.next_id += 1
@@ -267,8 +279,11 @@ class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
         exit_code: int | None = None,
         branch: str | None = None,
         files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
         expected_tip: int | EllipsisType | None = ...,
     ) -> HistoryEntry:
+        validate_attachments(attachments)
         async with self.lock:
             branch_name = branch or self.active_branches.get(session_id) or "main"
             if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
@@ -286,6 +301,8 @@ class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
                 exit_code=exit_code,
                 created_at=datetime.now(timezone.utc),
                 files=files,
+                attachments=tuple(attachments),
+                applied_files=tuple(applied_files),
             )
             self.entries[entry.id] = entry
             self.next_id += 1
