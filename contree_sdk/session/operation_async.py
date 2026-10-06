@@ -148,7 +148,7 @@ class AsyncOperation(AsyncOperationContract):
     ) -> StdinResult:
         """Forward chunks after spawn and stop waiting for input when the process exits.
 
-        Use one writer per process. Errors and cancellation cancel the operation.
+        Use one writer per process. Errors and cancellation stop the target process; spid=1 cancels the operation.
         A pending source read is cancelled on exit; the caller owns the source.
 
         Returns:
@@ -164,7 +164,7 @@ class AsyncOperation(AsyncOperationContract):
             return await self._pipe_stdin(aiter(chunks), spid, close=close, chunk_size=chunk_size)
         except BaseException:
             with suppress(Exception):
-                await asyncio.shield(self.cancel())
+                await asyncio.shield(self.cancel() if spid == 1 else self.signal("SIGKILL", spid=spid))
             raise
 
     async def _wait_process_exit(self, spid: int) -> None:
@@ -339,6 +339,8 @@ class AsyncOperation(AsyncOperationContract):
         args: Iterable[str] = (),
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
         stdin: str | bytes | None = None,
         stdin_open: bool = False,
         truncate_output_at: int | None = None,
@@ -357,6 +359,8 @@ class AsyncOperation(AsyncOperationContract):
             shell=shell,
             env=env if env is not None else ...,
             cwd=cwd if cwd is not None else ...,
+            uid=uid if uid is not None else ...,
+            gid=gid if gid is not None else ...,
             stdin=stdin_repr,
             truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
         )

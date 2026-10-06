@@ -6,7 +6,14 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 
-from contree_client.models import ClosableStreamRepr, FileSpec, InstanceResult, InstanceSpawnResponse
+from contree_client.models import (
+    ClosableStreamRepr,
+    FileSpec,
+    InstanceNetworking,
+    InstanceResourcesLimits,
+    InstanceResult,
+    InstanceSpawnResponse,
+)
 from contree_client.types import ContreeSyncClient
 
 from contree_sdk.exceptions import SessionConflictError
@@ -114,6 +121,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
+        networking: InstanceNetworking | None = None,
     ) -> OperationContract:
         request = RunRequest(
             command=command,
@@ -129,6 +140,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
             hostname=hostname,
+            uid=uid,
+            gid=gid,
+            resources_limits=resources_limits,
+            networking=networking,
         )
         return self.spawn_request(request)
 
@@ -188,6 +203,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
+        networking: InstanceNetworking | None = None,
         branch: str | None = None,
     ) -> InstanceResult:
         request = RunRequest(
@@ -204,6 +223,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
             hostname=hostname,
+            uid=uid,
+            gid=gid,
+            resources_limits=resources_limits,
+            networking=networking,
         )
         return self.execute(request, branch=branch)
 
@@ -349,6 +372,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             cwd=request.cwd if request.cwd is not None else ...,
             preserve_env=request.preserve_env,
             hostname=request.hostname if request.hostname is not None else ...,
+            uid=request.uid if request.uid is not None else ...,
+            gid=request.gid if request.gid is not None else ...,
+            resources_limits=request.resources_limits if request.resources_limits is not None else ...,
+            networking=request.networking if request.networking is not None else ...,
             timeout=ceil(timeout) if timeout is not None else ...,
             truncate_output_at=request.truncate_output_at if request.truncate_output_at is not None else ...,
             files=files if files is not None else ...,

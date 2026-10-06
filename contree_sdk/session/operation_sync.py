@@ -146,7 +146,8 @@ class Operation(OperationContract):
         """Forward chunks after spawn, using the operation's shared event reader.
 
         The caller owns the source and must make blocking reads interruptible.
-        Use one writer per process. Errors cancel the operation and propagate.
+        Use one writer per process. Errors stop the target process and propagate.
+        Errors for spid=1 cancel the operation.
 
         Returns:
             Acknowledged bytes, EOF delivery, and observed early completion.
@@ -161,7 +162,10 @@ class Operation(OperationContract):
             return self._pipe_stdin(iter(chunks), spid, close=close, chunk_size=chunk_size)
         except BaseException:
             with suppress(Exception):
-                self.cancel()
+                if spid == 1:
+                    self.cancel()
+                else:
+                    self.signal("SIGKILL", spid=spid)
             raise
 
     def _pipe_stdin(self, chunks: Iterator[str | bytes], spid: int, *, close: bool, chunk_size: int) -> StdinResult:
@@ -312,6 +316,8 @@ class Operation(OperationContract):
         args: Iterable[str] = (),
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
         stdin: str | bytes | None = None,
         stdin_open: bool = False,
         truncate_output_at: int | None = None,
@@ -328,6 +334,8 @@ class Operation(OperationContract):
             shell=shell,
             env=env if env is not None else ...,
             cwd=cwd if cwd is not None else ...,
+            uid=uid if uid is not None else ...,
+            gid=gid if gid is not None else ...,
             stdin=stdin_repr,
             truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
         )

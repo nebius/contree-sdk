@@ -19,6 +19,8 @@ from contree_client.models import (
 )
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
+from tests.unit.session.lazy_clients import LiveAsyncClient
+
 
 class DocumentationAPI:
     """Keep SDK orchestration real and supply explicit remote responses per scenario."""
@@ -167,3 +169,13 @@ def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch, tmp_pa
         factory.from_profile = Mock(return_value=client)
         monkeypatch.setattr(path, factory)
     return doc_api
+
+
+@pytest.fixture
+def doc_runtime_client(monkeypatch: pytest.MonkeyPatch) -> LiveAsyncClient:
+    """Drive a real runtime with a controllable single operation stream."""
+    client = LiveAsyncClient()
+    factory = Mock(return_value=client)
+    factory.from_profile = Mock(return_value=client)
+    monkeypatch.setattr("contree_client.asyncio.ContreeAsyncClient", factory)
+    return client

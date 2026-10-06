@@ -7,7 +7,15 @@ from dataclasses import replace
 from datetime import timedelta
 from math import ceil
 
-from contree_client.models import ClosableStreamRepr, FileSpec, InstanceResult, InstanceSpawnResponse, OperationStatus
+from contree_client.models import (
+    ClosableStreamRepr,
+    FileSpec,
+    InstanceNetworking,
+    InstanceResourcesLimits,
+    InstanceResult,
+    InstanceSpawnResponse,
+    OperationStatus,
+)
 from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.exceptions import SessionConflictError
@@ -207,6 +215,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
+        networking: InstanceNetworking | None = None,
     ) -> AsyncOperationContract:
         request = RunRequest(
             command=command,
@@ -222,6 +234,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
             hostname=hostname,
+            uid=uid,
+            gid=gid,
+            resources_limits=resources_limits,
+            networking=networking,
         )
         return await self.spawn_request(request)
 
@@ -283,6 +299,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         truncate_output_at: int | None = None,
         preserve_env: bool = False,
         hostname: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
+        networking: InstanceNetworking | None = None,
         branch: str | None = None,
     ) -> PendingRun:
         request = RunRequest(
@@ -299,6 +319,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             truncate_output_at=truncate_output_at,
             preserve_env=preserve_env,
             hostname=hostname,
+            uid=uid,
+            gid=gid,
+            resources_limits=resources_limits,
+            networking=networking,
         )
         return self.create_pending_run(request, branch=branch)
 
@@ -442,6 +466,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             cwd=request.cwd if request.cwd is not None else ...,
             preserve_env=request.preserve_env,
             hostname=request.hostname if request.hostname is not None else ...,
+            uid=request.uid if request.uid is not None else ...,
+            gid=request.gid if request.gid is not None else ...,
+            resources_limits=request.resources_limits if request.resources_limits is not None else ...,
+            networking=request.networking if request.networking is not None else ...,
             timeout=ceil(timeout) if timeout is not None else ...,
             truncate_output_at=request.truncate_output_at if request.truncate_output_at is not None else ...,
             files=files if files is not None else ...,

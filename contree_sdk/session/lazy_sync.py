@@ -70,8 +70,16 @@ class LazySession(SyncExecutor):
         request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
-        if request.files or request.preserve_env or request.hostname is not None:
-            raise ValueError("files, preserve_env and hostname require a saved session before starting LazySession")
+        if (
+            request.files
+            or request.preserve_env
+            or request.hostname is not None
+            or request.resources_limits is not None
+            or request.networking is not None
+        ):
+            raise ValueError(
+                "files, preserve_env, hostname, resources_limits and networking require VM startup configuration"
+            )
         return request
 
     def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
@@ -161,6 +169,8 @@ class LazySession(SyncExecutor):
                     args=request.args,
                     env=dict(request.env) if request.env is not None else None,
                     cwd=request.cwd,
+                    uid=request.uid,
+                    gid=request.gid,
                     stdin=stdin,
                     stdin_open=request.stdin_open,
                     truncate_output_at=request.truncate_output_at,

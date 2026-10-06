@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from types import MappingProxyType
 
-from contree_client.models import InstanceResult
+from contree_client.models import InstanceNetworking, InstanceResourcesLimits, InstanceResult
 
 from contree_sdk.files import InputSource, RunFiles
 
@@ -35,6 +35,10 @@ class RunRequest:
     truncate_output_at: int | None = None
     preserve_env: bool = False
     hostname: str | None = None
+    uid: int | None = None
+    gid: int | None = None
+    resources_limits: InstanceResourcesLimits | None = None
+    networking: InstanceNetworking | None = None
 
     def __post_init__(self) -> None:
         if (self.command is None) == (self.shell is None):
