@@ -12,7 +12,7 @@ import contree_sdk.langchain.sandbox as sandbox_module
 from contree_sdk.langchain import ContreeSandbox
 from contree_sdk.session import ContreeSession
 from contree_sdk.store import SyncMemoryStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def test_init_raises_friendly_error_when_deepagents_unavailable(client: ContreeC
 
 def test_execute_combines_stdout_and_stderr(client: ContreeClient, sandbox: ContreeSandbox):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="err\n"))
+    mock_completion(client, operation_response(exit_code=0, stdout="out\n", stderr="err\n"))
 
     response = sandbox.execute("echo hi")
 
@@ -55,7 +55,7 @@ def test_execute_combines_stdout_and_stderr(client: ContreeClient, sandbox: Cont
 
 def test_execute_reports_truncated_when_stdout_or_stderr_truncated(client: ContreeClient, sandbox: ContreeSandbox):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="", stdout_truncated=True))
+    mock_completion(client, operation_response(exit_code=0, stdout="out\n", stderr="", stdout_truncated=True))
 
     response = sandbox.execute("echo hi")
 
@@ -69,8 +69,8 @@ def test_concurrent_execute_calls_are_serialized_into_a_linear_history(client: C
     # either commits, forking history instead of chaining run2 after run1
     client.mock("spawn_instance", spawn_response(operation_uuid="op-1"))
     client.mock("spawn_instance", spawn_response(operation_uuid="op-2"))
-    client.mock("wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-uuid-1"))
-    client.mock("wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-uuid-2"))
+    mock_completion(client, operation_response(operation_uuid="op-1", result_image_uuid="img-uuid-1"))
+    mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-uuid-2"))
 
     threads = [threading.Thread(target=sandbox.execute, args=(cmd,)) for cmd in ("echo one", "echo two")]
     for thread in threads:
@@ -91,7 +91,7 @@ def test_concurrent_execute_calls_are_serialized_into_a_linear_history(client: C
 
 def test_execute_reports_nonzero_exit_code(client: ContreeClient, sandbox: ContreeSandbox):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
+    mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
 
     response = sandbox.execute("false")
 
@@ -110,7 +110,7 @@ def test_upload_files_rejects_relative_paths(sandbox: ContreeSandbox):
 def test_upload_files_writes_valid_paths_only(client: ContreeClient, sandbox: ContreeSandbox):
     client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
     responses = sandbox.upload_files([("/app.txt", b"data"), ("relative.txt", b"data")])
 

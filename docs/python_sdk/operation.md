@@ -156,6 +156,8 @@ name: test_stream_events
 ```python
 assert capsys.readouterr().out == "hello\n"
 assert doc_api.sync.calls_for("follow_operation_events")[0].args == ("operation-1",)
+assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
+assert not doc_api.sync.calls_for("wait_operation")
 ```
 -->
 
@@ -191,10 +193,36 @@ name: test_stream_events_async
 ```python
 assert capsys.readouterr().out == "hello\n"
 assert doc_api.async_client.calls_for("follow_operation_events")[0].args == ("operation-1",)
+assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
+assert not doc_api.async_client.calls_for("wait_operation")
 ```
 -->
 
 ::::
+
+## One reader per operation handle
+
+`events()`, `wait()`, and subprocess handles share one unfiltered SSE reader.
+It starts when the context is entered or when the first event iterator or wait is
+consumed. A sync operation uses one reader thread; an async operation uses one task.
+Transport reconnection remains the responsibility of `contree-client`.
+
+Each `events()` iterator has an independent cursor. Events are retained in memory
+for the lifetime of the handle, so a late subscriber can replay them without another
+network stream. `since=N` selects event IDs greater than `N`; `spid=N` selects that
+process. A process filter excludes the operation-wide `completion` event, but the
+iterator still ends when the shared reader ends. Large event logs consume memory;
+release completed handles when replay is no longer needed.
+
+`wait()` uses the same reader and then fetches the final status once. Repeated waits
+reuse that response. Closing or cancelling an event iterator only removes that
+subscriber. A failed or cancelled operation `wait()` attempts remote cancellation
+and therefore affects all consumers of the operation. Call `shutdown()` if you
+stop consuming before completion and no longer need the operation.
+
+Sharing applies to one `Operation` or `AsyncOperation` object. Constructing another
+handle for the same UUID creates a separate owner and can open another stream.
+Reuse the existing handle when consumers run in the same application.
 
 ## Keep the result image
 

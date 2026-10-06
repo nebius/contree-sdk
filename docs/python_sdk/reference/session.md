@@ -5,7 +5,7 @@ Sync calls return results directly. Async calls must be awaited unless used as t
 `PendingRun` context described in the operation guide.
 
 ```{automodule} contree_sdk.session
-:members: ContreeSession, ContreeAsyncSession, Operation, AsyncOperation, SubprocessHandle, AsyncSubprocessHandle, PendingRun
+:members: ContreeSession, ContreeAsyncSession, Operation, AsyncOperation, SubprocessHandle, AsyncSubprocessHandle, PendingRun, LazySession, AsyncLazySession, AbstractSnapshotPolicy, SnapshotEvent, IdleSnapshotPolicy, CommandCountSnapshotPolicy, CompositeSnapshotPolicy
 :inherited-members:
 :undoc-members:
 :member-order: bysource

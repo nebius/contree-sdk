@@ -7,7 +7,7 @@ from contree_client.testing import ContreeAsyncClient
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.session import AsyncOperation, ContreeAsyncSession
 from contree_sdk.store import AsyncMemoryStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ async def test_construct_resumes_from_existing_session(client: ContreeAsyncClien
 
 async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="echo hi")
@@ -77,7 +77,7 @@ async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClien
 
 async def test_run_non_disposable_advances_history_and_pointer(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="echo hi", disposable=False)
@@ -92,7 +92,7 @@ async def test_run_non_disposable_advances_history_and_pointer(client: ContreeAs
 
 async def test_run_nonzero_exit_code_is_not_an_error(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
+    mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     result = await session.run(shell="false")
@@ -103,8 +103,8 @@ async def test_run_nonzero_exit_code_is_not_an_error(client: ContreeAsyncClient)
 
 async def test_run_operation_failure_without_result_raises(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock(
-        "wait_operation",
+    mock_completion(
+        client,
         operation_response(status=OperationStatus.FAILED, error="vm could not start", with_result=False),
     )
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
@@ -127,7 +127,7 @@ async def test_run_rejects_both_command_and_shell(client: ContreeAsyncClient):
 
 async def test_branch_and_rollback_update_live_pointer(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1"))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1"))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
     await session.run(shell="echo hi", disposable=False)
 
@@ -166,7 +166,7 @@ async def test_set_cwd_and_set_env_persist_through_store(client: ContreeAsyncCli
 async def test_run_non_disposable_with_files_records_them_on_the_entry(client: ContreeAsyncClient):
     client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
     await session.run(shell="echo hi", disposable=False, files={"/app.txt": b"data"})
@@ -210,7 +210,7 @@ async def test_run_as_async_context_manager_commits_on_clean_success_exit(client
 
 async def test_cancelled_operation_with_partial_result_is_not_committed(client):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(status=OperationStatus.CANCELLED))
+    mock_completion(client, operation_response(status=OperationStatus.CANCELLED))
     session = ContreeAsyncSession(client, image="base")
     with pytest.raises(InterruptedError):
         await session.run("sleep", disposable=False)
@@ -222,7 +222,7 @@ async def test_stale_operation_does_not_rewrite_history(client):
     from contree_sdk.exceptions import SessionConflictError
 
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeAsyncSession(client, image="base")
     first = await session.spawn("first", disposable=False)
     second = await session.spawn("second", disposable=False)
@@ -238,7 +238,7 @@ async def test_stale_operation_does_not_rewrite_history(client):
 
 async def test_commit_after_branch_switch_preserves_active_branch(client):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeAsyncSession(client, image="base")
     await session.create_branch("other")
     operation = await session.spawn("first", disposable=False)
@@ -251,7 +251,7 @@ async def test_commit_after_branch_switch_preserves_active_branch(client):
 
 async def test_pending_run_cannot_spawn_twice(client):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     pending = ContreeAsyncSession(client, image="base").run("echo")
     await pending
     with pytest.raises(RuntimeError, match="only be used once"):

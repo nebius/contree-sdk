@@ -15,7 +15,7 @@ from contree_client.testing import ContreeAsyncClient
 from contree_sdk.session import AsyncSubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_async import AsyncOperation
-from tests.unit.session.factories import operation_response
+from tests.unit.session.factories import mock_completion, operation_response
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ def exit_code_of(result: InstanceResult) -> int | None:
 
 
 class TestSimpleMode:
-    async def test_wait_forwards_to_wait_operation_and_returns_instance_result(self, client: ContreeAsyncClient):
-        client.mock("wait_operation", operation_response(result_image_uuid="img-1", exit_code=0, stdout="hi\n"))
+    async def test_wait_uses_shared_stream_and_returns_instance_result(self, client: ContreeAsyncClient):
+        mock_completion(client, operation_response(result_image_uuid="img-1", exit_code=0, stdout="hi\n"))
         operation = AsyncOperation(client, "op-1")
 
         result = await operation.wait()
@@ -50,7 +50,8 @@ class TestSimpleMode:
         assert stdout.as_text() == "hi\n"
         assert operation.response is not None
         assert operation.response.result_image_uuid == "img-1"
-        call = client.calls_for("wait_operation")[0]
+        assert client.calls_for("wait_operation") == []
+        call = client.calls_for("follow_operation_events")[0]
         assert call.args[0] == "op-1"
 
     async def test_status_forwards_to_get_operation_status(self, client: ContreeAsyncClient):
@@ -117,7 +118,7 @@ class TestSimpleMode:
     async def test_bare_operation_reattaches_by_uuid_alone(self, client: ContreeAsyncClient):
         # every method is stateless per-UUID, so reattaching after a process restart
         # is just constructing a new handle with the same UUID - no extra state needed
-        client.mock("wait_operation", operation_response(result_image_uuid="img-1"))
+        mock_completion(client, operation_response(result_image_uuid="img-1"))
         operation = AsyncOperation(client, "op-1")
 
         result = await operation.wait()
@@ -156,7 +157,6 @@ class TestRichMode:
 
     async def test_enter_starts_consumer_task(self, client: ContreeAsyncClient):
         client.mock("follow_operation_events", [make_event(1, "completion", ...)])
-        client.mock("wait_operation", operation_response())
         # the pump task may or may not have already observed `completion` by the
         # time the `async with` block exits (a real race) - mock the escalation
         # path too so either outcome of that race succeeds
@@ -304,7 +304,7 @@ async def test_stream_failure_is_delivered_to_subprocess_waiter(client):
 
 
 async def test_wait_failure_cancels_operation_and_preserves_original_error(client):
-    client.mock("wait_operation", error=TimeoutError("original timeout"))
+    mock_completion(client, error=TimeoutError("original timeout"))
     client.mock("cancel_operation", error=OSError("cleanup failed"))
     with pytest.raises(TimeoutError, match="original timeout"):
         await AsyncOperation(client, "op-1").wait()
@@ -319,7 +319,7 @@ async def test_main_output_is_not_buffered_without_a_subprocess_consumer(client)
 
 
 async def test_cancelled_wait_cancels_remote_operation(client):
-    client.mock("wait_operation", error=asyncio.CancelledError())
+    mock_completion(client, error=asyncio.CancelledError())
     client.mock("cancel_operation", None)
     with pytest.raises(asyncio.CancelledError):
         await AsyncOperation(client, "op-1").wait()
@@ -331,10 +331,13 @@ class CustomAsyncSubprocess(AsyncSubprocessHandle):
 
 
 class EventOverrideOperation(AsyncOperation):
-    async def events(self, *, since=None, spid=None):
-        yield make_stream_event(1, "stdout", 2, "custom stream\n")
-        yield make_event(2, "exit", 2)
-        yield make_event(3, "completion", ...)
+    async def open_event_stream(self):
+        try:
+            yield make_stream_event(1, "stdout", 2, "custom stream\n")
+            yield make_event(2, "exit", 2)
+            yield make_event(3, "completion", ...)
+        finally:
+            self.source_closed = True
 
     def create_subprocess(self, spid, events_queue):
         return CustomAsyncSubprocess(self, spid, events_queue)
@@ -351,5 +354,6 @@ async def test_rich_mode_uses_public_event_and_subprocess_hooks(client):
         output = io.BytesIO()
         assert exit_code_of(await handle.pipe_to(stdout=output)) == 0
         assert exit_code_of(await handle.wait()) == 0
+    assert operation.source_closed
     assert output.getvalue() == b"custom stream\n"
     assert client.calls_for("follow_operation_events") == []

@@ -1,15 +1,4 @@
-"""A spawned operation's lifecycle control, decoupled from ContreeSession.run() (sync).
-
-`Operation` works in two modes. Simple mode (`events`/`status`/`send_stdin`/
-`signal`/`cancel`/`wait`) is a set of thin, stateless forwards to the client,
-keyed by the operation's UUID. Rich mode, entered via `with operation:`,
-starts a background thread that continuously consumes the operation's event
-stream and demultiplexes it by spid, unlocking `run()` - spawning an
-*additional* process inside the same running instance (`spid` >= 2, via
-`operation_subprocess_create`) and getting back a `SubprocessHandle` that is
-both blocking-waitable (the subprocess's own final result) and iterable (its
-live events).
-"""
+"""Operation lifecycle and subprocesses backed by one shared event reader."""
 
 from __future__ import annotations
 
@@ -18,17 +7,15 @@ import threading
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import suppress
-from typing import IO, TYPE_CHECKING
+from typing import IO
+
+from contree_client.models import InstanceResult, OperationEvent, OperationResponse
+from contree_client.types import ContreeSyncClient
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
-from contree_sdk.session.contracts import OperationContract, SubprocessContract
-
-
-if TYPE_CHECKING:
-    from contree_client.models import InstanceResult, OperationEvent, OperationResponse
-    from contree_client.types import ContreeSyncClient
+from contree_sdk.session.contracts import OperationContract, OperationObserver, SubprocessContract
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
@@ -65,11 +52,57 @@ class Operation(OperationContract):
         self.pending_events: dict[int, queue.Queue[OperationEvent]] = {}
         self.terminal = False
         self.stream_error: Exception | None = None
+        self.observers: list[OperationObserver] = []
         self.consumer_thread: threading.Thread | None = None
         self.lock = threading.Lock()
+        self.history: list[OperationEvent] = []
+        self.entered = False
+        self.changed = threading.Condition(self.lock)
+        self.terminal_event = threading.Event()
+        self.result_lock = threading.Lock()
+        self.final_response: OperationResponse | None = None
+
+    def add_observer(self, observer: OperationObserver) -> None:
+        with self.lock:
+            if self.consumer_thread is not None:
+                raise RuntimeError("register observers before starting the event reader")
+            self.observers.append(observer)
+
+    def open_event_stream(self) -> Iterator[OperationEvent]:
+        """Open the unfiltered source. Override this hook to supply custom events.
+
+        Returns:
+            The single transport stream consumed by the operation.
+
+        """
+        return self.client.follow_operation_events(self.uuid)
+
+    def _start_reader(self) -> None:
+        with self.lock:
+            if self.consumer_thread is None:
+                self.consumer_thread = threading.Thread(target=self.pump, daemon=True)
+                self.consumer_thread.start()
 
     def events(self, *, since: int | None = None, spid: int | None = None) -> Iterator[OperationEvent]:
-        return self.client.follow_operation_events(self.uuid, since=since, spid=spid)
+        """Replay buffered events, then follow the shared reader with local filters.
+
+        Yields:
+            Events after ``since`` whose process matches ``spid``, when specified.
+
+        """
+        self._start_reader()
+        cursor = 0
+        while True:
+            with self.changed:
+                self.changed.wait_for(lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set())
+                if cursor == len(self.history):
+                    if self.stream_error is not None:
+                        raise self.stream_error
+                    return
+                event = self.history[cursor]
+                cursor += 1
+            if (since is None or event.id > since) and (spid is None or event.spid == spid):
+                yield event
 
     def status(self, *, inflight: bool = False) -> OperationResponse:
         self.response = self.client.get_operation_status(self.uuid, inflight=inflight)
@@ -87,20 +120,26 @@ class Operation(OperationContract):
 
     def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
-            self.response = self.client.wait_operation(
-                self.uuid, timeout=timeout if timeout is not None else self.timeout
-            )
+            self._start_reader()
+            if not self.terminal_event.wait(self.timeout if timeout is None else timeout):
+                raise TimeoutError(f"operation {self.uuid} did not complete in time")  # noqa: TRY301
+            return self._completed_result()
         except BaseException:
             with suppress(Exception):
                 self.cancel()
             raise
-        return instance_result(self.response)
+
+    def _completed_result(self) -> InstanceResult:
+        if self.stream_error is not None:
+            raise self.stream_error
+        with self.result_lock:
+            if self.final_response is None:
+                self.final_response = self.status()
+            return instance_result(self.final_response)
 
     def __enter__(self) -> Self:
-        with self.lock:
-            if self.consumer_thread is None:
-                self.consumer_thread = threading.Thread(target=self.pump, daemon=True)
-                self.consumer_thread.start()
+        self.entered = True
+        self._start_reader()
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -116,8 +155,15 @@ class Operation(OperationContract):
         # event, since `completion` carries no spid at all), demultiplexed by spid
         # into whichever queue `run()` registered for that spid - or buffered in
         # pending_events if run() hasn't registered one yet (see __init__)
+        source: Iterator[OperationEvent] | None = None
         try:  # noqa: PLW0717 - one event stream must have one error and cleanup boundary
-            for event in self.events():
+            source = self.open_event_stream()
+            for event in source:
+                for observer in self.observers:
+                    observer(event, None)
+                with self.changed:
+                    self.history.append(event)
+                    self.changed.notify_all()
                 if event.type == "completion":
                     break
                 spid = event.spid
@@ -132,11 +178,28 @@ class Operation(OperationContract):
         except Exception as error:
             self.stream_error = error
         finally:
-            with self.lock:
+            self._close_event_stream(source)
+            for observer in self.observers:
+                try:
+                    observer(None, self.stream_error)
+                except Exception as error:  # noqa: PERF203 - notify remaining observers after an error
+                    if self.stream_error is None:
+                        self.stream_error = error
+            with self.changed:
                 self.terminal = True
-                queues = list(self.queues.values())
-            for target in queues:
-                target.put(None)
+                for target in self.queues.values():
+                    target.put(None)
+                self.terminal_event.set()
+                self.changed.notify_all()
+
+    def _close_event_stream(self, source: Iterator[OperationEvent] | None) -> None:
+        close = getattr(source, "close", None)
+        if close is not None:
+            try:
+                close()
+            except Exception as error:
+                if self.stream_error is None:
+                    self.stream_error = error
 
     def claim_queue(self, spid: int) -> queue.Queue[OperationEvent | None]:
         # registers spid's queue, flushing anything pump() buffered for it before this
@@ -165,7 +228,7 @@ class Operation(OperationContract):
         stdin: str | bytes | None = None,
         truncate_output_at: int | None = None,
     ) -> SubprocessContract:
-        if self.consumer_thread is None:
+        if not self.entered:
             raise RuntimeError("Operation.run() requires the operation to be used as a context manager ('with')")
         stdin_repr = stream_repr_for_stdin(stdin) if stdin is not None else ...
         spid = self.client.operation_subprocess_create(

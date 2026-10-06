@@ -11,14 +11,14 @@ from contree_sdk import ContreeAsyncSession, ContreeSession, OperationContext, R
 from contree_sdk.files import AsyncFileTransfer, SyncFileTransfer
 from contree_sdk.session import AsyncOperation, AsyncOperationContract, OperationContract
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 def sync_client():
     client = ContreeClient()
     client.mock("resolve_image", "base")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     return client
 
 
@@ -26,7 +26,7 @@ def async_client():
     client = ContreeAsyncClient()
     client.mock("resolve_image", "base")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     return client
 
 

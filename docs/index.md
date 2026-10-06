@@ -20,6 +20,7 @@ and a complete program that prints `Hello from ConTree!`.
 | Continue work after restarting Python                 | {doc}`python_sdk/sessions`         |
 | Try a change and return to a checkpoint               | {doc}`python_sdk/branching`        |
 | Stream output or run several processes in one sandbox | {doc}`python_sdk/operation`        |
+| Keep a sandbox running between commands               | {doc}`python_sdk/lazy-session`     |
 | Import a base image or tag a result                   | {doc}`python_sdk/images`           |
 | Build a filesystem from a Dockerfile                  | {doc}`python_sdk/building-images`  |
 | Give an agent access to a sandbox                     | {doc}`integrations/langchain`      |
@@ -34,7 +35,9 @@ Each command starts a new **operation** from that image.
 By default, a command is disposable: its filesystem changes do not advance the
 session. Use `disposable=False` when the next command needs those changes.
 A session does not keep a process running between commands. Use an operation
-context when several processes must share one running sandbox.
+context when several processes must share one running sandbox. Use
+{doc}`python_sdk/lazy-session` to retain a VM between commands and save it according
+to an idle or command-count policy.
 
 Memory stores keep history in Python. SQLite stores keep history across restarts.
 Neither store contains the filesystem itself; referenced images must remain on
@@ -58,6 +61,7 @@ python_sdk/files
 python_sdk/sessions
 python_sdk/branching
 python_sdk/operation
+python_sdk/lazy-session
 python_sdk/images
 python_sdk/building-images
 ```

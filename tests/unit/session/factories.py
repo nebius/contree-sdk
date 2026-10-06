@@ -1,12 +1,16 @@
+from datetime import datetime, timezone
+
 from contree_client.models import (
     InstanceResult,
     InstanceResultState,
     InstanceSpawnResponse,
+    OperationEvent,
     OperationInstanceMetadata,
     OperationResponse,
     OperationStatus,
     StreamRepr,
 )
+from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 
 def spawn_response(operation_uuid: str = "op-1") -> InstanceSpawnResponse:
@@ -46,3 +50,17 @@ def operation_response(
             else ...,
         ),
     )
+
+
+def mock_completion(
+    client: ContreeClient | ContreeAsyncClient,
+    response: OperationResponse | None = None,
+    *,
+    error: BaseException | None = None,
+) -> None:
+    """Supply a completed event stream and its final status at the transport boundary."""
+    client.mock(
+        "follow_operation_events",
+        [OperationEvent(id=1, ts=datetime.now(timezone.utc), type="completion", data={})],
+    )
+    client.mock("get_operation_status", response, error=error)

@@ -105,7 +105,8 @@ that a subclass initializes after `super().__init__()`.
 | Modify transport submission                | Override `submit_request(...)`                                 | Session `spawn_request`                                       |
 | Instrument or replace operation lifecycle  | Override `create_operation(response, context)`                 | Session `spawn_request`                                       |
 | Replace subprocess handles                 | Override `Operation.create_subprocess(spid, queue)`            | Operation `run`                                               |
-| Transform or observe live events           | Override `Operation.events(...)`                               | Direct iteration and rich-mode event consumer                 |
+| Replace the event source                   | Override `Operation.open_event_stream()`                       | One source shared by events, waits, and subprocesses          |
+| Observe operation events                   | Register `add_observer()` before starting the reader           | Lifecycle notifications without a second stream               |
 | Upload from another storage service        | Implement `SyncFileTransfer` or `AsyncFileTransfer`            | Session `file_transfer=`                                      |
 | Store history remotely                     | Implement `SyncStore` or `AsyncStore`                          | Session and builder `store=`                                  |
 | Replace build caching                      | Implement `SyncCache` or `AsyncCache`                          | Builder `cache=`                                              |
@@ -297,6 +298,19 @@ may have no context and cannot be committed to session history.
 Use `SubprocessContract` or `AsyncSubprocessContract` when replacing subprocess
 handles. Iteration followed by `wait()` must not wait for a second exit event.
 A stream failure must reach its consumer instead of appearing as successful EOF.
+
+The built-in operations own one unfiltered reader per handle. Override
+`open_event_stream()` to replace its source. Calling `events()` creates a local
+subscription; overriding it does not replace the source used by `wait()` or
+subprocesses. Register observers before entering the context or first consuming
+`events()` or `wait()`. Sync observers return directly; async observers are awaited.
+They receive `(event, None)` for events and `(None, error)` at EOF. Keep them short;
+do not wait for the operation from its own observer. Observer errors fail the reader.
+
+`LazySession` requires `add_observer()` support from a custom operation contract.
+It delegates request policy and operation creation to the wrapped session. Override
+`keepalive_request()` on the lazy wrapper to use another main process. See
+{doc}`lazy-session` for the public snapshot-policy interface.
 
 The public factory hooks support independent contract implementations. The supplied subprocess event queue is part of that factory signature. Other
 internal queue management, worker threads, SQLite schemas, and helper module layouts

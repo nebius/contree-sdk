@@ -11,17 +11,15 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Iterable
 from contextlib import suppress
-from typing import IO, TYPE_CHECKING
+from typing import IO
+
+from contree_client.models import InstanceResult, OperationEvent, OperationResponse
+from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
-from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
-
-
-if TYPE_CHECKING:
-    from contree_client.models import InstanceResult, OperationEvent, OperationResponse
-    from contree_client.types import ContreeAsyncClient
+from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
@@ -57,12 +55,57 @@ class AsyncOperation(AsyncOperationContract):
         self.pending_events: dict[int, asyncio.Queue[OperationEvent]] = {}
         self.terminal = False
         self.stream_error: Exception | None = None
+        self.observers: list[AsyncOperationObserver] = []
         self.terminal_event = asyncio.Event()
         self.consumer_task: asyncio.Task[None] | None = None
         self.lock = asyncio.Lock()
+        self.history: list[OperationEvent] = []
+        self.entered = False
+        self.changed = asyncio.Condition()
+        self.result_lock = asyncio.Lock()
+        self.final_response: OperationResponse | None = None
 
-    def events(self, *, since: int | None = None, spid: int | None = None) -> AsyncIterator[OperationEvent]:
-        return self.client.follow_operation_events(self.uuid, since=since, spid=spid)
+    def add_observer(self, observer: AsyncOperationObserver) -> None:
+        if self.consumer_task is not None:
+            raise RuntimeError("register observers before starting the event reader")
+        self.observers.append(observer)
+
+    def open_event_stream(self) -> AsyncIterator[OperationEvent]:
+        """Open the unfiltered source. Override this hook to supply custom events.
+
+        Returns:
+            The single transport stream consumed by the operation.
+
+        """
+        return self.client.follow_operation_events(self.uuid)
+
+    async def _start_reader(self) -> None:
+        async with self.lock:
+            if self.consumer_task is None:
+                self.consumer_task = asyncio.create_task(self.pump())
+
+    async def events(self, *, since: int | None = None, spid: int | None = None) -> AsyncIterator[OperationEvent]:
+        """Replay buffered events, then follow the shared reader with local filters.
+
+        Yields:
+            Events after ``since`` whose process matches ``spid``, when specified.
+
+        """
+        await self._start_reader()
+        cursor = 0
+        while True:
+            async with self.changed:
+                await self.changed.wait_for(
+                    lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set()
+                )
+                if cursor == len(self.history):
+                    if self.stream_error is not None:
+                        raise self.stream_error
+                    return
+                event = self.history[cursor]
+                cursor += 1
+            if (since is None or event.id > since) and (spid is None or event.spid == spid):
+                yield event
 
     async def status(self, *, inflight: bool = False) -> OperationResponse:
         self.response = await self.client.get_operation_status(self.uuid, inflight=inflight)
@@ -80,19 +123,25 @@ class AsyncOperation(AsyncOperationContract):
 
     async def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
-            self.response = await self.client.wait_operation(
-                self.uuid, timeout=timeout if timeout is not None else self.timeout
-            )
+            await self._start_reader()
+            await asyncio.wait_for(self.terminal_event.wait(), timeout=self.timeout if timeout is None else timeout)
+            return await self._completed_result()
         except BaseException:
             with suppress(Exception):
                 await asyncio.shield(self.cancel())
             raise
-        return instance_result(self.response)
+
+    async def _completed_result(self) -> InstanceResult:
+        if self.stream_error is not None:
+            raise self.stream_error
+        async with self.result_lock:
+            if self.final_response is None:
+                self.final_response = await self.status()
+            return instance_result(self.final_response)
 
     async def __aenter__(self) -> Self:
-        async with self.lock:
-            if self.consumer_task is None:
-                self.consumer_task = asyncio.ensure_future(self.pump())
+        self.entered = True
+        await self._start_reader()
         return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -108,8 +157,15 @@ class AsyncOperation(AsyncOperationContract):
         # event, since `completion` carries no spid at all), demultiplexed by spid
         # into whichever queue `run()` registered for that spid - or buffered in
         # pending_events if run() hasn't registered one yet (see __init__)
+        source: AsyncIterator[OperationEvent] | None = None
         try:  # noqa: PLW0717 - one event stream must have one error and cleanup boundary
-            async for event in self.events():
+            source = self.open_event_stream()
+            async for event in source:
+                for observer in self.observers:
+                    await observer(event, None)
+                async with self.changed:
+                    self.history.append(event)
+                    self.changed.notify_all()
                 if event.type == "completion":
                     break
                 spid = event.spid
@@ -122,15 +178,35 @@ class AsyncOperation(AsyncOperationContract):
                         await buffer.put(event)
                         continue
                 await target.put(event)
+        except asyncio.CancelledError:
+            self.stream_error = RuntimeError("operation event reader was cancelled")
+            raise
         except Exception as error:
             self.stream_error = error
         finally:
+            await self._close_event_stream(source)
+            for observer in self.observers:
+                try:
+                    await observer(None, self.stream_error)
+                except Exception as error:  # noqa: PERF203 - notify remaining observers after an error
+                    if self.stream_error is None:
+                        self.stream_error = error
             async with self.lock:
                 self.terminal = True
-                queues = list(self.queues.values())
-            self.terminal_event.set()
-            for target in queues:
-                await target.put(None)
+                for target in self.queues.values():
+                    target.put_nowait(None)
+            async with self.changed:
+                self.terminal_event.set()
+                self.changed.notify_all()
+
+    async def _close_event_stream(self, source: AsyncIterator[OperationEvent] | None) -> None:
+        close = getattr(source, "aclose", None)
+        if close is not None:
+            try:
+                await close()
+            except Exception as error:
+                if self.stream_error is None:
+                    self.stream_error = error
 
     async def claim_queue(self, spid: int) -> asyncio.Queue[OperationEvent | None]:
         # registers spid's queue, flushing anything pump() buffered for it before this
@@ -159,7 +235,7 @@ class AsyncOperation(AsyncOperationContract):
         stdin: str | bytes | None = None,
         truncate_output_at: int | None = None,
     ) -> AsyncSubprocessContract:
-        if self.consumer_task is None:
+        if not self.entered:
             raise RuntimeError(
                 "AsyncOperation.run() requires the operation to be used as a context manager ('async with')"
             )

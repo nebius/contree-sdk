@@ -5,7 +5,7 @@ from contree_client.testing import ContreeClient
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.session import ContreeSession
 from contree_sdk.store import SyncMemoryStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_construct_resumes_from_existing_session(client: ContreeClient):
 
 def test_run_disposable_does_not_advance_history(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
     result = session.run(shell="echo hi")
@@ -56,7 +56,7 @@ def test_run_disposable_does_not_advance_history(client: ContreeClient):
 
 def test_run_non_disposable_advances_history_and_pointer(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
     result = session.run(shell="echo hi", disposable=False)
@@ -72,7 +72,7 @@ def test_run_non_disposable_advances_history_and_pointer(client: ContreeClient):
 
 def test_run_nonzero_exit_code_is_not_an_error(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
+    mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
     result = session.run(shell="false")
@@ -85,8 +85,8 @@ def test_run_nonzero_exit_code_is_not_an_error(client: ContreeClient):
 
 def test_run_operation_failure_without_result_raises(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock(
-        "wait_operation",
+    mock_completion(
+        client,
         operation_response(status=OperationStatus.FAILED, error="vm could not start", with_result=False),
     )
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
@@ -109,7 +109,7 @@ def test_run_rejects_both_command_and_shell(client: ContreeClient):
 
 def test_branch_and_rollback_update_live_pointer(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1"))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1"))
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
     session.run(shell="echo hi", disposable=False)
 
@@ -147,7 +147,7 @@ def test_set_cwd_and_set_env_persist_through_store(client: ContreeClient):
 def test_run_non_disposable_with_files_records_them_on_the_entry(client: ContreeClient):
     client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
     session.run(shell="echo hi", disposable=False, files={"/app.txt": b"data"})
@@ -158,7 +158,7 @@ def test_run_non_disposable_with_files_records_them_on_the_entry(client: Contree
 
 def test_cancelled_operation_with_partial_result_is_not_committed(client):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(status=OperationStatus.CANCELLED))
+    mock_completion(client, operation_response(status=OperationStatus.CANCELLED))
     session = ContreeSession(client, image="base")
     with pytest.raises(InterruptedError):
         session.run("sleep", disposable=False)
@@ -170,7 +170,7 @@ def test_stale_operation_does_not_rewrite_history(client):
     from contree_sdk.exceptions import SessionConflictError
 
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeSession(client, image="base")
     first = session.spawn("first", disposable=False)
     second = session.spawn("second", disposable=False)
@@ -186,7 +186,7 @@ def test_stale_operation_does_not_rewrite_history(client):
 
 def test_commit_after_branch_switch_preserves_active_branch(client):
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     session = ContreeSession(client, image="base")
     session.create_branch("other")
     operation = session.spawn("first", disposable=False)

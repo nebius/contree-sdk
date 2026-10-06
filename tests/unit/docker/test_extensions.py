@@ -13,7 +13,7 @@ from contree_sdk.docker import (
     RunKeyword,
 )
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 class CustomEnv(EnvKeyword):
@@ -62,7 +62,7 @@ def test_context_session_and_directive_extensions_survive_cache_hits(tmp_path):
     client = ContreeClient()
     client.mock("resolve_image", "base-image")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     store = SyncMemoryStore()
     for _ in range(2):
         builder = CustomBuilder(client, store=store, parser=make_parser(), session_factory=CustomSession)
@@ -78,7 +78,7 @@ async def test_async_context_session_and_directive_extensions_survive_cache_hits
     client = ContreeAsyncClient()
     client.mock("resolve_image", "base-image")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response())
+    mock_completion(client, operation_response())
     store = AsyncMemoryStore()
     for _ in range(2):
         builder = CustomAsyncBuilder(client, store=store, parser=make_parser(), session_factory=CustomAsyncSession)

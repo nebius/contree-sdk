@@ -1,4 +1,4 @@
-"""Mutable state shared across one build invocation."""
+"""Build contexts and their shared Dockerfile directive contract."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
@@ -16,7 +17,7 @@ from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import AsyncStore, SyncStore
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 
-from .keyword import DockerKeyword, substitute
+from .interpolation import substitute
 from .local_context import LocalContext
 from .url_fetch import AsyncFetchResponse, FetchResponse
 from .url_fetch import http_fetch as default_http_fetch
@@ -24,6 +25,30 @@ from .url_fetch import http_fetch_async as default_http_fetch_async
 
 
 BUILD_TIMEOUT_DEFAULT = 600
+
+
+@dataclass(frozen=True, repr=False)
+class DockerKeyword:
+    """Base class. Subclasses implement `parse`, `serialize`, `execute`."""
+
+    NAME: ClassVar[str] = ""
+
+    @classmethod
+    def parse(cls, args_text: str) -> DockerKeyword:
+        raise NotImplementedError
+
+    def serialize(self) -> str:
+        """Stable text used for layer hashing."""
+        raise NotImplementedError
+
+    def execute(self, ctx: BuildContext) -> None:
+        raise NotImplementedError
+
+    async def execute_async(self, ctx: AsyncBuildContext) -> None:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        return self.NAME or self.__class__.__name__
 
 
 @dataclass(frozen=True, kw_only=True)

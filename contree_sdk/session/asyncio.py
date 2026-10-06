@@ -6,9 +6,9 @@ from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
-from typing import TYPE_CHECKING
 
-from contree_client.models import OperationStatus
+from contree_client.models import ClosableStreamRepr, FileSpec, InstanceResult, InstanceSpawnResponse, OperationStatus
+from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import AsyncExecutor, OperationContext, RunRequest
@@ -17,11 +17,6 @@ from contree_sdk.session.base import exit_code_of, instance_result, new_session_
 from contree_sdk.session.contracts import AsyncOperationContract
 from contree_sdk.session.operation_async import AsyncOperation
 from contree_sdk.store import AsyncMemoryStore, AsyncStore, HistoryEntry
-
-
-if TYPE_CHECKING:
-    from contree_client.models import ClosableStreamRepr, FileSpec, InstanceResult, InstanceSpawnResponse
-    from contree_client.types import ContreeAsyncClient
 
 
 class PendingRun:

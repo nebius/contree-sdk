@@ -42,6 +42,7 @@ class DocumentationAPI:
         exit_code: int = 0,
         wait_for: int | None = None,
         status: OperationStatus = OperationStatus.SUCCESS,
+        stream: bool = True,
     ) -> None:
         self.sequence += 1
         operation_uuid = f"operation-{self.sequence}"
@@ -64,13 +65,18 @@ class DocumentationAPI:
             client.mock("spawn_instance", InstanceSpawnResponse(uuid=operation_uuid))
             client.mock("wait_operation", response)
             client.mock("get_operation_status", response)
+            if stream:
+                client.mock(
+                    "follow_operation_events",
+                    [OperationEvent(id=1, ts=datetime.now(timezone.utc), type="completion", data={})],
+                )
 
     def download(self, data: bytes) -> None:
         for client in (self.sync, self.async_client):
             client.mock("inspect_image_download", data)
 
     def subprocess(self, stdout: str = "Hello from a subprocess!\n") -> None:
-        self.complete()
+        self.complete(stream=False)
         events = [
             OperationEvent(
                 id=1,
@@ -126,3 +132,20 @@ def doc_build_context(doc_api: DocumentationAPI, request: pytest.FixtureRequest,
         if match is None:
             raise ValueError(f"missing {language} block in {request.path}")
         (context / filename).write_text(match[1] + "\n")
+
+
+@pytest.fixture
+def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> DocumentationAPI:
+    """Supply a controllable live transport; retain the real SDK lifecycle."""
+    from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient
+
+    doc_api.sync = LiveClient()
+    doc_api.async_client = LiveAsyncClient()
+    for path, client in [
+        ("contree_client.sync.ContreeClient", doc_api.sync),
+        ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),
+    ]:
+        factory = Mock(return_value=client)
+        factory.from_profile = Mock(return_value=client)
+        monkeypatch.setattr(path, factory)
+    return doc_api

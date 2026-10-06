@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
 from typing import IO
 
 from contree_client.models import InstanceResult, OperationEvent, OperationResponse
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
+
+
+OperationObserver = Callable[[OperationEvent | None, Exception | None], None]
+AsyncOperationObserver = Callable[[OperationEvent | None, Exception | None], Awaitable[None]]
 
 
 class SubprocessContract(ABC):
@@ -55,6 +59,15 @@ class OperationContract(ABC):
     uuid: str
     context: OperationContext | None
     response: OperationResponse | None
+
+    def add_observer(self, observer: OperationObserver) -> None:
+        """Register an observer before starting the shared operation reader.
+
+        A None event marks EOF, with an optional stream error. Observers must
+        not consume events or wait for this operation. Implementations without
+        this optional facility reject registration.
+        """
+        raise NotImplementedError("this operation does not support event observers")
 
     @abstractmethod
     def events(self, *, since: int | None = None, spid: int | None = None) -> Iterator[OperationEvent]: ...
@@ -103,6 +116,15 @@ class AsyncOperationContract(ABC):
     uuid: str
     context: OperationContext | None
     response: OperationResponse | None
+
+    def add_observer(self, observer: AsyncOperationObserver) -> None:
+        """Register an observer before starting the shared operation reader.
+
+        A None event marks EOF, with an optional stream error. Observers must
+        not consume events or wait for this operation. Implementations without
+        this optional facility reject registration.
+        """
+        raise NotImplementedError("this operation does not support event observers")
 
     @abstractmethod
     def events(self, *, since: int | None = None, spid: int | None = None) -> AsyncIterator[OperationEvent]: ...

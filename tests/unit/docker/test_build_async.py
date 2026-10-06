@@ -10,7 +10,7 @@ from contree_sdk.cache import AsyncMemoryCache, AsyncSQLiteCache
 from contree_sdk.docker import ContreeAsyncDockerBuilder
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore
-from tests.unit.session.factories import operation_response, spawn_response
+from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def write_dockerfile(tmp_path, text: str) -> None:
 async def test_simple_build(tmp_path, client: ContreeAsyncClient):
     write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
     builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
     image = await builder.build(tmp_path, session_id="sess")
@@ -49,7 +49,7 @@ async def test_missing_from_raises(tmp_path, client: ContreeAsyncClient):
 async def test_run_nonzero_exit_raises_docker_build_error(tmp_path, client: ContreeAsyncClient):
     write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN false\n")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
+    mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
 
     builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
     with pytest.raises(DockerBuildError, match="boom"):
@@ -59,7 +59,7 @@ async def test_run_nonzero_exit_raises_docker_build_error(tmp_path, client: Cont
 async def test_tag_applied_on_success(tmp_path, client: ContreeAsyncClient):
     write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
     client.mock("spawn_instance", spawn_response())
-    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+    mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     client.mock("update_image_tag", None)
 
     builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
@@ -74,7 +74,7 @@ class TestCache:
     async def test_second_identical_build_is_full_cache_hit(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -88,8 +88,8 @@ class TestCache:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response("op-1"))
         client.mock("spawn_instance", spawn_response("op-2"))
-        client.mock("wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-1", exit_code=0))
-        client.mock("wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
+        mock_completion(client, operation_response(operation_uuid="op-1", result_image_uuid="img-1", exit_code=0))
+        mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -106,13 +106,11 @@ class TestCache:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN maybe-flaky\n")
         client.mock("spawn_instance", spawn_response("op-1"))
         client.mock("spawn_instance", spawn_response("op-2"))
-        client.mock(
-            "wait_operation",
+        mock_completion(
+            client,
             operation_response(operation_uuid="op-1", result_image_uuid="img-failed", exit_code=1, stderr="boom"),
         )
-        client.mock(
-            "wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0)
-        )
+        mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -129,7 +127,7 @@ class TestOnStep:
     async def test_on_step_reports_cache_hit_across_rebuild(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -152,7 +150,7 @@ class TestOnStep:
     async def test_on_step_accepts_an_async_callback(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         events = []
 
@@ -167,7 +165,7 @@ class TestOnStep:
     async def test_on_step_reports_error_and_reraises(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN boom\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-failed", exit_code=1, stderr="boom"))
+        mock_completion(client, operation_response(result_image_uuid="img-failed", exit_code=1, stderr="boom"))
 
         events = []
         with pytest.raises(DockerBuildError):
@@ -186,7 +184,7 @@ class TestCopy:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nCOPY app.py /app.py\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=10))
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
         await builder.build(tmp_path, session_id="sess")
@@ -210,12 +208,8 @@ class TestMultistage:
         client.mock("resolve_image", "img-uuid-runtime")
         client.mock("spawn_instance", spawn_response("op-1"))
         client.mock("spawn_instance", spawn_response("op-2"))
-        client.mock(
-            "wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-build", exit_code=0)
-        )
-        client.mock(
-            "wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-final", exit_code=0)
-        )
+        mock_completion(client, operation_response(operation_uuid="op-1", result_image_uuid="img-build", exit_code=0))
+        mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-final", exit_code=0))
 
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tar:
@@ -242,7 +236,7 @@ class TestAddUrl:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         calls = {"n": 0}
 
@@ -274,7 +268,7 @@ class TestAddUrl:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nADD https://example.com/f.txt /f.txt\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="url-file-uuid", sha256="urlsha", size=11))
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         requests = []
 
@@ -314,7 +308,7 @@ class TestEnvWorkdirUser:
     async def test_env_workdir_user_thread_into_run(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nENV FOO=bar\nWORKDIR /app\nUSER 1000\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
         await builder.build(tmp_path, session_id="sess")
@@ -331,7 +325,7 @@ class TestRunSubstitution:
         # shell variable, not a declared ARG/ENV, and must reach the remote shell untouched
         write_dockerfile(tmp_path, 'FROM tag:python:3.11\nRUN x=hello; echo "$x"\n')
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
         await builder.build(tmp_path, session_id="sess")
@@ -344,7 +338,7 @@ class TestRunSubstitution:
         # this RUN's process environment, so the remote shell (not us) expands $VERSION
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG VERSION=1.0\nRUN echo $VERSION\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
         await builder.build(tmp_path, session_id="sess", build_args={"VERSION": "2.0"})
@@ -356,7 +350,7 @@ class TestRunSubstitution:
     async def test_env_takes_priority_over_arg_of_same_name(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG FOO=arg-value\nENV FOO=env-value\nRUN echo $FOO\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
         await builder.build(tmp_path, session_id="sess")
@@ -369,7 +363,7 @@ class TestArgCacheBusting:
     async def test_same_build_args_is_cache_hit(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG VERSION=3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -388,8 +382,8 @@ class TestArgCacheBusting:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nARG VERSION=3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response("op-1"))
         client.mock("spawn_instance", spawn_response("op-2"))
-        client.mock("wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-1", exit_code=0))
-        client.mock("wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
+        mock_completion(client, operation_response(operation_uuid="op-1", result_image_uuid="img-1", exit_code=0))
+        mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = AsyncMemoryStore()
         cache = AsyncMemoryCache()
@@ -409,7 +403,7 @@ class TestSqlitePersistence:
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nCOPY app.py /app.py\nRUN echo hi\n")
         client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=10))
         client.mock("spawn_instance", spawn_response())
-        client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+        mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store_path = tmp_path / "store.db"
         cache_path = tmp_path / "cache.db"
