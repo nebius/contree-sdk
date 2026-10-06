@@ -173,6 +173,24 @@ class SyncSQLiteStore(SyncStore):
             self.conn.rollback()
             raise
 
+    @contextmanager
+    def read_transaction(self) -> Iterator[None]:
+        """Use one read snapshot, retaining any transaction owned by the caller.
+
+        The caller must hold rlock throughout this context.
+        """
+        owned = not self.conn.in_transaction
+        try:
+            if owned:
+                self.conn.execute("BEGIN")
+            yield
+            if owned:
+                self.conn.commit()
+        except BaseException:
+            if owned:
+                self.conn.rollback()
+            raise
+
     def branch_tip_row(self, session_id: str, branch: str) -> sqlite3.Row | None:
         with self.rlock:
             return self.conn.execute(
@@ -189,14 +207,13 @@ class SyncSQLiteStore(SyncStore):
         return tuple(row["file_path"] for row in rows)
 
     def get_entry_row(self, session_id: str, history_id: int) -> HistoryEntry:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             row = self.conn.execute(
                 "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
                 (history_id, session_id),
             ).fetchone()
-        if row is None:
-            raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-        with self.rlock:
+            if row is None:
+                raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
             attachments = self.conn.execute(
                 "SELECT * FROM session_history_attachments_v1 WHERE history_id = ? ORDER BY file_path",
                 (history_id,),
@@ -216,7 +233,7 @@ class SyncSQLiteStore(SyncStore):
         return self.get_entry_row(session_id, history_id)
 
     def get_session_metadata(self, session_id: str) -> SessionMetadata:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             row = self.conn.execute(
                 "SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,)
             ).fetchone()
@@ -341,7 +358,7 @@ class SyncSQLiteStore(SyncStore):
             return entry
 
     def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             branch_name = branch or self.active_branch(session_id)
             if branch_name is None:
                 return None
@@ -449,7 +466,7 @@ class SyncSQLiteStore(SyncStore):
             return entry
 
     def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             active = self.active_branch(session_id)
             if active is None:
                 return []
@@ -505,7 +522,7 @@ class SyncSQLiteStore(SyncStore):
             return selected
 
     def find_session(self, name: str) -> str:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             exact = self.conn.execute(
                 "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
                 (name,),
@@ -556,7 +573,7 @@ class SyncSQLiteStore(SyncStore):
             return True
 
     def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        with self.rlock:
+        with self.rlock, self.read_transaction():
             rows = self.conn.execute(
                 "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
                 (session_id,),
@@ -791,14 +808,33 @@ class AsyncSQLiteStore(AsyncStore):
             await conn.rollback()
             raise
 
+    @asynccontextmanager
+    async def read_transaction(self) -> AsyncIterator[None]:
+        """Use one read snapshot while retaining a transaction owned by the caller.
+
+        The caller must hold lock throughout this context.
+        """
+        conn = await self.ensure_connection()
+        owned = not conn.in_transaction
+        try:
+            if owned:
+                await conn.execute("BEGIN")
+            yield
+            if owned:
+                await conn.commit()
+        except BaseException:
+            if owned:
+                await conn.rollback()
+            raise
+
     async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             return await get_entry_row_async(conn, session_id, history_id)
 
     async def get_session_metadata(self, session_id: str) -> SessionMetadata:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             return await session_metadata_async(conn, session_id)
 
     async def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
@@ -909,7 +945,7 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             branch_name = branch or await active_branch_row_async(conn, session_id)
             if branch_name is None:
                 return None
@@ -1022,7 +1058,7 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             active = await active_branch_row_async(conn, session_id)
             if active is None:
                 return []
@@ -1091,7 +1127,7 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def find_session(self, name: str) -> str:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             cursor = await conn.execute(
                 "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
                 (name,),
@@ -1147,5 +1183,5 @@ class AsyncSQLiteStore(AsyncStore):
 
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         conn = await self.ensure_connection()
-        async with self.lock:
+        async with self.lock, self.read_transaction():
             return await history_dag_async(conn, session_id)

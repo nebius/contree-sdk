@@ -15,7 +15,8 @@ async def invoke(target, method, *args, **kwargs):
     function = getattr(target, method)
     if inspect.iscoroutinefunction(function):
         return await function(*args, **kwargs)
-    return await asyncio.to_thread(function, *args, **kwargs)
+    result = await asyncio.to_thread(function, *args, **kwargs)
+    return await result if inspect.isawaitable(result) else result
 
 
 @pytest.fixture(params=[SyncSQLiteStore, AsyncSQLiteStore])
