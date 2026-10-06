@@ -1,249 +1,162 @@
-from datetime import timedelta
-from uuid import UUID
+import threading
 
 import pytest
+from contree_client.exceptions import NotFoundError
+from contree_client.models import FileResponse
+from contree_client.testing import ContreeClient
 
 
-pytest.importorskip("deepagents", reason="langchain integration needs deepagents (Python >= 3.11)")
+pytest.importorskip("deepagents")
 
-from contree_client.exceptions import NotFoundError, UnprocessableEntityError
-from contree_client.testing import ContreeAsyncClient, ContreeClient
-
-from contree_sdk.langchain.sandbox import ContreeSandbox, ContreeSandboxAsync, ContreeSandboxSync, to_execute_response
-from contree_sdk.sdk.objects.image import ContreeImage, ContreeImageSync
-from contree_sdk.sdk.objects.image_like.result import ContreeResult
-from contree_sdk.sdk.objects.session import ContreeSession, ContreeSessionSync
-from tests.unit.fixtures.files import queue_upload
-from tests.unit.fixtures.operations import queue_run
-
-
-@pytest.fixture
-def fake_session(fake_image: ContreeImage) -> ContreeSession:
-    return fake_image.session()
+import contree_sdk.langchain.sandbox as sandbox_module
+from contree_sdk.langchain import ContreeSandbox
+from contree_sdk.session import ContreeSession
+from contree_sdk.store import SyncMemoryStore
+from tests.unit.session.factories import operation_response, spawn_response
 
 
 @pytest.fixture
-def fake_session_s(fake_image_s: ContreeImageSync) -> ContreeSessionSync:
-    return fake_image_s.session()
+def client() -> ContreeClient:
+    client = ContreeClient()
+    client.mock("resolve_image", "img-uuid-0")
+    return client
 
 
-def test_to_execute_response_skips_none_stream():
-    result = ContreeResult(
-        stdout=None,
-        stderr="err\n",
-        exit_code=1,
-        elapsed_time=timedelta(seconds=1),
-        truncated={},
-        cost=None,
-        raw=None,
-    )
-
-    response = to_execute_response(result)
-
-    assert response.output == "err\n"
-    assert response.exit_code == 1
+@pytest.fixture
+def sandbox(client: ContreeClient) -> ContreeSandbox:
+    session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
+    return ContreeSandbox(session=session)
 
 
-def test_dispatches_to_async_for_async_session(fake_session: ContreeSession):
-    sandbox = ContreeSandbox(fake_session)
-    assert isinstance(sandbox, ContreeSandboxAsync)
-    assert sandbox.id.startswith("contree-")
-    assert sandbox.id.endswith(f"-from-{fake_session.uuid}")
+def test_id_contains_session_id(sandbox: ContreeSandbox):
+    assert sandbox.session.session_id in sandbox.id
 
 
-def test_dispatches_to_sync_for_sync_session(fake_session_s: ContreeSessionSync):
-    sandbox = ContreeSandbox(fake_session_s)
-    assert isinstance(sandbox, ContreeSandboxSync)
-    assert sandbox.id.endswith(f"-from-{fake_session_s.uuid}")
+def test_init_raises_friendly_error_when_deepagents_unavailable(client: ContreeClient, monkeypatch: pytest.MonkeyPatch):
+    # on Python < 3.11 `deepagents` can't be installed at all; ContreeSandbox()
+    # must fail with a clear message instead of a bare ModuleNotFoundError
+    monkeypatch.setattr(sandbox_module, "DEEPAGENTS_AVAILABLE", False)
+    session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
+
+    with pytest.raises(ImportError, match="deepagents"):
+        ContreeSandbox(session=session)
 
 
-async def test_async_sandbox_rejects_sync_calls(fake_session: ContreeSession):
-    sandbox = ContreeSandbox(fake_session)
-    with pytest.raises(NotImplementedError):
-        sandbox.execute("true")
-    with pytest.raises(NotImplementedError):
-        sandbox.upload_files([])
-    with pytest.raises(NotImplementedError):
-        sandbox.download_files([])
+def test_execute_combines_stdout_and_stderr(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="err\n"))
 
-
-async def test_sync_sandbox_rejects_async_calls(fake_session_s: ContreeSessionSync):
-    sandbox = ContreeSandbox(fake_session_s)
-    with pytest.raises(NotImplementedError):
-        await sandbox.aexecute("true")
-    with pytest.raises(NotImplementedError):
-        await sandbox.aupload_files([])
-    with pytest.raises(NotImplementedError):
-        await sandbox.adownload_files([])
-
-
-async def test_upload_files_valid_path(
-    fake_session: ContreeSession,
-    fake_api: ContreeAsyncClient,
-    file_uuid: str,
-    file_sha256: str,
-    result_image_uuid: UUID,
-):
-    queue_upload(fake_api, file_uuid, file_sha256)
-    queue_run(fake_api, result_image_uuid=str(result_image_uuid))
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.aupload_files([("/app/data.txt", b"content")])
-
-    assert response.path == "/app/data.txt"
-    assert response.error is None
-
-
-async def test_upload_files_rejects_relative_path(fake_session: ContreeSession, fake_api: ContreeAsyncClient):
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.aupload_files([("relative/path.txt", b"content")])
-
-    assert response.path == "relative/path.txt"
-    assert response.error == "invalid_path"
-    assert not fake_api.calls_for("ensure_file")
-
-
-async def test_upload_files_mixed_paths(
-    fake_session: ContreeSession,
-    fake_api: ContreeAsyncClient,
-    file_uuid: str,
-    file_sha256: str,
-    result_image_uuid: UUID,
-):
-    queue_upload(fake_api, file_uuid, file_sha256)
-    queue_run(fake_api, result_image_uuid=str(result_image_uuid))
-    sandbox = ContreeSandbox(fake_session)
-
-    responses = await sandbox.aupload_files([("/app/data.txt", b"content"), ("relative.txt", b"other")])
-
-    by_path = {response.path: response.error for response in responses}
-    assert by_path == {"/app/data.txt": None, "relative.txt": "invalid_path"}
-
-
-def test_upload_files_sync(
-    fake_session_s: ContreeSessionSync,
-    fake_api_s: ContreeClient,
-    file_uuid: str,
-    file_sha256: str,
-    result_image_uuid: UUID,
-):
-    queue_upload(fake_api_s, file_uuid, file_sha256)
-    queue_run(fake_api_s, result_image_uuid=str(result_image_uuid))
-    sandbox = ContreeSandbox(fake_session_s)
-
-    [response] = sandbox.upload_files([("/app/data.txt", b"content")])
-
-    assert response.error is None
-
-
-async def test_download_file_found(fake_session: ContreeSession, fake_api: ContreeAsyncClient):
-    fake_api.mock("inspect_image_download", b"file content")
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.adownload_files(["/app/data.txt"])
-
-    assert response.path == "/app/data.txt"
-    assert response.content == b"file content"
-    assert response.error is None
-
-
-async def test_download_file_not_found(fake_session: ContreeSession, fake_api: ContreeAsyncClient):
-    fake_api.mock("inspect_image_download", error=NotFoundError(404, "file not found"))
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.adownload_files(["/app/missing.txt"])
-
-    assert response.content is None
-    assert response.error == "file_not_found"
-
-
-async def test_download_file_unprocessable_path(fake_session: ContreeSession, fake_api: ContreeAsyncClient):
-    fake_api.mock("inspect_image_download", error=UnprocessableEntityError(422, "not a regular file"))
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.adownload_files(["/app/adir"])
-
-    assert response.content is None
-    assert response.error == "invalid_path"
-
-
-async def test_download_file_rejects_relative_path(fake_session: ContreeSession, fake_api: ContreeAsyncClient):
-    sandbox = ContreeSandbox(fake_session)
-
-    [response] = await sandbox.adownload_files(["relative.txt"])
-
-    assert response.error == "invalid_path"
-    assert not fake_api.calls_for("inspect_image_download")
-
-
-def test_download_files_sync(fake_session_s: ContreeSessionSync, fake_api_s: ContreeClient):
-    fake_api_s.mock("inspect_image_download", b"file content")
-    sandbox = ContreeSandbox(fake_session_s)
-
-    [response] = sandbox.download_files(["/app/data.txt"])
-
-    assert response.content == b"file content"
-
-
-def test_download_file_not_found_s(fake_session_s: ContreeSessionSync, fake_api_s: ContreeClient):
-    fake_api_s.mock("inspect_image_download", error=NotFoundError(404, "file not found"))
-    sandbox = ContreeSandbox(fake_session_s)
-
-    [response] = sandbox.download_files(["/app/missing.txt"])
-
-    assert response.content is None
-    assert response.error == "file_not_found"
-
-
-def test_download_file_unprocessable_path_s(fake_session_s: ContreeSessionSync, fake_api_s: ContreeClient):
-    fake_api_s.mock("inspect_image_download", error=UnprocessableEntityError(422, "not a regular file"))
-    sandbox = ContreeSandbox(fake_session_s)
-
-    [response] = sandbox.download_files(["/app/adir"])
-
-    assert response.content is None
-    assert response.error == "invalid_path"
-
-
-def test_download_file_rejects_relative_path_s(fake_session_s: ContreeSessionSync, fake_api_s: ContreeClient):
-    sandbox = ContreeSandbox(fake_session_s)
-
-    [response] = sandbox.download_files(["relative.txt"])
-
-    assert response.error == "invalid_path"
-    assert not fake_api_s.calls_for("inspect_image_download")
-
-
-async def test_execute_combines_stdout_and_stderr(
-    fake_session: ContreeSession, fake_api: ContreeAsyncClient, result_image_uuid: UUID
-):
-    queue_run(fake_api, stdout="out\n", stderr="err\n", result_image_uuid=str(result_image_uuid))
-    sandbox = ContreeSandbox(fake_session)
-
-    response = await sandbox.aexecute("echo hi")
+    response = sandbox.execute("echo hi")
 
     assert response.output == "out\nerr\n"
     assert response.exit_code == 0
     assert response.truncated is False
 
 
-def test_execute_sync(fake_session_s: ContreeSessionSync, fake_api_s: ContreeClient, result_image_uuid: UUID):
-    queue_run(fake_api_s, stdout="hi\n", result_image_uuid=str(result_image_uuid))
-    sandbox = ContreeSandbox(fake_session_s)
+def test_execute_reports_truncated_when_stdout_or_stderr_truncated(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(exit_code=0, stdout="out\n", stderr="", stdout_truncated=True))
 
     response = sandbox.execute("echo hi")
 
-    assert response.output == "hi\n"
-    assert response.exit_code == 0
+    assert response.truncated is True
 
 
-def test_import_without_deepagents_raises_clear_error(monkeypatch: pytest.MonkeyPatch):
-    import sys
+def test_concurrent_execute_calls_are_serialized_into_a_linear_history(client: ContreeClient, sandbox: ContreeSandbox):
+    # two agent tool calls can invoke execute() on separate OS threads against the
+    # same session at once (deepagents bridges aexecute() via asyncio.to_thread) -
+    # without ContreeSandbox's own lock both could read session.image_uuid before
+    # either commits, forking history instead of chaining run2 after run1
+    client.mock("spawn_instance", spawn_response(operation_uuid="op-1"))
+    client.mock("spawn_instance", spawn_response(operation_uuid="op-2"))
+    client.mock("wait_operation", operation_response(operation_uuid="op-1", result_image_uuid="img-uuid-1"))
+    client.mock("wait_operation", operation_response(operation_uuid="op-2", result_image_uuid="img-uuid-2"))
 
-    monkeypatch.delitem(sys.modules, "contree_sdk.langchain.sandbox", raising=False)
-    for name in ("deepagents", "deepagents.backends.protocol", "deepagents.backends.sandbox"):
-        monkeypatch.setitem(sys.modules, name, None)
+    threads = [threading.Thread(target=sandbox.execute, args=(cmd,)) for cmd in ("echo one", "echo two")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
-    with pytest.raises(ImportError, match="langchain"):
-        import contree_sdk.langchain.sandbox  # noqa: F401
+    entries, _ = sandbox.session.history()
+    assert [entry.kind for entry in entries] == ["init", "run", "run"]
+    init_entry, run_a, run_b = entries
+    # a proper serialization chains run_b after run_a; a race would leave both
+    # run entries as siblings of init_entry instead
+    assert run_b.parent_id == run_a.id
+    assert run_a.parent_id == init_entry.id
+    assert sandbox.session.tip_id == run_b.id
+    assert sandbox.session.image_uuid == run_b.image_uuid
+
+
+def test_execute_reports_nonzero_exit_code(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(exit_code=1, stdout="", stderr="boom"))
+
+    response = sandbox.execute("false")
+
+    assert response.exit_code == 1
+    assert response.output == "boom"
+
+
+def test_upload_files_rejects_relative_paths(sandbox: ContreeSandbox):
+    responses = sandbox.upload_files([("relative.txt", b"data")])
+
+    assert len(responses) == 1
+    assert responses[0].path == "relative.txt"
+    assert responses[0].error == "invalid_path"
+
+
+def test_upload_files_writes_valid_paths_only(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
+    client.mock("spawn_instance", spawn_response())
+    client.mock("wait_operation", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
+
+    responses = sandbox.upload_files([("/app.txt", b"data"), ("relative.txt", b"data")])
+
+    by_path = {r.path: r for r in responses}
+    assert by_path["/app.txt"].error is None
+    assert by_path["relative.txt"].error == "invalid_path"
+    assert len(client.calls_for("ensure_file")) == 1
+    assert len(client.calls_for("spawn_instance")) == 1
+
+
+def test_upload_files_skips_run_when_nothing_valid(sandbox: ContreeSandbox, client: ContreeClient):
+    responses = sandbox.upload_files([("relative.txt", b"data")])
+
+    assert responses[0].error == "invalid_path"
+    assert client.calls_for("spawn_instance") == []
+
+
+def test_download_one_file_rejects_relative_paths(sandbox: ContreeSandbox):
+    response = sandbox.download_one_file("relative.txt")
+
+    assert response.error == "invalid_path"
+    assert response.content is None
+
+
+def test_download_one_file_returns_decoded_content(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("inspect_image_download", b"hello world")
+
+    response = sandbox.download_one_file("/data/file.txt")
+
+    assert response.content == b"hello world"
+    assert response.error is None
+
+
+def test_download_one_file_missing_returns_file_not_found(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("inspect_image_download", error=NotFoundError(404, "missing"))
+
+    response = sandbox.download_one_file("/data/missing.txt")
+
+    assert response.error == "file_not_found"
+    assert response.content is None
+
+
+def test_download_files_downloads_each_path(client: ContreeClient, sandbox: ContreeSandbox):
+    client.mock("inspect_image_download", b"data")
+
+    responses = sandbox.download_files(["/a.txt", "/b.txt"])
+
+    assert [r.path for r in responses] == ["/a.txt", "/b.txt"]
+    assert all(r.content == b"data" for r in responses)

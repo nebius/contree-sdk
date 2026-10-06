@@ -2,117 +2,162 @@
 icon: hand-wave
 ---
 
-# Getting Started
+# Run your first command
 
-This guide will help you get up and running with ConTree SDK. By the end of this guide, you'll understand how to create clients, work with images, and run your first commands.
+This guide runs `echo` in a remote sandbox and prints its output locally.
+You need Python 3.10–3.14, a ConTree endpoint and token, and an image available
+on that endpoint. The image must contain `echo`; later examples also need a POSIX shell.
 
-## Configuration
+## Install the SDK
 
-`contree_sdk` performs no auth, transport, or configuration of its own — `Contree`/`ContreeSync` just take an already-constructed `contree_client.base.ContreeAsyncClient`/`ContreeSyncClient` (e.g. from `contree_client.httpx`) as their first argument. Credentials, base URL, timeouts, and retries are entirely `contree_client`'s concern, configured directly when you build that client:
+For synchronous programs:
+
+```bash
+pip install contree-sdk
+```
+
+For asynchronous programs, including async SQLite storage:
+
+```bash
+pip install "contree-sdk[async]"
+```
+
+These guides describe the new 0.5 API. When testing this development checkout,
+install its code with `pip install -e ".[async]"` from the repository root.
+A published 0.4 package does not provide this API.
+
+## Configure the connection and image
+
+Set the values supplied for your ConTree deployment:
+
+```bash
+export CONTREE_URL="https://your-contree-endpoint"
+export CONTREE_TOKEN="your-token"
+export CONTREE_IMAGE="tag:your-existing-image"
+```
+
+`CONTREE_IMAGE` is an environment variable used by these examples. It can contain
+an existing image UUID or tag. Setting it does not import an image. If you need a
+base image, follow {doc}`images` first.
+
+The programs below pass the token and URL explicitly to `contree-client`.
+They do not require the ConTree CLI or a saved profile.
+
+## Run the program
+
+Choose one version and save it as `first_command.py`. Run `python first_command.py`.
+
+::::{tab} Sync
+
+<!--
+name: test_first_command; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="Hello from ConTree!\n")
+```
+-->
 
 ```python
-from contree_client.httpx import ContreeAsyncClient
+import os
 
-api_client = ContreeAsyncClient("YOUR-NEBIUS-API-KEY", base_url="https://your-instance.of.contree")
+from contree_client.models import StreamRepr
+from contree_client.sync import ContreeClient
+
+from contree_sdk import ContreeSession
+
+
+def main() -> None:
+    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+        result = session.run("echo", args=["Hello from ConTree!"])
+        if isinstance(result.stdout, StreamRepr):
+            print(result.stdout.as_text(), end="")
+
+
+main()
 ```
 
-`contree_client` clients can also be built from a saved profile with `from_profile()`, which resolves credentials in this order: an explicit `profile` argument, then the `CONTREE_PROFILE` environment variable, then the active profile recorded in the profile config file (`$CONTREE_HOME/auth.ini`, defaulting to `~/.config/contree/auth.ini`):
+<!--
+name: test_first_command
+```python
+assert doc_api.sync.calls_for("spawn_instance")[0].args == ("echo", "base-image")
+assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["args"] == ["Hello from ConTree!"]
+assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is True
+assert capsys.readouterr().out == "Hello from ConTree!\n"
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: test_first_command_async; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="Hello from ConTree!\n")
+```
+-->
 
 ```python
-from contree_client.httpx import ContreeAsyncClient
+import asyncio
+import os
 
-api_client = ContreeAsyncClient.from_profile()
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import StreamRepr
+
+from contree_sdk import ContreeAsyncSession
+
+
+async def main() -> None:
+    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+        result = await session.run("echo", args=["Hello from ConTree!"])
+        if isinstance(result.stdout, StreamRepr):
+            print(result.stdout.as_text(), end="")
+
+
+asyncio.run(main())
 ```
 
-## Creating a Client
-
-The first step is to create a ConTree client. You can choose between async and sync versions depending on your application needs.
-
-Here's how to create a client and verify the connection by listing available images:
-
-````{tab} Async
-```{literalinclude} ../../examples/client/client.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {class}`~contree_sdk.Contree` for all client options.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/client/client_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {class}`~contree_sdk.ContreeSync` for all client options.
-````
-
-## Working with Images
-
-Images are the foundation of ConTree. The simplest way to reference an image is by tag using `images.use()`, which creates an image object without making an API call:
-
-````{tab} Async
+<!--
+name: test_first_command_async
 ```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
+assert doc_api.async_client.calls_for("spawn_instance")[0].args == ("echo", "base-image")
+assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["args"] == ["Hello from ConTree!"]
+assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is True
+assert capsys.readouterr().out == "Hello from ConTree!\n"
 ```
-````
+-->
 
-````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
-```
-````
+::::
 
-To resolve a tag or UUID upfront via an API call, use `images.use(strict=True)`. To import from an external registry (or return an existing image if already imported), use `images.oci()`.
+Expected output:
 
-See {doc}`images` for a full overview of available methods, examples, and what you can pass as a reference.
-
-## Running Commands
-
-Once you have an image, you can run commands inside it. Each command execution creates a new version of the image with your changes.
-
-### Basic Command Execution
-
-You can run various shell commands and handle their output:
-
-````{tab} Async
-```{literalinclude} ../../examples/run/run_simple.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+```text
+Hello from ConTree!
 ```
 
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.run` for all command execution options.
-````
+The client context closes the connection. The session selects the starting image.
+`run()` starts a command, waits for it, and returns an `InstanceResult`.
+`StreamRepr.as_text()` decodes stdout for display.
 
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_simple_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
+The synchronous session resolves its image during construction. The async session
+loads its state on first use; call `await session.ensure_ready()` if you need
+`image_uuid` before running anything.
 
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.run` for all command execution options.
-````
+## Keep a command's filesystem changes
 
-### Understanding the Results
+`run()` defaults to `disposable=True`. Use `disposable=False` when a command creates
+files or installs packages that the next command needs. Continue with {doc}`files`
+for a complete upload–run–download example, or {doc}`sessions` to resume work later.
 
-When you run a command, you get back a result object that contains:
+## Use a saved profile instead
 
-- **`stdout`**: Standard output from the command
-- **`stderr`**: Standard error from the command
-- **`exit_code`**: The exit code (0 for success, non-zero for errors)
-- **`uuid`**: The UUID of the new image version created by this command
+If you already configured the ConTree CLI, replace client construction with
+`ContreeClient.from_profile()` or `ContreeAsyncClient.from_profile()`.
+An explicit profile name takes precedence over `CONTREE_PROFILE`, then the active
+profile in the configuration file. Setting `CONTREE_TOKEN` and `CONTREE_URL` alone
+does not select a saved profile.
+
+For environment-based profile loading, `contree_client.profiles.from_env()` returns
+a `Profile` when both a token and URL are present. Pass that object to
+`from_profile(profile)`. See {doc}`troubleshooting` if configuration fails.

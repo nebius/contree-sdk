@@ -2,225 +2,294 @@
 icon: terminal
 ---
 
-# Running Commands
+# Run commands and handle results
 
-ConTree SDK provides multiple ways to execute commands in containers, from simple shell commands to complex workflows with file handling and custom I/O.
+Use `run()` for a command whose final output you need. The sync call returns a
+result directly; the async call must be awaited. For live output, use {doc}`operation`.
+All examples below use the variables from {doc}`getting-started`.
 
-## Basic Command Execution
+:::{note}
+Async snippets with top-level `await` run inside an async function or a notebook
+that supports it. For a standalone script, use the `asyncio.run(main())` structure
+from {doc}`getting-started`.
+:::
 
-You can run commands using shell syntax or by specifying command and arguments separately:
+## Pass an executable and separate arguments
 
-````{tab} Async
-```{literalinclude} ../../examples/run/run_simple.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
+An argument containing spaces remains one argument. The shell does not expand it.
+This example prints `a value with spaces` and `exit: 0`.
 
-See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` and {meth}`ContreeSession.run() <contree_sdk.sdk.objects.session.ContreeSession.run>` for all options.
-````
+::::{tab} Sync
 
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_simple_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for all options.
-````
-
-## Command Execution Mode
-
-You can execute commands by specifying the executable path and arguments separately:
-
-````{tab} Async
-```{literalinclude} ../../examples/run/run_command.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`ContreeImage.run() <contree_sdk.sdk.objects.image.ContreeImage.run>` and {meth}`ContreeSession.run() <contree_sdk.sdk.objects.session.ContreeSession.run>` for command execution details.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_command_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`ContreeImageSync.run() <contree_sdk.sdk.objects.image.ContreeImageSync.run>` and {meth}`ContreeSessionSync.run() <contree_sdk.sdk.objects.session.ContreeSessionSync.run>` for command execution details.
-````
-
-### Command vs Shell Mode
-
-- **Command mode**: Use `command="/bin/ls"` with `args=["-la", "/tmp"]` for direct execution without shell interpretation
-- **Shell mode**: Use `shell="ls -la /tmp"` for shell commands with pipes, redirects, and wildcards
-- **Environment variables**: Pass `env={"VAR": "value"}` to set environment for command execution
-
-### Preserving Environment Variables
-
-By default, values passed through `env` are available only to the current command. Set `preserve_env=True`
-with `disposable=False` when those variables should be written into the resulting image and inherited by
-later commands:
-
-````{tab} Async
+<!--
+name: test_commands; fixtures: doc_api, capsys
 ```python
-prepared = await image.run(
-    shell="true",
-    env={"MY_PERSISTED_VAR": "persisted_value"},
-    preserve_env=True,
-    disposable=False,
-)
-result = await prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"])
+doc_api.complete(stdout="a value with spaces\n")
 ```
-````
+-->
 
-````{tab} Sync
 ```python
-prepared = image.run(
-    shell="true",
-    env={"MY_PERSISTED_VAR": "persisted_value"},
-    preserve_env=True,
-    disposable=False,
-).wait()
-result = prepared.run("/bin/printenv", args=["MY_PERSISTED_VAR"]).wait()
-```
-````
+import os
+from contree_client.models import StreamRepr, InstanceResultState
 
-On the ConTree side, `preserve_env=True` merges the image's existing `metadata/env` entries with the `env`
-values from the request, with request values taking priority, then writes the merged values back to
-`metadata/env` in the resulting image. Setting a variable to an empty string removes it from the preserved
-environment.
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
 
-## Working with Files
-
-You can upload and use files in your commands by specifying local file paths or pre-uploaded file objects:
-
-````{tab} Async
-```{literalinclude} ../../examples/run/run_files.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_files_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-````
-
-### File Upload Methods
-
-You can provide files to commands in several ways:
-
-- **Local file paths**: `files=["/path/to/local/file.txt"]` - Upload files directly
-- **File mapping**: `files={"dest.txt": "/local/source.txt"}` - Upload with custom names
-- **Pre-uploaded files**: `files={"script.sh": uploaded_file_object}` - Use files uploaded via `client.files.upload()`
-
-## Advanced I/O Handling
-
-You can use Python I/O objects for more sophisticated input/output handling:
-
-````{tab} Async
-```{literalinclude} ../../examples/run/run_io_objects.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+    result = session.run("echo", args=["a value with spaces"], timeout=30)
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
+    if isinstance(result.state, InstanceResultState):
+        print("exit:", result.state.exit_code)
 ```
 
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.run` for I/O parameter details.
-````
+<!--
+name: test_commands
+```python
+call = doc_api.sync.calls_for("spawn_instance")[0]
+assert call.kwargs["args"] == ["a value with spaces"]
+assert call.kwargs["shell"] is False
+assert call.kwargs["timeout"] == 30
+assert capsys.readouterr().out == "a value with spaces\nexit: 0\n"
+```
+-->
 
-````{tab} Sync
-```{literalinclude} ../../examples/run/run_io_objects_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_commands_async; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="a value with spaces\n")
+```
+-->
+
+```python
+import os
+from contree_client.models import StreamRepr, InstanceResultState
+
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    result = await session.run("echo", args=["a value with spaces"], timeout=30)
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
+    if isinstance(result.state, InstanceResultState):
+        print("exit:", result.state.exit_code)
 ```
 
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.run` for I/O parameter details.
-````
+<!--
+name: test_commands_async
+```python
+call = doc_api.async_client.calls_for("spawn_instance")[0]
+assert call.kwargs["args"] == ["a value with spaces"]
+assert call.kwargs["shell"] is False
+assert call.kwargs["timeout"] == 30
+assert capsys.readouterr().out == "a value with spaces\nexit: 0\n"
+```
+-->
 
-### Supported I/O Types
+::::
 
-- **StringIO**: For text-based input/output
-- **BytesIO**: For binary data handling
-- **File objects**: Use `open()` file handles directly
-- **PIPE**: Capture stderr/stdout as byte streams
-- **bytes type**: Get output as bytes instead of strings
+Use `shell="command | another-command > output"` when you need pipes, redirection,
+or shell variable expansion. Supply exactly one of `command` and `shell`.
+Arguments in `args` are for direct execution; the server ignores them in shell mode.
 
-## Subprocess-like Interface (Sync Only)
+## Send input without creating a file
 
-You can use a subprocess-like interface for more control over process execution:
+`stdin` accepts text, bytes, a local `Path`, or a readable stream. A string is input
+text here; it is not a filename. The SDK sends the input and closes remote stdin.
+Caller-owned streams remain open.
 
-```{literalinclude} ../../examples/run/run_popen_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+::::{tab} Sync
+
+<!--
+name: test_stdin; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="input from Python\n")
+```
+-->
+
+```python
+import os
+from contree_client.models import StreamRepr
+
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+    result = session.run("cat", stdin=b"input from Python\n")
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
 ```
 
-See {class}`~contree_sdk.sdk.objects.subprocess.ContreeProcessSync` for the full subprocess API.
+<!--
+name: test_stdin
+```python
+payload = doc_api.sync.calls_for("spawn_instance")[0].kwargs["stdin"]
+assert StreamRepr(value=payload.value, encoding=payload.encoding).as_bytes() == b"input from Python\n"
+assert payload.close is True
+assert capsys.readouterr().out == "input from Python\n"
+```
+-->
 
-### Popen Features
+::::
 
-- **Process control**: Use `wait()`, `communicate()`, and check `returncode`
-- **Environment variables**: Pass custom `env` dictionary
-- **Working directory**: Set `cwd` parameter
-- **Shell commands**: Enable with `shell=True`
-- **Error handling**: Check `returncode` and `stderr` for failures
+::::{tab} Async
 
-## Command Parameters
+<!--
+name: async test_stdin_async; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="input from Python\n")
+```
+-->
 
-### Core Parameters
+```python
+import os
+from contree_client.models import StreamRepr
 
-- **`shell`**: Execute as shell command (e.g., `"ls -la | grep txt"`)
-- **`command`**: Executable path (e.g., `"/bin/ls"`)
-- **`args`**: Command arguments as tuple (e.g., `("-la", "/tmp")`)
-- **`stdin`**: Input data (string, bytes, or I/O object)
-- **`env`**: Environment variables as dictionary
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
 
-### I/O Parameters
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    result = await session.run("cat", stdin=b"input from Python\n")
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
+```
 
-- **`stdout`**: Redirect stdout (StringIO, BytesIO, file path, or `bytes`)
-- **`stderr`**: Redirect stderr (StringIO, BytesIO, PIPE, or `bytes`)
-- **`files`**: Upload files (list of paths or dict mapping)
+<!--
+name: test_stdin_async
+```python
+payload = doc_api.async_client.calls_for("spawn_instance")[0].kwargs["stdin"]
+assert StreamRepr(value=payload.value, encoding=payload.encoding).as_bytes() == b"input from Python\n"
+assert payload.close is True
+assert capsys.readouterr().out == "input from Python\n"
+```
+-->
 
-### Execution Parameters
+::::
 
-- **`cwd`**: Working directory inside container
-- **`disposable`**: Whether to persist changes (default: True for runs, False for sessions)
-- **`preserve_env`**: Whether to persist `env` values into the resulting image environment
-- **`tag`**: Tag to assign to the resulting image after execution (e.g. `tag="myapp:v2"`)
+Use {doc}`files` when the command needs named files instead of stdin.
 
-## Result Objects
+## Set defaults for later commands
 
-Command execution returns result objects with:
+`set_cwd()` and `set_env()` update session defaults and store them with the session.
+The remote directory must already exist; `set_cwd()` does not create it.
 
-- **`stdout`**: Command output as string (or specified type)
-- **`stderr`**: Error output as string (or specified type)
-- **`exit_code`**: Process exit code (0 = success)
-- **`uuid`**: UUID of the resulting image state
+::::{tab} Sync
+
+<!--
+name: test_defaults; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="test\n")
+```
+-->
+
+```python
+import os
+from contree_client.models import StreamRepr
+
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+    session.set_cwd("/tmp")
+    session.set_env({"APP_MODE": "test"})
+    result = session.run(shell='printf "%s\\n" "$APP_MODE"')
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
+```
+
+<!--
+name: test_defaults
+```python
+call = doc_api.sync.calls_for("spawn_instance")[0]
+assert call.kwargs["cwd"] == "/tmp"
+assert call.kwargs["env"] == {"APP_MODE": "test"}
+assert capsys.readouterr().out == "test\n"
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_defaults_async; fixtures: doc_api, capsys
+```python
+doc_api.complete(stdout="test\n")
+```
+-->
+
+```python
+import os
+from contree_client.models import StreamRepr
+
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    await session.set_cwd("/tmp")
+    await session.set_env({"APP_MODE": "test"})
+    result = await session.run(shell='printf "%s\\n" "$APP_MODE"')
+    if isinstance(result.stdout, StreamRepr):
+        print(result.stdout.as_text(), end="")
+```
+
+<!--
+name: test_defaults_async
+```python
+call = doc_api.async_client.calls_for("spawn_instance")[0]
+assert call.kwargs["cwd"] == "/tmp"
+assert call.kwargs["env"] == {"APP_MODE": "test"}
+assert capsys.readouterr().out == "test\n"
+```
+-->
+
+::::
+
+A per-command `env=` replaces the session's default mapping for that request.
+Use `env={**session.env, "KEY": "value"}` to merge it explicitly.
+`set_env({"KEY": None})` removes a session default.
+
+Session defaults belong to the session, not a history entry. Rolling back an image
+does not roll back these defaults. Constructor `env=` and `cwd=` override loaded
+values for that session object; use the setters to persist defaults in the store.
+
+`preserve_env=True` with `disposable=False` asks the server to store environment
+values in the result image. Later shell commands inherit image environment values;
+direct commands require explicit `env`. This differs from session defaults, which
+the SDK sends with each request. An empty string removes a preserved image variable.
+
+## Handle a failed command
+
+A nonzero process exit code is a normal `InstanceResult`. Check it before the next
+workflow step. With `disposable=False`, even a nonzero exit can advance history.
+`FailedOperationError` means the operation failed or has no usable result.
+Cancellation raises `InterruptedError`. See {doc}`troubleshooting` for tested handling.
+
+`stdout`, `stderr`, `state`, and nested fields can be `Ellipsis` when absent.
+Use `isinstance` before accessing optional model fields, as in the examples above.
+Decode streams with `as_text()` or `as_bytes()`; their raw `value` may be base64.
+
+## Limit execution and output
+
+| Option                     | Meaning                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------- |
+| `timeout=30`               | Send a 30-second operation limit and use it when waiting. A `timedelta` is also accepted. |
+| `truncate_output_at=65536` | Limit captured output in bytes; inspect each stream's `truncated` field.                  |
+| `disposable=False`         | Keep the result image and advance history.                                                |
+| `hostname="build"`         | Set the instance hostname.                                                                |
+| `branch="new-experiment"`  | Save the result on a new branch and select it; see {doc}`branching`.                      |
+
+The client's HTTP timeout is a separate transport setting. If waiting raises or
+is cancelled, the SDK attempts to cancel the remote operation and preserves the
+original exception. See {doc}`reference/session` for full signatures.

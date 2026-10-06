@@ -1,22 +1,17 @@
 {
-  "json": {
-  },
-  "markdown": {
-  },
-  "toml": {
-  },
+  "json": {},
+  "markdown": {},
+  "toml": {},
   "ruff": {
     "lineLength": 120
   },
-  "malva": {
-  },
-  "markup": {
-  },
-  "yaml": {
-  },
+  "malva": {},
+  "markup": {},
+  "yaml": {},
   "includes": [
     "README.md",
-    "contree_sdk/README.md"
+    "examples/README.md",
+    "docs/**/*.md"
   ],
   "excludes": [
     "**/*-lock.json",

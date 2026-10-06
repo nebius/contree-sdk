@@ -1,31 +1,18 @@
-import sys
-from dataclasses import replace
+from pathlib import Path
 
 import pytest
-from pytest_markdown_docs.plugin import MarkdownInlinePythonItem
 
 
-pytest_plugins = ["tests.unit.docs.conftest"]
-
-pytestmark = pytest.mark.markdown
-
-_NAME_PREFIX = "name:"
+pytest_plugins = ["tests.docs_fixtures"]
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    if collection_path.name in {"_build", "_autosummary", "_tmp"}:
+        return True
+    return None
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
-        if isinstance(item, MarkdownInlinePythonItem):
-            if sys.platform == "win32":  # skip only md tests
-                item.add_marker(pytest.mark.xfail(reason="may fail on Windows", strict=False))
-            fixtures = set(item.fixturenames)
-
-            for fix in list(fixtures):
-                if fix.startswith(_NAME_PREFIX):
-                    new_name = fix.replace(_NAME_PREFIX, "")
-                    item._nodeid = item.nodeid.replace(item.nodeid.split("::")[-1], new_name)
-                    item.name = new_name
-                    fixtures.remove(fix)
-
-            fixtures = list(fixtures)
-            item.test_definition = replace(item.test_definition, fixture_names=fixtures)
-            item.fixturenames = fixtures
+        if item.path.suffix in {".md", ".markdown"}:
+            item.add_marker(pytest.mark.markdown)

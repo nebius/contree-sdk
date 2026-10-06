@@ -1,4 +1,4 @@
-.PHONY: rtd-dev type-check type-check-ignore type-check-docs type-check-docs-ignore
+.PHONY: rtd-dev type-check type-check-ignore test-docs
 
 DOCS_DIR := docs
 
@@ -24,8 +24,6 @@ type-check-ignore:
 type-check-no-baseline:
 	uv run --all-extras ty check
 
-type-check-docs:
-	uv run --all-extras python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml check tests/unit/docs/_tmp
 
-type-check-docs-ignore:
-	uv run --all-extras python scripts/ty_baseline.py --config-file tests/unit/docs/ty.docs.toml --baseline-path tests/unit/docs/baseline.yaml update tests/unit/docs/_tmp
+test-docs:
+	uv run --extra dev pytest -m markdown README.md docs

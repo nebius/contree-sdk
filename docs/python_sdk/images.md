@@ -2,151 +2,185 @@
 icon: layer-group
 ---
 
-# Working with Images
+# Find, import, and name images
 
-ConTree SDK provides several ways to reference and import container images. For full API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
+A session starts from an image already available on its ConTree endpoint.
+`image=` accepts a UUID, `tag:NAME`, or a bare tag name. A registry URL is not a
+session image reference; import it first. Image-management methods belong to
+`contree-client`, which is installed with the SDK.
 
-## Using Images by Tag
-
-The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
-
-````{tab} Async
-```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
-```
-````
-
-````{tab} Sync
-```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
-```
-````
-
-## Pulling Images
-
-For resolving a tag/UUID to an image upfront, use `images.use(strict=True)`. For importing images from external registries, use `images.oci()`:
-
-````{tab} Async
-```{literalinclude} ../../examples/images/pull_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci` for all parameters.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/images/pull_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci` for all parameters.
-````
-
-### Methods
-
-````{tab} Async
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManager.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.import_from`(ref) — always imports from an external registry
-````
-
-````{tab} Sync
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.import_from`(ref) — always imports from an external registry
-````
-
-:::{danger}
-`import_from` always triggers a new import operation and should only be used when you explicitly need to re-import. In most cases, prefer `images.oci()`, which returns an existing image if already imported. If no import is needed at all, use `images.use()`.
+:::{note}
+Async snippets with top-level `await` run inside an async function or a notebook
+that supports it. For a standalone script, use the `asyncio.run(main())` structure
+from {doc}`getting-started`.
 :::
 
-### What `ref` can be
+## Import a base image
 
-- UUID — reference an existing image by its UUID, e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
-- OCI tag — reference by image tag, e.g. `"ubuntu:latest"`
-- OCI full URL — full reference including registry host, e.g. `"docker://ghcr.io/owner/image:tag"`
-- {class}`~contree_sdk.utils.oci.OCIReference` — programmatic OCI reference object
+Set `CONTREE_TOKEN` and `CONTREE_URL` as described in {doc}`getting-started`.
+This example imports a BusyBox image through the Docker Hub mirror and assigns
+the ConTree tag `tutorial-base`. The registry must be reachable by the server.
 
-## Tagging Images
+::::{tab} Sync
 
-You can assign or remove a tag on any image using `tag_as()` and `untag()`. Tags are unique across all images — assigning an existing tag to a new image moves it automatically.
-
-````{tab} Async
-```{literalinclude} ../../examples/images/tag_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImage.untag` for details.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/images/tag_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.untag` for details.
-````
-
-You can also tag the result of a `run()` directly by passing `tag=` to the call — the resulting image will be tagged after execution completes:
-
-````{tab} Async
+<!--
+name: test_import_image; fixtures: doc_api, capsys
 ```python
-result = await image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False)
-print(result.tag)  # "myapp:ready"
+doc_api.complete()
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
 ```
-````
+-->
 
-````{tab} Sync
 ```python
-result = image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False).wait()
-print(result.tag)  # "myapp:ready"
-```
-````
+import os
+from contree_client.models import ImageImportRegistry, OperationStatus
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
 
-## Listing Images
-
-View all available images in your ConTree instance:
-
-````{tab} Async
-```{literalinclude} ../../examples/images/list_images.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {class}`~contree_sdk.sdk.managers.images.ImagesManager` for filtering and iteration options.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/images/list_images_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    operation_id = client.import_image(
+        ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
+        tag="tutorial-base",
+    )
+    response = client.wait_operation(operation_id)
+    if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
+        raise RuntimeError(f"Image import failed: {response.error}")
+    session = ContreeSession(client, image=response.result_image_uuid)
+    print(response.result_image_uuid)
 ```
 
-See {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync` for filtering and iteration options.
-````
+<!--
+name: test_import_image
+```python
+assert capsys.readouterr().out == "image-1\n"
+```
+-->
+
+::::
+::::{tab} Async
+
+<!--
+name: async test_import_image_async; fixtures: doc_api, capsys
+```python
+doc_api.complete()
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
+```
+-->
+
+```python
+import os
+from contree_client.models import ImageImportRegistry, OperationStatus
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    operation_id = await client.import_image(
+        ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
+        tag="tutorial-base",
+    )
+    response = await client.wait_operation(operation_id)
+    if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
+        raise RuntimeError(f"Image import failed: {response.error}")
+    session = ContreeAsyncSession(client, image=response.result_image_uuid)
+    print(response.result_image_uuid)
+```
+
+<!--
+name: test_import_image_async
+```python
+assert capsys.readouterr().out == "image-1\n"
+```
+-->
+
+::::
+
+After a successful import, set `CONTREE_IMAGE="tag:tutorial-base"` for the other
+guides. Registry tags and ConTree tags are separate names. Importing the same
+registry reference later can produce a different image if the registry tag changed.
+Use an image UUID when you need to select a specific imported image.
+
+The sync session resolves a tag during construction. The async session resolves it
+on first use or `ensure_ready()`. Resolving an unknown tag raises the client's
+`NotFoundError`; session construction does not automatically import it.
+
+## Tag a saved result
+
+A tag gives another workflow a name for an image. Assigning an existing tag moves
+it to the new image; it does not copy a session's history or defaults.
+
+::::{tab} Sync
+
+<!--
+name: test_tag_image; fixtures: doc_api, capsys
+```python
+doc_api.complete()
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("update_image_tag", None)
+```
+-->
+
+```python
+import os
+
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+    session.run(shell="echo ready > /ready.txt", disposable=False)
+    client.update_image_tag(session.image_uuid, "prepared-base")
+    print(session.image_uuid)
+```
+
+<!--
+name: test_tag_image
+```python
+assert doc_api.sync.calls_for("update_image_tag")[0].args == ("image-1", "prepared-base")
+assert capsys.readouterr().out == "image-1\n"
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_tag_image_async; fixtures: doc_api, capsys
+```python
+doc_api.complete()
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("update_image_tag", None)
+```
+-->
+
+```python
+import os
+
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    await session.run(shell="echo ready > /ready.txt", disposable=False)
+    await client.update_image_tag(session.image_uuid, "prepared-base")
+    print(session.image_uuid)
+```
+
+<!--
+name: test_tag_image_async
+```python
+assert doc_api.async_client.calls_for("update_image_tag")[0].args == ("image-1", "prepared-base")
+assert capsys.readouterr().out == "image-1\n"
+```
+-->
+
+::::
+
+Use `client.list_images(tagged=True)` to list tagged images. The response exposes
+an `images` collection. `client.delete_image_tag(image_uuid, tag="prepared-base")`
+removes that name. Await these methods when using `ContreeAsyncClient`.
+
+Deleting an image on the server can invalidate stored session history. Closing a
+session's client or local store does not itself delete the server image.

@@ -1,6 +1,6 @@
 [project]
 name = "contree-sdk"
-version = "0.4.0.dev3"
+version = "0.5.0.dev0"
 readme = "README.md"
 description = "SDK for ConTree container runtime with versioned filesystem state"
 license = { text = "Apache-2.0" }
@@ -18,38 +18,36 @@ classifiers = [
 ]
 
 dependencies = [
-    "strenum",
-    "typing-extensions; python_version < '3.13'",
-    "contree-client>=0.2.1",
+    "contree-client[httpx]>=0.2.1",
+    "typing-extensions; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+async = [
+    "aiosqlite>=0.20",
+    "contree-client[aiohttp]",
+]
+
 dev = [
-    # for tests -- all contree_client backends, so tests/examples can
-    # exercise any concrete transport; contree_sdk itself stays
-    # backend-agnostic (see main `dependencies` above)
-    "contree-client[aiohttp,httpx,requests,urllib3]>=0.2.1",
+    # for tests
     "pytest>=8.4.1",
     "pytest-asyncio",
     "pytest-mock",
     "pytest-xdist",
-    "pytest-httpbin",
     "pytest-cov",
     "pytest-html",
     "rich",
     "tomli; python_version < '3.11'",
     "langchain-tests>=1.1.9; python_version >= '3.11'",
     "contree-sdk[langchain]",
-    "contree-sdk[aiohttp,httpx,requests,urllib3]",
+    "contree-sdk[async]",
 
     # for format+checks
-    "pytest-markdown-docs",
+    "markdown-pytest[async]>=0.6.6",
     "dprint-py",
-    "pytest-examples",
     "ty~=0.0.51",
     "ruff",
     "typing-extensions",
-    "async-timeout",
     "click",
     "pyyaml",
 ]
@@ -58,28 +56,12 @@ dev-security = [
 "semgrep>=1.0",
 ]
 
-aiohttp = [
-    "contree-client[aiohttp]",
-]
-httpx = [
-    "contree-client[httpx]",
-]
-requests = [
-    "contree-client[requests]",
-]
-urllib3 = [
-    "contree-client[urllib3]",
-]
 langchain = [
     "deepagents; python_version >= '3.11'",
 ]
 
 docs = [
     "contree-docs",
-]
-examples = [
-    "mini-swe-agent",
-    "langchain-openai"
 ]
 
 [tool.uv]
@@ -235,11 +217,23 @@ extend-ignore = [
     "PLR2004", # magic-value-comparison
 ]
 
-"contree_sdk/sdk/exceptions/**" = [
-    "RUF027", # missing-f-string-syntax
+"contree_sdk/store/sqlite.py" = [
+    "PLR0904", # too-many-public-methods: paired async/sync methods for every Store operation
+]
+
+"contree_sdk/session/{sync,asyncio}.py" = [
+    "PLR0913", # too-many-arguments: mirrors contree_client.spawn_instance's rich kwarg surface
+]
+
+"contree_sdk/docker/url_fetch.py" = [
+    "PLW0717", # too-many-statements-in-try-clause: optional aiohttp/httpx fallback chain, each branch is one cohesive implementation
+    "RUF029",  # unused-async: the no-client-available fallback keeps the same async signature as its siblings
 ]
 
 "examples/**" = [
+    "ANN",      # embedded pytest functions use injected fixtures
+    "S101",     # embedded pytest assertions
+    "PLR2004",  # expected values in embedded tests
     "ASYNC230", # blocking-open-call-in-async-function
     "RUF059",   # unused-unpacked-variable
     "T201",     # print
