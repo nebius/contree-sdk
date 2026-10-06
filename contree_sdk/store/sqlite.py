@@ -336,8 +336,9 @@ class SyncSQLiteStore(SyncStore):
                 """,
                 (session_id, branch_name),
             )
+            entry = self.get_entry_row(session_id, new_id)
             self.conn.commit()
-            return self.get_entry_row(session_id, new_id)
+            return entry
 
     def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         with self.rlock:
@@ -351,6 +352,7 @@ class SyncSQLiteStore(SyncStore):
         if target == 0:
             raise ValueError("navigation target must not be 0")
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -375,8 +377,9 @@ class SyncSQLiteStore(SyncStore):
                 "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
+            entry = self.get_entry_row(session_id, current_id)
             self.conn.commit()
-            return self.get_entry_row(session_id, current_id)
+            return entry
 
     def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
         if steps < 1:
@@ -387,6 +390,7 @@ class SyncSQLiteStore(SyncStore):
         if steps < 1:
             raise ValueError("forward steps must be >= 1")
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             branch = self.active_branch(session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -407,11 +411,13 @@ class SyncSQLiteStore(SyncStore):
                 "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
+            entry = self.get_entry_row(session_id, current_id)
             self.conn.commit()
-            return self.get_entry_row(session_id, current_id)
+            return entry
 
     def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             source = from_branch or self.active_branch(session_id)
             if source is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -438,8 +444,9 @@ class SyncSQLiteStore(SyncStore):
                 "WHERE session_id = ?",
                 (name, session_id),
             )
+            entry = self.get_entry_row(session_id, row["history_id"])
             self.conn.commit()
-            return self.get_entry_row(session_id, row["history_id"])
+            return entry
 
     def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
         with self.rlock:
@@ -518,8 +525,10 @@ class SyncSQLiteStore(SyncStore):
 
     def delete_session(self, session_id: str) -> bool:
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             row = self.conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,)).fetchone()
             if row is None:
+                self.conn.commit()
                 return False
             self.conn.execute(
                 """
@@ -894,8 +903,9 @@ class AsyncSQLiteStore(AsyncStore):
                 """,
                 (session_id, branch_name),
             )
+            entry = await get_entry_row_async(conn, session_id, new_id)
             await conn.commit()
-            return await get_entry_row_async(conn, session_id, new_id)
+            return entry
 
     async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         conn = await self.ensure_connection()
@@ -911,6 +921,7 @@ class AsyncSQLiteStore(AsyncStore):
             raise ValueError("navigation target must not be 0")
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             branch = await active_branch_row_async(conn, session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -935,8 +946,9 @@ class AsyncSQLiteStore(AsyncStore):
                 "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
+            entry = await get_entry_row_async(conn, session_id, current_id)
             await conn.commit()
-            return await get_entry_row_async(conn, session_id, current_id)
+            return entry
 
     async def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
         if steps < 1:
@@ -948,6 +960,7 @@ class AsyncSQLiteStore(AsyncStore):
             raise ValueError("forward steps must be >= 1")
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             branch = await active_branch_row_async(conn, session_id)
             if branch is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -968,12 +981,14 @@ class AsyncSQLiteStore(AsyncStore):
                 "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
                 (session_id,),
             )
+            entry = await get_entry_row_async(conn, session_id, current_id)
             await conn.commit()
-            return await get_entry_row_async(conn, session_id, current_id)
+            return entry
 
     async def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             source = from_branch or await active_branch_row_async(conn, session_id)
             if source is None:
                 raise ValueError(f"no active session {session_id!r}")
@@ -1001,8 +1016,9 @@ class AsyncSQLiteStore(AsyncStore):
                 "WHERE session_id = ?",
                 (name, session_id),
             )
+            entry = await get_entry_row_async(conn, session_id, row["history_id"])
             await conn.commit()
-            return await get_entry_row_async(conn, session_id, row["history_id"])
+            return entry
 
     async def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
         conn = await self.ensure_connection()
@@ -1098,9 +1114,11 @@ class AsyncSQLiteStore(AsyncStore):
     async def delete_session(self, session_id: str) -> bool:
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             cursor = await conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,))
             row = await cursor.fetchone()
             if row is None:
+                await conn.commit()
                 return False
             await conn.execute(
                 """
