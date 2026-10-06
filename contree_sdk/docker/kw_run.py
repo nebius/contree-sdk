@@ -10,6 +10,7 @@ from typing import ClassVar
 from contree_client.models import InstanceResult
 
 from contree_sdk.exceptions import DockerBuildError
+from contree_sdk.execution import RunRequest
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.base import exit_code_of, or_none
 from contree_sdk.session.sync import ContreeSession
@@ -58,40 +59,10 @@ class RunKeyword(DockerKeyword):
             ctx.pending.clear()
             return
 
-        session = require_session(ctx.session)
+        require_session(ctx.session)
         if ctx.store.tip(ctx.session_id, branch=branch_name) is not None:
             ctx.store.delete_branch(ctx.session_id, branch_name)
-        command, args, shell = build_command(self.parts, self.shell_form, ctx.user)
-        run_env = {**ctx.arg_values(), **ctx.env} or None
-        cwd = ctx.workdir if ctx.workdir != "/" else None
-        files = ctx.pending_files_payload() if ctx.pending else None
-        timeout = ctx.timeout if ctx.timeout else None
-        if shell:
-            result = session.run(
-                shell=command,
-                args=args,
-                env=run_env,
-                cwd=cwd,
-                files=files,
-                disposable=False,
-                branch=branch_name,
-                hostname="linuxkit",
-                truncate_output_at=65536,
-                timeout=timeout,
-            )
-        else:
-            result = session.run(
-                command,
-                args=args,
-                env=run_env,
-                cwd=cwd,
-                files=files,
-                disposable=False,
-                branch=branch_name,
-                hostname="linuxkit",
-                truncate_output_at=65536,
-                timeout=timeout,
-            )
+        result = ctx.run_operation(self.build_request(ctx), branch=branch_name)
         check_success(result, self.parts, self.shell_form)
 
         ctx.parent_hash = chain
@@ -107,44 +78,35 @@ class RunKeyword(DockerKeyword):
             ctx.pending.clear()
             return
 
-        session = require_session_async(ctx.session)
+        require_session_async(ctx.session)
         if await ctx.store.tip(ctx.session_id, branch=branch_name) is not None:
             await ctx.store.delete_branch(ctx.session_id, branch_name)
-        command, args, shell = build_command(self.parts, self.shell_form, ctx.user)
-        run_env = {**ctx.arg_values(), **ctx.env} or None
-        cwd = ctx.workdir if ctx.workdir != "/" else None
-        files = ctx.pending_files_payload() if ctx.pending else None
-        timeout = ctx.timeout if ctx.timeout else None
-        if shell:
-            result = await session.run(
-                shell=command,
-                args=args,
-                env=run_env,
-                cwd=cwd,
-                files=files,
-                disposable=False,
-                branch=branch_name,
-                hostname="linuxkit",
-                truncate_output_at=65536,
-                timeout=timeout,
-            )
-        else:
-            result = await session.run(
-                command,
-                args=args,
-                env=run_env,
-                cwd=cwd,
-                files=files,
-                disposable=False,
-                branch=branch_name,
-                hostname="linuxkit",
-                truncate_output_at=65536,
-                timeout=timeout,
-            )
+        result = await ctx.run_operation(self.build_request(ctx), branch=branch_name)
         check_success(result, self.parts, self.shell_form)
 
         ctx.parent_hash = chain
         ctx.pending.clear()
+
+    def build_request(self, ctx: BuildContext | AsyncBuildContext) -> RunRequest:
+        """Prepare the command for the context's operation execution hook.
+
+        Returns:
+            A non-disposable request with the current build state and attachments.
+
+        """
+        command, args, shell = build_command(self.parts, self.shell_form, ctx.user)
+        return RunRequest(
+            command=None if shell else command,
+            shell=command if shell else None,
+            args=tuple(args),
+            env={**ctx.arg_values(), **ctx.env} or None,
+            cwd=ctx.workdir if ctx.workdir != "/" else None,
+            files=ctx.pending_files_payload() if ctx.pending else None,
+            disposable=False,
+            hostname="linuxkit",
+            truncate_output_at=65536,
+            timeout=ctx.timeout if ctx.timeout else None,
+        )
 
 
 def check_success(result: InstanceResult, parts: tuple[str, ...], shell_form: bool) -> None:

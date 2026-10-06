@@ -6,6 +6,7 @@ import inspect
 import time
 from asyncio import to_thread
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from pathlib import Path
 
 from contree_client.types import ContreeAsyncClient
@@ -16,6 +17,7 @@ from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.store import AsyncMemoryStore, AsyncStore
 
 from .context import BUILD_TIMEOUT_DEFAULT, AsyncBuildContext, BuildRequest, BuildStepEvent, resolve_build_paths
+from .events import BuildEvent
 from .keyword import DockerKeyword
 from .kw_run import RunKeyword
 from .local_context import LocalContext
@@ -65,6 +67,7 @@ class ContreeAsyncDockerBuilder:
         no_cache: bool = False,
         timeout: int = BUILD_TIMEOUT_DEFAULT,
         session_id: str | None = None,
+        on_event: Callable[[BuildEvent], object] | None = None,
         on_step: Callable[[BuildStepEvent], object] | None = None,
     ) -> str:
         context_dir, dockerfile_path = await to_thread(resolve_build_paths, context, dockerfile)
@@ -88,18 +91,22 @@ class ContreeAsyncDockerBuilder:
             )
         )
         self.ctx = ctx
+        ctx.on_event = on_event
 
         for index, directive in enumerate(directives):
             image_before = ctx.last_image or None
             ctx.last_cache_hit = False
             start = time.monotonic()
             try:
-                await self.execute_directive(directive, ctx)
+                await self.run_step(directive, ctx, index=index)
             except BaseException as exc:
-                await emit_step(
-                    on_step,
-                    BuildStepEvent(index, repr(directive), False, image_before, None, time.monotonic() - start, exc),
-                )
+                with suppress(BaseException):
+                    await emit_step(
+                        on_step,
+                        BuildStepEvent(
+                            index, repr(directive), False, image_before, None, time.monotonic() - start, exc
+                        ),
+                    )
                 raise
             await emit_step(
                 on_step,
@@ -146,12 +153,33 @@ class ContreeAsyncDockerBuilder:
             local=await to_thread(LocalContext.from_dir, request.context_dir),
             http_fetch_async=self.http_fetch_async,
             session_factory=self.session_factory,
-            directive_executor=self.execute_directive,
+            directive_executor=self.run_step,
             session_id=request.session_id,
             build_args=dict(request.build_args),
             no_cache=request.no_cache,
             timeout=request.timeout,
         )
+
+    async def run_step(self, directive: DockerKeyword, context: AsyncBuildContext, *, index: int | None = None) -> None:
+        """Report one directive execution, including nested and synthetic steps."""
+        parent = context.progress.current
+        parent_cache_hit = context.last_cache_hit
+        context.progress.start(repr(directive), index, context.last_image or None)
+        context.last_cache_hit = False
+        try:
+            await context.emit_event("step_started")
+            await self.execute_directive(directive, context)
+            if context.last_cache_hit:
+                await context.emit_event("cache_hit")
+            await context.emit_event("step_completed")
+        except BaseException as error:
+            with suppress(BaseException):
+                await context.emit_event("step_failed", error=error)
+            raise
+        finally:
+            context.progress.current = parent
+            if parent is not None:
+                context.last_cache_hit = parent_cache_hit
 
     async def execute_directive(self, directive: DockerKeyword, context: AsyncBuildContext) -> None:  # noqa: PLR6301 - public extension contract
         """Execute one directive. Override for policy checks or instrumentation."""
@@ -160,7 +188,7 @@ class ContreeAsyncDockerBuilder:
     async def finalize(self, context: AsyncBuildContext) -> None:
         """Commit pending file attachments through the same directive execution hook."""
         if context.pending:
-            await self.execute_directive(RunKeyword(parts=(":",), shell_form=True), context)
+            await self.run_step(RunKeyword(parts=(":",), shell_form=True), context)
 
 
 async def emit_step(on_step: Callable[[BuildStepEvent], object] | None, event: BuildStepEvent) -> None:

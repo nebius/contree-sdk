@@ -157,3 +157,31 @@ async def test_async_cancelled_wait_cancels_remote_without_cancelling_reader():
     await operation.shutdown()
     assert len(client.calls_for("cancel_operation")) == 1
     assert len(client.calls_for("follow_operation_events")) == 1
+
+
+def test_sync_subscription_timeout_leaves_reader_and_operation_available():
+    client = LiveClient()
+    client.spawn_instance("sleep", "base")
+    operation = Operation(client, "op-1")
+    with pytest.raises(TimeoutError):
+        list(operation.events(timeout=0.01))
+    assert not client.calls_for("cancel_operation")
+    client.streams["op-1"].put(event("completion"))
+    operation.wait(timeout=1)
+    assert len(list(operation.events())) == 1
+    assert len(client.calls_for("follow_operation_events")) == 1
+    operation.shutdown()
+
+
+async def test_async_subscription_timeout_leaves_reader_and_operation_available():
+    client = LiveAsyncClient()
+    await client.spawn_instance("sleep", "base")
+    operation = AsyncOperation(client, "op-1")
+    with pytest.raises(asyncio.TimeoutError):
+        await collect(operation, timeout=0.01)
+    assert not client.calls_for("cancel_operation")
+    await client.streams["op-1"].put(event("completion"))
+    await operation.wait(timeout=1)
+    assert len(await collect(operation)) == 1
+    assert len(client.calls_for("follow_operation_events")) == 1
+    await operation.shutdown()

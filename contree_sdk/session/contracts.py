@@ -71,7 +71,9 @@ class OperationContract(ABC):
         raise NotImplementedError("this operation does not support event observers")
 
     @abstractmethod
-    def events(self, *, since: int | None = None, spid: int | None = None) -> Iterator[OperationEvent]: ...
+    def events(
+        self, *, since: int | None = None, spid: int | None = None, timeout: float | None = None
+    ) -> Iterator[OperationEvent]: ...
 
     @abstractmethod
     def status(self, *, inflight: bool = False) -> OperationResponse: ...
@@ -139,7 +141,9 @@ class AsyncOperationContract(ABC):
         raise NotImplementedError("this operation does not support event observers")
 
     @abstractmethod
-    def events(self, *, since: int | None = None, spid: int | None = None) -> AsyncIterator[OperationEvent]: ...
+    def events(
+        self, *, since: int | None = None, spid: int | None = None, timeout: float | None = None
+    ) -> AsyncIterator[OperationEvent]: ...
 
     @abstractmethod
     async def status(self, *, inflight: bool = False) -> OperationResponse: ...

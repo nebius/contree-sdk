@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from pathlib import Path
 
 from contree_client.types import ContreeSyncClient
@@ -14,6 +15,7 @@ from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import SyncMemoryStore, SyncStore
 
 from .context import BUILD_TIMEOUT_DEFAULT, BuildContext, BuildRequest, BuildStepEvent, resolve_build_paths
+from .events import BuildEvent
 from .keyword import DockerKeyword
 from .kw_run import RunKeyword
 from .local_context import LocalContext
@@ -63,6 +65,7 @@ class ContreeDockerBuilder:
         no_cache: bool = False,
         timeout: int = BUILD_TIMEOUT_DEFAULT,
         session_id: str | None = None,
+        on_event: Callable[[BuildEvent], None] | None = None,
         on_step: Callable[[BuildStepEvent], None] | None = None,
     ) -> str:
         context_dir, dockerfile_path = resolve_build_paths(context, dockerfile)
@@ -86,18 +89,22 @@ class ContreeDockerBuilder:
             )
         )
         self.ctx = ctx
+        ctx.on_event = on_event
 
         for index, directive in enumerate(directives):
             image_before = ctx.last_image or None
             ctx.last_cache_hit = False
             start = time.monotonic()
             try:
-                self.execute_directive(directive, ctx)
+                self.run_step(directive, ctx, index=index)
             except BaseException as exc:
-                if on_step is not None:
-                    on_step(
-                        BuildStepEvent(index, repr(directive), False, image_before, None, time.monotonic() - start, exc)
-                    )
+                with suppress(BaseException):
+                    if on_step is not None:
+                        on_step(
+                            BuildStepEvent(
+                                index, repr(directive), False, image_before, None, time.monotonic() - start, exc
+                            )
+                        )
                 raise
             if on_step is not None:
                 on_step(
@@ -144,12 +151,33 @@ class ContreeDockerBuilder:
             local=LocalContext.from_dir(request.context_dir),
             http_fetch=self.http_fetch,
             session_factory=self.session_factory,
-            directive_executor=self.execute_directive,
+            directive_executor=self.run_step,
             session_id=request.session_id,
             build_args=dict(request.build_args),
             no_cache=request.no_cache,
             timeout=request.timeout,
         )
+
+    def run_step(self, directive: DockerKeyword, context: BuildContext, *, index: int | None = None) -> None:
+        """Report one directive execution, including nested and synthetic steps."""
+        parent = context.progress.current
+        parent_cache_hit = context.last_cache_hit
+        context.progress.start(repr(directive), index, context.last_image or None)
+        context.last_cache_hit = False
+        try:
+            context.emit_event("step_started")
+            self.execute_directive(directive, context)
+            if context.last_cache_hit:
+                context.emit_event("cache_hit")
+            context.emit_event("step_completed")
+        except BaseException as error:
+            with suppress(BaseException):
+                context.emit_event("step_failed", error=error)
+            raise
+        finally:
+            context.progress.current = parent
+            if parent is not None:
+                context.last_cache_hit = parent_cache_hit
 
     def execute_directive(self, directive: DockerKeyword, context: BuildContext) -> None:  # noqa: PLR6301 - public extension contract
         """Execute one directive. Override for policy checks or instrumentation."""
@@ -158,4 +186,4 @@ class ContreeDockerBuilder:
     def finalize(self, context: BuildContext) -> None:
         """Commit pending file attachments through the same directive execution hook."""
         if context.pending:
-            self.execute_directive(RunKeyword(parts=(":",), shell_form=True), context)
+            self.run_step(RunKeyword(parts=(":",), shell_form=True), context)

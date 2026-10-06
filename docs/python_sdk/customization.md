@@ -278,8 +278,13 @@ Both fresh layers and cache hits use this factory. Set `context_class` to a
 are needed. Override `create_context(BuildRequest)` for a different construction
 policy. `execute_directive()` intercepts normal steps, stage sealing, and final file materialization.
 Custom directives that execute nested directives must call `context.execute_directive()`.
-A custom `create_context()` must pass `directive_executor=self.execute_directive`
-to preserve this dispatch for nested steps.
+A custom `create_context()` must pass `directive_executor=self.run_step`
+to preserve event reporting and policy dispatch for nested steps.
+`run_step()` wraps `execute_directive()` with step notifications.
+Override `BuildContext.run_operation(request, branch=...)` or its async equivalent
+to customize RUN orchestration. The default uses session `spawn_request()`,
+operation `events()`/`wait()`, and session `commit_result()`. It applies
+`prepare_request()` and the session operation factory through these public hooks.
 
 A custom directive must include every input that affects a layer in the context's
 cache state or its hash contribution. Changing the implementation of an instruction

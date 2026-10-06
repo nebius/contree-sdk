@@ -88,19 +88,33 @@ class AsyncOperation(AsyncOperationContract):
             if self.consumer_task is None:
                 self.consumer_task = asyncio.create_task(self.pump())
 
-    async def events(self, *, since: int | None = None, spid: int | None = None) -> AsyncIterator[OperationEvent]:
+    async def events(
+        self, *, since: int | None = None, spid: int | None = None, timeout: float | None = None
+    ) -> AsyncIterator[OperationEvent]:
         """Replay buffered events, then follow the shared reader with local filters.
+
+        timeout bounds this subscription. Expiry does not cancel the operation.
 
         Yields:
             Events after ``since`` whose process matches ``spid``, when specified.
 
+        Raises:
+            TimeoutError: The subscription did not finish before timeout.
+
         """
         await self._start_reader()
+        deadline = None if timeout is None else time.monotonic() + timeout
         cursor = 0
         while True:
             async with self.changed:
-                await self.changed.wait_for(
-                    lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set()
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError(f"operation {self.uuid} events did not complete in time")
+                await asyncio.wait_for(
+                    self.changed.wait_for(
+                        lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set()
+                    ),
+                    timeout=remaining,
                 )
                 if cursor == len(self.history):
                     if self.stream_error is not None:

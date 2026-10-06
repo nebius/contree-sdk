@@ -8,6 +8,7 @@ against a `BuildContext`/`AsyncBuildContext`.
 from .asyncio import ContreeAsyncDockerBuilder
 from .context import AsyncBuildContext, BuildContext, BuildRequest, BuildStepEvent, PendingFile
 from .dockerignore import DockerignoreRule, is_ignored, parse_dockerignore
+from .events import BuildEvent, BuildEventType, BuildStep
 from .keyword import DockerKeyword, substitute
 from .kw_add import AddKeyword
 from .kw_arg import ArgKeyword
@@ -28,7 +29,10 @@ __all__ = [
     "ArgKeyword",
     "AsyncBuildContext",
     "BuildContext",
+    "BuildEvent",
+    "BuildEventType",
     "BuildRequest",
+    "BuildStep",
     "BuildStepEvent",
     "ContreeAsyncDockerBuilder",
     "ContreeDockerBuilder",

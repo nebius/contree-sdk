@@ -87,18 +87,32 @@ class Operation(OperationContract):
                 self.consumer_thread = threading.Thread(target=self.pump, daemon=True)
                 self.consumer_thread.start()
 
-    def events(self, *, since: int | None = None, spid: int | None = None) -> Iterator[OperationEvent]:
+    def events(
+        self, *, since: int | None = None, spid: int | None = None, timeout: float | None = None
+    ) -> Iterator[OperationEvent]:
         """Replay buffered events, then follow the shared reader with local filters.
+
+        timeout bounds this subscription. Expiry does not cancel the operation.
 
         Yields:
             Events after ``since`` whose process matches ``spid``, when specified.
 
+        Raises:
+            TimeoutError: The subscription did not finish before timeout.
+
         """
         self._start_reader()
+        deadline = None if timeout is None else time.monotonic() + timeout
         cursor = 0
         while True:
             with self.changed:
-                self.changed.wait_for(lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set())
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError(f"operation {self.uuid} events did not complete in time")
+                if not self.changed.wait_for(
+                    lambda cursor=cursor: cursor < len(self.history) or self.terminal_event.is_set(), timeout=remaining
+                ):
+                    raise TimeoutError(f"operation {self.uuid} events did not complete in time")
                 if cursor == len(self.history):
                     if self.stream_error is not None:
                         raise self.stream_error

@@ -433,7 +433,9 @@ or manage input-source errors. Its default `close=True` sends EOF after that wri
 Save `operation.uuid` if another owner will wait for completion. Do not enter an
 operation context for this handoff: context exit stops the main process. The
 shared reader remains active until completion or client closure. Input forwarding,
-`events()`, and `wait()` on one handle use one transport subscription. The client
+`events()`, and `wait()` on one handle use one transport subscription.
+An optional `events(timeout=...)` limits that subscription. Timeout stops only
+that subscriber; call `cancel()` to stop the remote operation. The client
 resumes that subscription after a connection loss; input is not replayed.
 
 `signal()` sends a signal without waiting. `cancel()` requests operation

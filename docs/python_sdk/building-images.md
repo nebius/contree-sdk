@@ -163,7 +163,153 @@ are not reproduced. `ENV`, `WORKDIR`, and `USER` guide build steps; pass the des
 runtime environment and working directory when executing the resulting image.
 `WORKDIR` sets a command's directory; ensure the directory exists in the image.
 
-## Observe or customize a build
+## Observe a live build
+
+Pass `on_event=` to receive `BuildEvent` notifications while a build runs.
+Output events arrive before RUN completes and carry raw `bytes`. Decode or format
+them in your application. Each operation uses the same reader for output and its
+final result.
+
+| `event.type`        | Meaning                                                           |
+| ------------------- | ----------------------------------------------------------------- |
+| `step_started`      | A parsed or synthetic directive is about to execute.              |
+| `operation_started` | RUN submitted an operation; `operation_uuid` is available.        |
+| `stdout`, `stderr`  | A chunk of live output is in `event.data`.                        |
+| `cache_hit`         | The directive reused an existing image without starting RUN.      |
+| `step_completed`    | The directive completed, including any required history commit.   |
+| `step_failed`       | The directive raised; `event.error` holds the original exception. |
+
+`event.step.id` is unique within one build. `event.step.index` is the zero-based
+parsed directive index, including ARG and metadata instructions. Synthetic steps
+have `index=None`. A nested step has `parent_id` set to its enclosing step's ID.
+A final COPY/ADD flush appears as a synthetic `RUN :`; a stage flush appears as a
+child of the next FROM. If a nested step fails, both it and its parent report the
+same exception.
+
+Events include elapsed step time, image IDs, and the operation UUID when available.
+The terminal RUN event also contains its typed `InstanceResult`, including nonzero
+exit codes. A cache hit emits no output and no new operation UUID.
+
+::::{tab} Sync
+
+<!--
+name: test_build_events; fixtures: doc_api, doc_build_context, capsys
+```python
+from dataclasses import replace
+from contree_client.models import EventDataStream
+from tests.unit.session.lazy_clients import event
+
+doc_api.complete(stream=False)
+doc_api.sync.mock("follow_operation_events", [
+    replace(event("stdout"), data=EventDataStream.from_text("building\n")),
+    event("completion"),
+])
+```
+-->
+
+```python
+import os
+import sys
+from contree_client.sync import ContreeClient
+from contree_sdk.docker import BuildEvent, ContreeDockerBuilder
+
+
+def report(event: BuildEvent) -> None:
+    if event.type == "stdout":
+        sys.stdout.buffer.write(event.data)
+        sys.stdout.buffer.flush()
+    elif event.type == "stderr":
+        sys.stderr.buffer.write(event.data)
+        sys.stderr.buffer.flush()
+    elif event.type == "step_started":
+        print(f"Step {event.step.id}: {event.step.keyword}", flush=True)
+
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    builder = ContreeDockerBuilder(client)
+    image_uuid = builder.build(
+        "build-context",
+        build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+        on_event=report,
+    )
+```
+
+<!--
+name: test_build_events
+```python
+assert image_uuid == "image-1"
+assert "building\n" in capsys.readouterr().out
+assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
+```
+-->
+
+::::
+::::{tab} Async
+
+<!--
+name: async test_build_events_async; fixtures: doc_api, doc_build_context, capsys
+```python
+from dataclasses import replace
+from contree_client.models import EventDataStream
+from tests.unit.session.lazy_clients import event
+
+doc_api.complete(stream=False)
+doc_api.async_client.mock("follow_operation_events", [
+    replace(event("stdout"), data=EventDataStream.from_text("building\n")),
+    event("completion"),
+])
+```
+-->
+
+```python
+import asyncio
+import os
+import sys
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk.docker import BuildEvent, ContreeAsyncDockerBuilder
+
+
+async def report(event: BuildEvent) -> None:
+    if event.type in {"stdout", "stderr"}:
+        stream = sys.stdout.buffer if event.type == "stdout" else sys.stderr.buffer
+        await asyncio.to_thread(stream.write, event.data)
+        await asyncio.to_thread(stream.flush)
+    elif event.type == "step_started":
+        await asyncio.to_thread(print, f"Step {event.step.id}: {event.step.keyword}", flush=True)
+
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    builder = ContreeAsyncDockerBuilder(client)
+    image_uuid = await builder.build(
+        "build-context",
+        build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+        on_event=report,
+    )
+```
+
+<!--
+name: test_build_events_async
+```python
+assert image_uuid == "image-1"
+assert "building\n" in capsys.readouterr().out
+assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
+```
+-->
+
+::::
+
+Callbacks run serially in the thread or task executing `build()`. The async builder
+accepts both synchronous and awaitable callbacks. Keep callbacks short. The async
+example offloads local output writes so they do not block the event loop. For a
+live UI, a callback can also feed a bounded queue that another task consumes.
+
+A callback error, including a closed output pipe, aborts the build and cancels its
+active RUN operation. Async task cancellation and sync interruption follow the
+same cleanup path. Error notifications cannot replace the original exception.
+Callbacks do not roll back completed layers. File, parse, and final tag errors
+raise directly; these do not create directive events outside a running step.
+
+## Customize a build
 
 Pass `on_step=` to receive a `BuildStepEvent` for each parsed directive. It includes
 duration, cache-hit status, image IDs, and any error. Keep callbacks short; a callback

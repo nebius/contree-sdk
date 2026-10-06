@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
+from asyncio import shield
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
+from contree_client.models import EventDataStream, InstanceResult
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
 from contree_sdk.cache import AsyncCache, SyncCache
+from contree_sdk.exceptions import DockerBuildError
+from contree_sdk.execution import RunRequest
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import AsyncStore, SyncStore
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
 
+from .events import BuildEvent, BuildEventType, BuildProgress
 from .interpolation import substitute
 from .local_context import LocalContext
 from .url_fetch import AsyncFetchResponse, FetchResponse
@@ -121,6 +128,48 @@ class BuildContext:
     no_cache: bool = False
     timeout: int = BUILD_TIMEOUT_DEFAULT
     last_cache_hit: bool = False
+    on_event: Callable[[BuildEvent], None] | None = None
+    progress: BuildProgress = field(default_factory=BuildProgress)
+
+    def emit_event(self, event_type: BuildEventType, *, data: bytes = b"", error: BaseException | None = None) -> None:
+        """Deliver one notification through the configured build callback."""
+        event = self.progress.event(event_type, self.last_image or None, data=data, error=error)
+        if event is not None and self.on_event is not None:
+            self.on_event(event)
+
+    def run_operation(self, request: RunRequest, *, branch: str) -> InstanceResult:
+        """Stream and commit one RUN operation through the session's public lifecycle.
+
+        Returns:
+            The terminal process result, including nonzero exits.
+
+        Raises:
+            DockerBuildError: No FROM session is active.
+
+        """
+        session = self.session
+        if session is None:
+            raise DockerBuildError("no active FROM: cannot RUN without a base image")
+        operation = session.spawn_request(request)
+        context = operation.context
+        effective = context.request if context is not None else request
+        if self.progress.current is not None:
+            self.progress.current.operation_uuid = operation.uuid
+        try:
+            self.emit_event("operation_started")
+            for event in operation.events(timeout=effective.timeout_seconds):
+                if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
+                    self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
+            result = operation.wait()
+        except BaseException:
+            with suppress(Exception):
+                operation.cancel()
+            raise
+        if self.progress.current is not None:
+            self.progress.current.result = result
+        if not effective.disposable:
+            session.commit_result(operation, title=effective.title, branch=branch)
+        return result
 
     def execute_directive(self, directive: DockerKeyword) -> None:
         """Run a nested directive through the builder's policy when configured."""
@@ -258,6 +307,52 @@ class AsyncBuildContext:
     no_cache: bool = False
     timeout: int = BUILD_TIMEOUT_DEFAULT
     last_cache_hit: bool = False
+    on_event: Callable[[BuildEvent], object] | None = None
+    progress: BuildProgress = field(default_factory=BuildProgress)
+
+    async def emit_event(
+        self, event_type: BuildEventType, *, data: bytes = b"", error: BaseException | None = None
+    ) -> None:
+        """Deliver one notification through the configured build callback."""
+        event = self.progress.event(event_type, self.last_image or None, data=data, error=error)
+        if event is not None and self.on_event is not None:
+            result = self.on_event(event)
+            if inspect.isawaitable(result):
+                await result
+
+    async def run_operation(self, request: RunRequest, *, branch: str) -> InstanceResult:
+        """Stream and commit one RUN operation through the session's public lifecycle.
+
+        Returns:
+            The terminal process result, including nonzero exits.
+
+        Raises:
+            DockerBuildError: No FROM session is active.
+
+        """
+        session = self.session
+        if session is None:
+            raise DockerBuildError("no active FROM: cannot RUN without a base image")
+        operation = await session.spawn_request(request)
+        context = operation.context
+        effective = context.request if context is not None else request
+        if self.progress.current is not None:
+            self.progress.current.operation_uuid = operation.uuid
+        try:
+            await self.emit_event("operation_started")
+            async for event in operation.events(timeout=effective.timeout_seconds):
+                if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
+                    await self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
+            result = await operation.wait()
+        except BaseException:
+            with suppress(Exception):
+                await shield(operation.cancel())
+            raise
+        if self.progress.current is not None:
+            self.progress.current.result = result
+        if not effective.disposable:
+            await session.commit_result(operation, title=effective.title, branch=branch)
+        return result
 
     async def execute_directive(self, directive: DockerKeyword) -> None:
         """Run a nested directive through the builder's policy when configured."""
