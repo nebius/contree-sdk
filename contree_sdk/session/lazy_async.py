@@ -165,6 +165,7 @@ class AsyncLazySession(AsyncExecutor):
                     env=dict(request.env) if request.env is not None else None,
                     cwd=request.cwd,
                     stdin=stdin,
+                    stdin_open=request.stdin_open,
                     truncate_output_at=request.truncate_output_at,
                 )
             except BaseException as error:

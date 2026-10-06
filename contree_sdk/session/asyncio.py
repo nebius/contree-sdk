@@ -165,6 +165,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: InputSource | None = None,
+        stdin_open: bool = False,
         files: RunFiles = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
@@ -179,6 +180,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             env=env,
             cwd=cwd,
             stdin=stdin,
+            stdin_open=stdin_open,
             files=files,
             timeout=timeout,
             disposable=disposable,
@@ -238,6 +240,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: InputSource | None = None,
+        stdin_open: bool = False,
         files: RunFiles = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
@@ -253,6 +256,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             env=env,
             cwd=cwd,
             stdin=stdin,
+            stdin_open=stdin_open,
             files=files,
             timeout=timeout,
             disposable=disposable,
@@ -360,11 +364,10 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         parent_id = self.tip_id
         branch = await self.store.active_branch(self.session_id)
         files = await self.build_files(request.files)
-        stdin = (
-            stream_repr_for_stdin(await self.file_transfer.read_stdin(request.stdin))
-            if request.stdin is not None
-            else None
-        )
+        stdin = None
+        if request.stdin is not None or request.stdin_open:
+            data = await self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
+            stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(request, self.session_id, image_uuid, parent_id, branch, tuple(files or ()))
         response = await self.submit_request(request, image_uuid, files=files, stdin=stdin)
         try:

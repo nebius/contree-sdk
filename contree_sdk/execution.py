@@ -28,6 +28,7 @@ class RunRequest:
     env: Mapping[str, str] | None = None
     cwd: str | None = None
     stdin: InputSource | None = None
+    stdin_open: bool = False
     files: RunFiles = None
     timeout: float | timedelta | None = None
     disposable: bool = True

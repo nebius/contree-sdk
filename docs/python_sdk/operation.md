@@ -309,41 +309,49 @@ A subprocess remembers its exit event. `wait()` after iteration does not wait fo
 another exit. Stream failures propagate to consumers. Operation `wait()` attempts
 remote cancellation if waiting fails or is cancelled, while preserving the original error.
 
-## Send input, then stop the main process
+## Stream input with bounded memory
 
-`send_stdin()` targets the main process unless you supply a subprocess `spid`.
-Set `close=False` while sending more chunks; the final call closes remote stdin.
-`signal()` sends a signal without waiting. `cancel()` requests operation cancellation.
+Start the process with `stdin_open=True`. This keeps remote stdin open until you
+send EOF. `pipe_stdin()` waits for that process's `spawn` event, sends chunks in
+order, and sends an empty EOF request when the source ends. Its default maximum
+input chunk size is 64 KiB after UTF-8 encoding. Base64 transport adds overhead.
+
+Supply an iterable of `str` or `bytes` in sync code, or an async iterable in async
+code. The SDK holds one source chunk at a time and splits large chunks before
+sending them. To bound total input memory, keep the source's chunks bounded too.
+`stdin=...` remains an eager initial payload; use `pipe_stdin()` for large files.
 
 ::::{tab} Sync
 
 <!--
-name: test_operation_input; fixtures: doc_api, capsys
-```python
-doc_api.complete(stdout="first chunk\nlast chunk\n")
-```
+name: test_operation_input; fixtures: stdin_api
 -->
 
 ```python
 import os
+from functools import partial
 
 from contree_client.sync import ContreeClient
 from contree_sdk import ContreeSession
 
 with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-    operation = session.spawn("cat")
-    operation.send_stdin("first chunk\n", close=False)
-    operation.send_stdin("last chunk\n")
+    operation = session.spawn("cat", stdin_open=True)
+    with open("input.bin", "rb") as source:
+        delivery = operation.pipe_stdin(iter(partial(source.read, 65536), b""))
     result = operation.wait()
 ```
 
 <!--
 name: test_operation_input
 ```python
-calls = doc_api.sync.calls_for("operation_subprocess_stdin")
-assert [call.kwargs["close"] for call in calls] == [False, True]
-assert all(call.args[:2] == ("operation-1", 1) for call in calls)
+from pathlib import Path
+
+assert delivery.eof_sent
+assert delivery.bytes_sent == Path("input.bin").stat().st_size
+assert bytes(stdin_api.sync.received) == Path("input.bin").read_bytes()
+assert len(stdin_api.sync.calls_for("follow_operation_events")) == 1
+assert stdin_api.sync.calls_for("spawn_instance")[0].kwargs["stdin"].close is False
 ```
 -->
 
@@ -352,36 +360,86 @@ assert all(call.args[:2] == ("operation-1", 1) for call in calls)
 ::::{tab} Async
 
 <!--
-name: async test_operation_input_async; fixtures: doc_api, capsys
-```python
-doc_api.complete(stdout="first chunk\nlast chunk\n")
-```
+name: async test_operation_input_async; fixtures: stdin_api
 -->
 
 ```python
+import asyncio
 import os
 
 from contree_client.asyncio import ContreeAsyncClient
 from contree_sdk import ContreeAsyncSession
 
+
+async def input_chunks():
+    source = await asyncio.to_thread(open, "input.bin", "rb")
+    try:
+        while chunk := await asyncio.to_thread(source.read, 65536):
+            yield chunk
+    finally:
+        await asyncio.to_thread(source.close)
+
+
 async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
-    operation = await session.spawn("cat")
-    await operation.send_stdin("first chunk\n", close=False)
-    await operation.send_stdin("last chunk\n")
+    operation = await session.spawn("cat", stdin_open=True)
+    source = input_chunks()
+    try:
+        delivery = await operation.pipe_stdin(source)
+    finally:
+        await source.aclose()
     result = await operation.wait()
 ```
 
 <!--
 name: test_operation_input_async
 ```python
-calls = doc_api.async_client.calls_for("operation_subprocess_stdin")
-assert [call.kwargs["close"] for call in calls] == [False, True]
-assert all(call.args[:2] == ("operation-1", 1) for call in calls)
+from pathlib import Path
+
+assert delivery.eof_sent
+assert delivery.bytes_sent == Path("input.bin").stat().st_size
+assert bytes(stdin_api.async_client.received) == Path("input.bin").read_bytes()
+assert len(stdin_api.async_client.calls_for("follow_operation_events")) == 1
+assert stdin_api.async_client.calls_for("spawn_instance")[0].kwargs["stdin"].close is False
 ```
 -->
 
 ::::
+
+`StdinResult.bytes_sent` counts bytes acknowledged by the server. It does not
+prove that the process consumed them. `eof_sent` records successful EOF delivery.
+If the shared reader observes an exit or operation completion before delivery
+finishes, `process_exited` is true and the SDK stops sending input.
+
+The caller owns the input source. A sync iterator can block inside `next()`;
+the SDK checks for exit before and after that read but cannot interrupt arbitrary
+blocking Python code. Use an interruptible source for live TTY input. Async
+forwarding cancels a pending source read when the process exits. Sources must
+cooperate with cancellation; cancelling `asyncio.to_thread()` does not stop its
+underlying thread. The file example uses finite reads from a regular file.
+
+Input-source errors, transport errors, and cancellation cancel the operation and
+preserve the original exception. The SDK never retries stdin writes: a timeout
+can mean that some bytes were delivered. An exit can race with a write and cause
+a transport error instead of a `process_exited` result.
+
+Use one writer per process. Set `close=False` on `pipe_stdin()` to deliver several
+input batches before EOF. For a child process, use
+`operation.run(..., stdin_open=True)` and pass its `spid` to `pipe_stdin()`.
+`send_stdin()` remains a low-level single-write method; it does not wait for spawn
+or manage input-source errors. Its default `close=True` sends EOF after that write.
+
+`pipe_stdin()` returns after input delivery, without waiting for the operation.
+Save `operation.uuid` if another owner will wait for completion. Do not enter an
+operation context for this handoff: context exit stops the main process. The
+shared reader remains active until completion or client closure. Input forwarding,
+`events()`, and `wait()` on one handle use one transport subscription. The client
+resumes that subscription after a connection loss; input is not replayed.
+
+`signal()` sends a signal without waiting. `cancel()` requests operation
+cancellation. `wait()` returns the typed `InstanceResult`, including nonzero
+process exit codes. A cancelled operation raises `InterruptedError`; an operation
+failure raises `FailedOperationError`.
 
 ## Reattach to an operation by UUID
 

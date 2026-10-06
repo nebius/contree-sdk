@@ -76,6 +76,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: InputSource | None = None,
+        stdin_open: bool = False,
         files: RunFiles = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
@@ -90,6 +91,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             env=env,
             cwd=cwd,
             stdin=stdin,
+            stdin_open=stdin_open,
             files=files,
             timeout=timeout,
             disposable=disposable,
@@ -147,6 +149,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: InputSource | None = None,
+        stdin_open: bool = False,
         files: RunFiles = None,
         timeout: float | timedelta | None = None,
         disposable: bool = True,
@@ -162,6 +165,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             env=env,
             cwd=cwd,
             stdin=stdin,
+            stdin_open=stdin_open,
             files=files,
             timeout=timeout,
             disposable=disposable,
@@ -271,9 +275,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         parent_id = self.tip_id
         branch = self.store.active_branch(self.session_id)
         files = self.build_files(request.files)
-        stdin = (
-            stream_repr_for_stdin(self.file_transfer.read_stdin(request.stdin)) if request.stdin is not None else None
-        )
+        stdin = None
+        if request.stdin is not None or request.stdin_open:
+            data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
+            stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(request, self.session_id, image_uuid, parent_id, branch, tuple(files or ()))
         response = self.submit_request(request, image_uuid, files=files, stdin=stdin)
         try:

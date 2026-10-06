@@ -18,6 +18,7 @@ from contree_sdk.session.snapshot_policy import (
     IdleSnapshotPolicy,
     SnapshotEvent,
 )
+from contree_sdk.session.stdin import StdinResult
 from contree_sdk.session.sync import ContreeSession
 
 
@@ -40,6 +41,7 @@ __all__ = [
     "PendingRun",
     "RunRequest",
     "SnapshotEvent",
+    "StdinResult",
     "SubprocessContract",
     "SubprocessHandle",
     "instance_result",

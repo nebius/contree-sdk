@@ -70,9 +70,9 @@ def exit_code_of(result: InstanceResult) -> int | None:
     return None if state is None else or_none(state.exit_code)
 
 
-def stream_repr_for_stdin(data: str | bytes) -> ClosableStreamRepr:
+def stream_repr_for_stdin(data: str | bytes, *, close: bool = True) -> ClosableStreamRepr:
     repr_ = StreamRepr.from_text(data) if isinstance(data, str) else StreamRepr.from_bytes(data)
-    return ClosableStreamRepr(value=repr_.value, encoding=repr_.encoding, close=True)
+    return ClosableStreamRepr(value=repr_.value, encoding=repr_.encoding, close=close)
 
 
 def file_spec_for(uploaded: UploadedFile, file: UploadFileSpec) -> FileSpec:

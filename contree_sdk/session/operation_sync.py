@@ -16,6 +16,7 @@ from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
 from contree_sdk.session.contracts import OperationContract, OperationObserver, SubprocessContract
+from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
@@ -56,6 +57,9 @@ class Operation(OperationContract):
         self.consumer_thread: threading.Thread | None = None
         self.lock = threading.Lock()
         self.history: list[OperationEvent] = []
+        self.spawned: set[int] = set()
+        self.exited: set[int] = set()
+        self.completion_received = False
         self.entered = False
         self.changed = threading.Condition(self.lock)
         self.terminal_event = threading.Event()
@@ -112,6 +116,66 @@ class Operation(OperationContract):
         value, encoding = encode_stdin_chunk(data)
         self.client.operation_subprocess_stdin(self.uuid, spid, value, encoding=encoding, close=close)
 
+    def _process_ended(self, spid: int) -> bool:
+        if self.stream_error is not None:
+            raise self.stream_error
+        return spid in self.exited or self.completion_received or self.terminal_event.is_set()
+
+    def pipe_stdin(
+        self,
+        chunks: Iterable[str | bytes],
+        *,
+        spid: int = 1,
+        close: bool = True,
+        chunk_size: int = DEFAULT_STDIN_CHUNK_SIZE,
+    ) -> StdinResult:
+        """Forward chunks after spawn, using the operation's shared event reader.
+
+        The caller owns the source and must make blocking reads interruptible.
+        Use one writer per process. Errors cancel the operation and propagate.
+
+        Returns:
+            Acknowledged bytes, EOF delivery, and observed early completion.
+
+        Raises:
+            ValueError: chunk_size or spid is not positive.
+
+        """
+        if chunk_size <= 0 or spid < 1:
+            raise ValueError("chunk_size and spid must be positive")
+        try:
+            return self._pipe_stdin(iter(chunks), spid, close=close, chunk_size=chunk_size)
+        except BaseException:
+            with suppress(Exception):
+                self.cancel()
+            raise
+
+    def _pipe_stdin(self, chunks: Iterator[str | bytes], spid: int, *, close: bool, chunk_size: int) -> StdinResult:
+        self._start_reader()
+        with self.changed:
+            self.changed.wait_for(lambda: spid in self.spawned or self._process_ended(spid))
+        sent = 0
+        while True:
+            with self.changed:
+                if self._process_ended(spid):
+                    return StdinResult(sent, process_exited=True)
+            try:
+                data = next(chunks)
+            except StopIteration:
+                break
+            for part in stdin_chunks(data, chunk_size):
+                with self.changed:
+                    if self._process_ended(spid):
+                        return StdinResult(sent, process_exited=True)
+                self.send_stdin(part, spid=spid, close=False)
+                sent += len(part)
+        with self.changed:
+            if self._process_ended(spid):
+                return StdinResult(sent, process_exited=True)
+        if close:
+            self.send_stdin(b"", spid=spid, close=True)
+        return StdinResult(sent, eof_sent=close)
+
     def signal(self, sig: str | None = None, *, spid: int = 1) -> None:
         self.client.operation_subprocess_kill(self.uuid, spid, signal=sig)
 
@@ -149,6 +213,15 @@ class Operation(OperationContract):
             with suppress(Exception):
                 self.shutdown()
 
+    def _remember_event(self, event: OperationEvent) -> None:
+        self.history.append(event)
+        if event.type == "spawn" and isinstance(event.spid, int):
+            self.spawned.add(event.spid)
+        elif event.type == "exit" and isinstance(event.spid, int):
+            self.exited.add(event.spid)
+        elif event.type == "completion":
+            self.completion_received = True
+
     def pump(self) -> None:
         # single background reader for the whole operation's event stream (unfiltered:
         # a server-side spid filter would also drop the operation-wide `completion`
@@ -162,7 +235,7 @@ class Operation(OperationContract):
                 for observer in self.observers:
                     observer(event, None)
                 with self.changed:
-                    self.history.append(event)
+                    self._remember_event(event)
                     self.changed.notify_all()
                 if event.type == "completion":
                     break
@@ -226,11 +299,14 @@ class Operation(OperationContract):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: str | bytes | None = None,
+        stdin_open: bool = False,
         truncate_output_at: int | None = None,
     ) -> SubprocessContract:
         if not self.entered:
             raise RuntimeError("Operation.run() requires the operation to be used as a context manager ('with')")
-        stdin_repr = stream_repr_for_stdin(stdin) if stdin is not None else ...
+        stdin_repr = (
+            stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
+        )
         spid = self.client.operation_subprocess_create(
             self.uuid,
             command,

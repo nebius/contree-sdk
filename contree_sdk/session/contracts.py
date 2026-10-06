@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator
 from typing import IO
 
 from contree_client.models import InstanceResult, OperationEvent, OperationResponse
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
+from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult
 
 
 OperationObserver = Callable[[OperationEvent | None, Exception | None], None]
@@ -79,6 +80,16 @@ class OperationContract(ABC):
     def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None: ...
 
     @abstractmethod
+    def pipe_stdin(
+        self,
+        chunks: Iterable[str | bytes],
+        *,
+        spid: int = 1,
+        close: bool = True,
+        chunk_size: int = DEFAULT_STDIN_CHUNK_SIZE,
+    ) -> StdinResult: ...
+
+    @abstractmethod
     def signal(self, sig: str | None = None, *, spid: int = 1) -> None: ...
 
     @abstractmethod
@@ -103,6 +114,7 @@ class OperationContract(ABC):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: str | bytes | None = None,
+        stdin_open: bool = False,
         truncate_output_at: int | None = None,
     ) -> SubprocessContract: ...
 
@@ -136,6 +148,16 @@ class AsyncOperationContract(ABC):
     async def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None: ...
 
     @abstractmethod
+    async def pipe_stdin(
+        self,
+        chunks: AsyncIterable[str | bytes],
+        *,
+        spid: int = 1,
+        close: bool = True,
+        chunk_size: int = DEFAULT_STDIN_CHUNK_SIZE,
+    ) -> StdinResult: ...
+
+    @abstractmethod
     async def signal(self, sig: str | None = None, *, spid: int = 1) -> None: ...
 
     @abstractmethod
@@ -160,6 +182,7 @@ class AsyncOperationContract(ABC):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: str | bytes | None = None,
+        stdin_open: bool = False,
         truncate_output_at: int | None = None,
     ) -> AsyncSubprocessContract: ...
 

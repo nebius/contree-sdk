@@ -149,3 +149,21 @@ def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Docu
         factory.from_profile = Mock(return_value=client)
         monkeypatch.setattr(path, factory)
     return doc_api
+
+
+@pytest.fixture
+def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> DocumentationAPI:
+    """Deliver input to a controlled live process and emit completion after EOF."""
+    from tests.unit.session.stdin_clients import AsyncStdinClient, StdinClient
+
+    (tmp_path / "input.bin").write_bytes(bytes(range(256)) * 1024)
+    doc_api.sync = StdinClient()
+    doc_api.async_client = AsyncStdinClient()
+    for path, client in [
+        ("contree_client.sync.ContreeClient", doc_api.sync),
+        ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),
+    ]:
+        factory = Mock(return_value=client)
+        factory.from_profile = Mock(return_value=client)
+        monkeypatch.setattr(path, factory)
+    return doc_api

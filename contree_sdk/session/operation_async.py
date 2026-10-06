@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from contextlib import suppress
 from typing import IO
 
@@ -20,6 +20,7 @@ from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
+from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
@@ -60,6 +61,9 @@ class AsyncOperation(AsyncOperationContract):
         self.consumer_task: asyncio.Task[None] | None = None
         self.lock = asyncio.Lock()
         self.history: list[OperationEvent] = []
+        self.spawned: set[int] = set()
+        self.exited: set[int] = set()
+        self.completion_received = False
         self.entered = False
         self.changed = asyncio.Condition()
         self.result_lock = asyncio.Lock()
@@ -115,6 +119,86 @@ class AsyncOperation(AsyncOperationContract):
         value, encoding = encode_stdin_chunk(data)
         await self.client.operation_subprocess_stdin(self.uuid, spid, value, encoding=encoding, close=close)
 
+    def _process_ended(self, spid: int) -> bool:
+        if self.stream_error is not None:
+            raise self.stream_error
+        return spid in self.exited or self.completion_received or self.terminal_event.is_set()
+
+    async def pipe_stdin(
+        self,
+        chunks: AsyncIterable[str | bytes],
+        *,
+        spid: int = 1,
+        close: bool = True,
+        chunk_size: int = DEFAULT_STDIN_CHUNK_SIZE,
+    ) -> StdinResult:
+        """Forward chunks after spawn and stop waiting for input when the process exits.
+
+        Use one writer per process. Errors and cancellation cancel the operation.
+        A pending source read is cancelled on exit; the caller owns the source.
+
+        Returns:
+            Acknowledged bytes, EOF delivery, and observed early completion.
+
+        Raises:
+            ValueError: chunk_size or spid is not positive.
+
+        """
+        if chunk_size <= 0 or spid < 1:
+            raise ValueError("chunk_size and spid must be positive")
+        try:
+            return await self._pipe_stdin(aiter(chunks), spid, close=close, chunk_size=chunk_size)
+        except BaseException:
+            with suppress(Exception):
+                await asyncio.shield(self.cancel())
+            raise
+
+    async def _wait_process_exit(self, spid: int) -> None:
+        async with self.changed:
+            await self.changed.wait_for(lambda: self._process_ended(spid))
+
+    @staticmethod
+    async def _next_stdin(chunks: AsyncIterator[str | bytes], ended: asyncio.Task[None]) -> str | bytes:
+        read = asyncio.ensure_future(anext(chunks))
+        try:
+            done, _ = await asyncio.wait((read, ended), return_when=asyncio.FIRST_COMPLETED)
+            if ended in done:
+                ended.result()
+                return b""
+            return read.result()
+        finally:
+            read.cancel()
+            # Retrieve errors if exit and input became ready in the same loop iteration.
+            await asyncio.gather(read, return_exceptions=True)
+
+    async def _pipe_stdin(
+        self, chunks: AsyncIterator[str | bytes], spid: int, *, close: bool, chunk_size: int
+    ) -> StdinResult:
+        await self._start_reader()
+        async with self.changed:
+            await self.changed.wait_for(lambda: spid in self.spawned or self._process_ended(spid))
+        ended = asyncio.create_task(self._wait_process_exit(spid))
+        sent = 0
+        try:
+            while not self._process_ended(spid):
+                try:
+                    data = await self._next_stdin(chunks, ended)
+                except StopAsyncIteration:
+                    break
+                for part in stdin_chunks(data, chunk_size):
+                    if self._process_ended(spid):
+                        return StdinResult(sent, process_exited=True)
+                    await self.send_stdin(part, spid=spid, close=False)
+                    sent += len(part)
+            if self._process_ended(spid):
+                return StdinResult(sent, process_exited=True)
+            if close:
+                await self.send_stdin(b"", spid=spid, close=True)
+            return StdinResult(sent, eof_sent=close)
+        finally:
+            ended.cancel()
+            await asyncio.gather(ended, return_exceptions=True)
+
     async def signal(self, sig: str | None = None, *, spid: int = 1) -> None:
         await self.client.operation_subprocess_kill(self.uuid, spid, signal=sig)
 
@@ -151,6 +235,15 @@ class AsyncOperation(AsyncOperationContract):
             with suppress(Exception):
                 await asyncio.shield(self.shutdown())
 
+    def _remember_event(self, event: OperationEvent) -> None:
+        self.history.append(event)
+        if event.type == "spawn" and isinstance(event.spid, int):
+            self.spawned.add(event.spid)
+        elif event.type == "exit" and isinstance(event.spid, int):
+            self.exited.add(event.spid)
+        elif event.type == "completion":
+            self.completion_received = True
+
     async def pump(self) -> None:
         # single background reader for the whole operation's event stream (unfiltered:
         # a server-side spid filter would also drop the operation-wide `completion`
@@ -164,7 +257,7 @@ class AsyncOperation(AsyncOperationContract):
                 for observer in self.observers:
                     await observer(event, None)
                 async with self.changed:
-                    self.history.append(event)
+                    self._remember_event(event)
                     self.changed.notify_all()
                 if event.type == "completion":
                     break
@@ -233,13 +326,16 @@ class AsyncOperation(AsyncOperationContract):
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         stdin: str | bytes | None = None,
+        stdin_open: bool = False,
         truncate_output_at: int | None = None,
     ) -> AsyncSubprocessContract:
         if not self.entered:
             raise RuntimeError(
                 "AsyncOperation.run() requires the operation to be used as a context manager ('async with')"
             )
-        stdin_repr = stream_repr_for_stdin(stdin) if stdin is not None else ...
+        stdin_repr = (
+            stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
+        )
         spid = await self.client.operation_subprocess_create(
             self.uuid,
             command,
