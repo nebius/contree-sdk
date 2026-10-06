@@ -1,0 +1,29 @@
+imports = '''
+from typing_extensions import assert_type
+from contree_sdk import SyncExecutor, AsyncExecutor, create_sandbox_session
+'''
+
+[[cases]]
+name = "write_file_contract_and_factory_types"
+code = '''
+def sync_use(executor: SyncExecutor):
+    assert_type(executor.write_file("/file", b"content"), None)
+    with create_sandbox_session(image="base") as session:
+        assert_type(session.write_file("/file", b"content"), None)
+
+async def async_use(executor: AsyncExecutor):
+    assert_type(await executor.write_file("/file", b"content"), None)
+    async with create_sandbox_session(image="base") as session:
+        assert_type(await session.write_file("/file", b"content"), None)
+'''
+
+[[cases]]
+name = "write_file_requires_bytes"
+errors = [{ line = 2, code = "invalid-argument-type" }, { line = 5, code = "invalid-argument-type" }]
+code = '''
+def sync_use(executor: SyncExecutor):
+    executor.write_file("/file", "content")
+
+async def async_use(executor: AsyncExecutor):
+    await executor.write_file("/file", "content")
+'''

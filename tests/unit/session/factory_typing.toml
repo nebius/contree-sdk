@@ -1,0 +1,221 @@
+imports = '''
+from typing import NoReturn
+from typing_extensions import assert_type
+from contree_client.testing import ContreeClient, ContreeAsyncClient
+from contree_sdk import (
+    ContreeSession, ContreeAsyncSession, LazySession, AsyncLazySession,
+    create_sandbox_session, create_sync_sandbox_session, create_async_sandbox_session,
+)
+from contree_sdk.sandbox import (
+    SandboxConfig, SandboxSessionContext, SyncSandboxSessionContext,
+    AsyncSandboxSessionContext, session_maker,
+)
+from contree_sdk.store import SyncMemoryStore, AsyncMemoryStore
+from contree_sdk.files import ClientFileTransfer, AsyncClientFileTransfer
+
+class CustomSync(ContreeSession):
+    pass
+
+class CustomAsync(ContreeAsyncSession):
+    pass
+
+class CustomLazy(LazySession):
+    pass
+
+class CustomAsyncLazy(AsyncLazySession):
+    pass
+'''
+
+[[cases]]
+name = "default_context_types"
+code = '''
+assert_type(create_sandbox_session(), SandboxSessionContext[LazySession, AsyncLazySession])
+assert_type(create_sandbox_session(session_type=None), SandboxSessionContext[LazySession, AsyncLazySession])
+assert_type(create_sync_sandbox_session(), SyncSandboxSessionContext[LazySession])
+assert_type(create_sync_sandbox_session(session_type=None), SyncSandboxSessionContext[LazySession])
+assert_type(create_async_sandbox_session(), AsyncSandboxSessionContext[AsyncLazySession])
+assert_type(create_async_sandbox_session(session_type=None), AsyncSandboxSessionContext[AsyncLazySession])
+'''
+
+[[cases]]
+name = "explicit_context_types"
+code = '''
+assert_type(create_sandbox_session(session_type=CustomSync), SandboxSessionContext[CustomSync, NoReturn])
+assert_type(create_sandbox_session(session_type=CustomAsync), SandboxSessionContext[NoReturn, CustomAsync])
+assert_type(create_sync_sandbox_session(session_type=CustomSync), SyncSandboxSessionContext[CustomSync])
+assert_type(create_async_sandbox_session(session_type=CustomAsync), AsyncSandboxSessionContext[CustomAsync])
+'''
+
+[[cases]]
+name = "lazy_subclasses"
+code = '''
+def sync_use():
+    with create_sandbox_session(session_type=CustomLazy) as session:
+        assert_type(session, CustomLazy)
+    with create_sync_sandbox_session(session_type=CustomLazy) as explicit:
+        assert_type(explicit, CustomLazy)
+
+async def async_use():
+    async with create_sandbox_session(session_type=CustomAsyncLazy) as session:
+        assert_type(session, CustomAsyncLazy)
+    async with create_async_sandbox_session(session_type=CustomAsyncLazy) as explicit:
+        assert_type(explicit, CustomAsyncLazy)
+'''
+
+[[cases]]
+name = "union_of_session_classes"
+code = '''
+def sync_use(session_type: type[CustomSync] | type[CustomLazy]):
+    with create_sandbox_session(session_type=session_type) as session:
+        assert_type(session, CustomSync | CustomLazy)
+    with create_sync_sandbox_session(session_type=session_type) as explicit:
+        assert_type(explicit, CustomSync | CustomLazy)
+
+async def async_use(session_type: type[CustomAsync] | type[CustomAsyncLazy]):
+    async with create_sandbox_session(session_type=session_type) as session:
+        assert_type(session, CustomAsync | CustomAsyncLazy)
+    async with create_async_sandbox_session(session_type=session_type) as explicit:
+        assert_type(explicit, CustomAsync | CustomAsyncLazy)
+'''
+
+[[cases]]
+name = "explicit_factories_accept_matching_components"
+code = '''
+def sync_use():
+    with create_sync_sandbox_session(
+        client=ContreeClient(), client_type=ContreeClient, store=SyncMemoryStore(),
+        file_transfer=ClientFileTransfer(ContreeClient()),
+    ) as session:
+        assert_type(session, LazySession)
+
+async def async_use():
+    async with create_async_sandbox_session(
+        client=ContreeAsyncClient(), client_type=ContreeAsyncClient, store=AsyncMemoryStore(),
+        file_transfer=AsyncClientFileTransfer(ContreeAsyncClient()),
+    ) as session:
+        assert_type(session, AsyncLazySession)
+'''
+
+[[cases]]
+name = "session_maker_preserves_context_type"
+code = '''
+class CustomContext(SyncSandboxSessionContext[CustomSync]):
+    pass
+
+def make_context(config: SandboxConfig) -> CustomContext:
+    return CustomContext(config)
+
+assert_type(session_maker(CustomContext, session_type=CustomSync), CustomContext)
+assert_type(session_maker(make_context, session_type=CustomSync), CustomContext)
+assert_type(
+    session_maker(AsyncSandboxSessionContext[CustomAsync], session_type=CustomAsync),
+    AsyncSandboxSessionContext[CustomAsync],
+)
+'''
+
+[[cases]]
+name = "session_maker_rejects_wrong_callable_parameter"
+errors = [{ line = 4, code = "invalid-argument-type" }]
+code = '''
+def make_context(config: str) -> str:
+    return config
+
+session_maker(make_context)
+'''
+
+[[cases]]
+name = "sync_factory_rejects_async_session"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sync_sandbox_session(session_type=CustomAsync)
+'''
+
+[[cases]]
+name = "async_factory_rejects_sync_session"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_async_sandbox_session(session_type=CustomSync)
+'''
+
+[[cases]]
+name = "factory_rejects_unrelated_session_class"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=str)
+'''
+
+[[cases]]
+name = "factory_requires_session_class_not_instance"
+errors = [{ line = 2, code = "no-matching-overload" }]
+code = '''
+def use(session: CustomSync):
+    create_sandbox_session(session_type=session)
+'''
+
+[[cases]]
+name = "lazy_context_preserves_self"
+code = '''
+def sync_use(session: CustomLazy):
+    with session as entered:
+        assert_type(entered, CustomLazy)
+
+async def async_use(session: CustomAsyncLazy):
+    async with session as entered:
+        assert_type(entered, CustomAsyncLazy)
+'''
+
+[[cases]]
+name = "sync_factory_rejects_async_client"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_sync_sandbox_session(client=ContreeAsyncClient())
+'''
+
+[[cases]]
+name = "sync_factory_rejects_async_client_class"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_sync_sandbox_session(client_type=ContreeAsyncClient)
+'''
+
+[[cases]]
+name = "sync_factory_rejects_async_storage"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_sync_sandbox_session(store=AsyncMemoryStore())
+'''
+
+[[cases]]
+name = "sync_factory_rejects_async_transfer"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_sync_sandbox_session(file_transfer=AsyncClientFileTransfer(ContreeAsyncClient()))
+'''
+
+[[cases]]
+name = "async_factory_rejects_sync_client"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_async_sandbox_session(client=ContreeClient())
+'''
+
+[[cases]]
+name = "async_factory_rejects_sync_client_class"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_async_sandbox_session(client_type=ContreeClient)
+'''
+
+[[cases]]
+name = "async_factory_rejects_sync_storage"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_async_sandbox_session(store=SyncMemoryStore())
+'''
+
+[[cases]]
+name = "async_factory_rejects_sync_transfer"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_async_sandbox_session(file_transfer=ClientFileTransfer(ContreeClient()))
+'''

@@ -1,0 +1,125 @@
+imports = '''
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
+from io import BytesIO, StringIO
+from typing_extensions import assert_type
+from contree_client.models import InstanceResult, OperationEvent
+from contree_sdk.session.contracts import (
+    OperationContract, AsyncOperationContract, SubprocessContract, AsyncSubprocessContract,
+)
+from contree_sdk.session.operation_sync import Operation
+from contree_sdk.session.operation_async import AsyncOperation
+from contree_sdk.session.stdin import StdinResult
+'''
+
+[[cases]]
+name = "operation_context_preserves_subclass"
+code = '''
+class CustomOperation(Operation):
+    pass
+
+class CustomAsyncOperation(AsyncOperation):
+    pass
+
+def sync_use(operation: CustomOperation, contract: OperationContract):
+    with operation as entered:
+        assert_type(entered, CustomOperation)
+    with contract as entered_contract:
+        assert_type(entered_contract, OperationContract)
+
+async def async_use(operation: CustomAsyncOperation, contract: AsyncOperationContract):
+    async with operation as entered:
+        assert_type(entered, CustomAsyncOperation)
+    async with contract as entered_contract:
+        assert_type(entered_contract, AsyncOperationContract)
+'''
+
+[[cases]]
+name = "sync_operation_streams"
+code = '''
+def use(operation: OperationContract):
+    assert_type(operation.events(), Iterator[OperationEvent])
+    assert_type(operation.wait(), InstanceResult)
+    process = operation.run("cat", stdin=b"data")
+    assert_type(process, SubprocessContract)
+    assert_type(iter(process), Iterator[OperationEvent])
+    assert_type(process.wait(), InstanceResult)
+    assert_type(process.pipe_to(stdout=BytesIO(), stderr=StringIO()), InstanceResult)
+    assert_type(operation.pipe_stdin(["text", b"data"]), StdinResult)
+'''
+
+[[cases]]
+name = "async_operation_streams"
+code = '''
+async def use(operation: AsyncOperationContract, chunks: AsyncIterable[str | bytes]):
+    assert_type(operation.events(), AsyncIterator[OperationEvent])
+    assert_type(await operation.wait(), InstanceResult)
+    process = await operation.run("cat", stdin=b"data")
+    assert_type(process, AsyncSubprocessContract)
+    assert_type(aiter(process), AsyncIterator[OperationEvent])
+    assert_type(await process.wait(), InstanceResult)
+    assert_type(await process.pipe_to(stdout=StringIO(), stderr=BytesIO()), InstanceResult)
+    assert_type(await operation.pipe_stdin(chunks), StdinResult)
+'''
+
+[[cases]]
+name = "sync_operation_rejects_async_observer"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+async def observer(event: OperationEvent | None, error: Exception | None) -> None:
+    pass
+
+def use(operation: OperationContract):
+    operation.add_observer(observer)
+'''
+
+[[cases]]
+name = "async_operation_rejects_sync_observer"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+def observer(event: OperationEvent | None, error: Exception | None) -> None:
+    pass
+
+def use(operation: AsyncOperationContract):
+    operation.add_observer(observer)
+'''
+
+[[cases]]
+name = "operation_observers_accept_eof_and_errors"
+code = '''
+def observer(event: OperationEvent | None, error: Exception | None) -> None:
+    pass
+
+async def async_observer(event: OperationEvent | None, error: Exception | None) -> None:
+    pass
+
+def use(sync: OperationContract, asynchronous: AsyncOperationContract):
+    sync.add_observer(observer)
+    asynchronous.add_observer(async_observer)
+'''
+
+[[cases]]
+name = "observer_must_accept_eof"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+def observer(event: OperationEvent, error: Exception | None) -> None:
+    pass
+
+def use(operation: OperationContract):
+    operation.add_observer(observer)
+'''
+
+[[cases]]
+name = "sync_stdin_rejects_async_chunks"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+def use(operation: OperationContract, chunks: AsyncIterable[bytes]):
+    operation.pipe_stdin(chunks)
+'''
+
+[[cases]]
+name = "async_stdin_rejects_sync_chunks"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+async def use(operation: AsyncOperationContract, chunks: Iterable[bytes]):
+    await operation.pipe_stdin(chunks)
+'''

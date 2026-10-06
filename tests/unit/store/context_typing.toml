@@ -1,0 +1,76 @@
+imports = '''
+from typing_extensions import assert_type
+from contree_sdk.store import (
+    Node, Page, SessionInfo, SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore,
+)
+'''
+
+[[cases]]
+name = "sync_store_context_preserves_self"
+code = '''
+class CustomStore(SyncMemoryStore):
+    pass
+
+def use(base: SyncStore, memory: SyncMemoryStore, sqlite: SyncSQLiteStore, custom: CustomStore):
+    with base as entered:
+        assert_type(entered, SyncStore)
+    with memory as entered_memory:
+        assert_type(entered_memory, SyncMemoryStore)
+    with sqlite as entered_sqlite:
+        assert_type(entered_sqlite, SyncSQLiteStore)
+    with custom as entered_custom:
+        assert_type(entered_custom, CustomStore)
+'''
+
+[[cases]]
+name = "async_store_context_preserves_self"
+code = '''
+class CustomStore(AsyncMemoryStore):
+    pass
+
+async def use(base: AsyncStore, memory: AsyncMemoryStore, sqlite: AsyncSQLiteStore, custom: CustomStore):
+    async with base as entered:
+        assert_type(entered, AsyncStore)
+    async with memory as entered_memory:
+        assert_type(entered_memory, AsyncMemoryStore)
+    async with sqlite as entered_sqlite:
+        assert_type(entered_sqlite, AsyncSQLiteStore)
+    async with custom as entered_custom:
+        assert_type(entered_custom, CustomStore)
+'''
+
+[[cases]]
+name = "sync_tree_values_and_pages"
+code = '''
+def use(store: SyncStore, node: Node):
+    assert_type(store.create_session("s", kind="session"), SessionInfo)
+    assert_type(store.append("s", node), None)
+    assert_type(store.get_node("s", node.id), Node)
+    assert_type(store.get_nodes("s", (node.id,)), tuple[Node | None, ...])
+    assert_type(store.list_sessions(kind="session"), Page[SessionInfo])
+    assert_type(store.list_nodes("s", kind="run"), Page[Node])
+    assert_type(store.list_children("s", node.id), Page[Node])
+    assert_type(store.list_history("s", node.id), Page[Node])
+'''
+
+[[cases]]
+name = "async_tree_values_and_pages"
+code = '''
+async def use(store: AsyncStore, node: Node):
+    assert_type(await store.create_session("s", kind="session"), SessionInfo)
+    assert_type(await store.append("s", node), None)
+    assert_type(await store.get_node("s", node.id), Node)
+    assert_type(await store.get_nodes("s", (node.id,)), tuple[Node | None, ...])
+    assert_type(await store.list_sessions(kind="session"), Page[SessionInfo])
+    assert_type(await store.list_nodes("s", kind="run"), Page[Node])
+    assert_type(await store.list_children("s", node.id), Page[Node])
+    assert_type(await store.list_history("s", node.id), Page[Node])
+'''
+
+[[cases]]
+name = "append_requires_a_node"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+def use(store: SyncStore):
+    store.append("s", {"command": "echo hi"})
+'''

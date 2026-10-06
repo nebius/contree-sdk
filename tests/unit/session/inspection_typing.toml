@@ -1,0 +1,77 @@
+imports = '''
+from collections.abc import AsyncGenerator, Generator
+from typing_extensions import assert_type
+from contree_client.models import DirectoryList, GrepResult, Image
+from contree_client.types import ContreeSyncClient, ContreeAsyncClient
+from contree_sdk import (
+    ImageInspector, AsyncImageInspector, ContreeSession, ContreeAsyncSession,
+    LazySession, AsyncLazySession, SessionInspector, AsyncSessionInspector, create_sandbox_session,
+)
+from contree_sdk.files import SyncFileTransfer, AsyncFileTransfer
+'''
+
+[[cases]]
+name = "sessions_return_matching_inspectors"
+code = '''
+def sync_use(base: ContreeSession, lazy: LazySession):
+    assert_type(base.inspect(), ImageInspector)
+    assert_type(lazy.inspect(timeout=1), SessionInspector)
+    assert_type(lazy.inspect_snapshot(timeout=1), ImageInspector)
+    with create_sandbox_session(image="base") as session:
+        assert_type(session.inspect(), SessionInspector)
+
+async def async_use(base: ContreeAsyncSession, lazy: AsyncLazySession):
+    assert_type(await base.inspect(), AsyncImageInspector)
+    assert_type(await lazy.inspect(timeout=1), AsyncSessionInspector)
+    assert_type(await lazy.inspect_snapshot(timeout=1), AsyncImageInspector)
+    async with create_sandbox_session(image="base") as session:
+        assert_type(await session.inspect(), AsyncSessionInspector)
+'''
+
+[[cases]]
+name = "sync_inspection_result_types"
+code = '''
+def use(view: ImageInspector | SessionInspector):
+    assert_type(view.info(), Image)
+    assert_type(view.list("/"), DirectoryList)
+    assert_type(view.grep(["hello", "world"], path=["/etc"], case="smart"), GrepResult)
+    assert_type(view.read_file("/file"), bytes)
+    assert_type(view.download_file("/file", "local"), int)
+    assert_type(view.file_exists("/file"), bool)
+    assert_type(view.archive_exists("/dir"), bool)
+    assert_type(view.iter_file("/file"), Generator[bytes, None, None])
+    assert_type(view.archive("/dir", compressed=True), Generator[bytes, None, None])
+'''
+
+[[cases]]
+name = "async_inspection_result_types"
+code = '''
+async def use(view: AsyncImageInspector | AsyncSessionInspector):
+    assert_type(await view.info(), Image)
+    assert_type(await view.list("/"), DirectoryList)
+    assert_type(await view.grep("hello", path="/etc", case="sensitive"), GrepResult)
+    assert_type(await view.read_file("/file"), bytes)
+    assert_type(await view.download_file("/file", "local"), int)
+    assert_type(await view.file_exists("/file"), bool)
+    assert_type(await view.archive_exists("/dir"), bool)
+    assert_type(view.iter_file("/file"), AsyncGenerator[bytes, None])
+    assert_type(view.archive("/dir", compressed=True), AsyncGenerator[bytes, None])
+'''
+
+[[cases]]
+name = "sync_inspector_rejects_async_components"
+errors = [{ line = 2, code = "invalid-argument-type" }, { line = 3, code = "invalid-argument-type" }]
+code = '''
+def use(client: ContreeSyncClient, async_client: ContreeAsyncClient, transfer: SyncFileTransfer, async_transfer: AsyncFileTransfer):
+    ImageInspector(async_client, "image", transfer)
+    ImageInspector(client, "image", async_transfer)
+'''
+
+[[cases]]
+name = "async_inspector_rejects_sync_components"
+errors = [{ line = 2, code = "invalid-argument-type" }, { line = 3, code = "invalid-argument-type" }]
+code = '''
+def use(client: ContreeSyncClient, async_client: ContreeAsyncClient, transfer: SyncFileTransfer, async_transfer: AsyncFileTransfer):
+    AsyncImageInspector(client, "image", async_transfer)
+    AsyncImageInspector(async_client, "image", transfer)
+'''

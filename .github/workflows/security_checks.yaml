@@ -20,7 +20,7 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
-          uv run --extra dev-security semgrep ci
+          uv tool run --from semgrep==1.168.0 semgrep ci
 
   gitleaks:
     runs-on: ubuntu-latest
