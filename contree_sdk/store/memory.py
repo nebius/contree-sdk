@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import threading
 from asyncio import Lock
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from types import EllipsisType
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
+from contree_sdk.store.models import HistorySnapshot, history_snapshot, prune_selection, validate_prune
 
 
-class SyncMemoryStore(SyncStore):
+class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
     """Pure in-process Store: one instance, one process's history graph."""
 
     def __init__(self) -> None:
@@ -187,6 +189,25 @@ class SyncMemoryStore(SyncStore):
     def list_sessions(self) -> list[str]:
         return sorted(self.active_branches)
 
+    def read_session(self, session_id: str) -> HistorySnapshot:
+        with self.lock:
+            entries, branches = self.history_dag(session_id)
+            metadata = SessionMetadata(self.cwds.get(session_id), dict(self.envs.get(session_id, {})))
+            return history_snapshot(session_id, self.active_branches.get(session_id), entries, branches, metadata)
+
+    def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        retained = validate_prune(prefix, keep)
+        with self.lock:
+            if session_id not in self.active_branches:
+                raise ValueError(f"session {session_id!r} not found")
+            selected = prune_selection(self.list_branches(session_id), prefix, retained)
+            if not dry_run:
+                for name in selected:
+                    del self.branches[session_id][name]
+            return selected
+
     def find_session(self, name: str) -> str:
         if name in self.active_branches:
             return name
@@ -219,7 +240,7 @@ class SyncMemoryStore(SyncStore):
         return entries, branch_map
 
 
-class AsyncMemoryStore(AsyncStore):
+class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
     """Pure in-process Store: one instance, one process's history graph."""
 
     def __init__(self) -> None:
@@ -396,6 +417,25 @@ class AsyncMemoryStore(AsyncStore):
 
     async def list_sessions(self) -> list[str]:
         return sorted(self.active_branches)
+
+    async def read_session(self, session_id: str) -> HistorySnapshot:
+        async with self.lock:
+            entries, branches = await self.history_dag(session_id)
+            metadata = SessionMetadata(self.cwds.get(session_id), dict(self.envs.get(session_id, {})))
+            return history_snapshot(session_id, self.active_branches.get(session_id), entries, branches, metadata)
+
+    async def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        retained = validate_prune(prefix, keep)
+        async with self.lock:
+            if session_id not in self.active_branches:
+                raise ValueError(f"session {session_id!r} not found")
+            selected = prune_selection(await self.list_branches(session_id), prefix, retained)
+            if not dry_run:
+                for name in selected:
+                    del self.branches[session_id][name]
+            return selected
 
     async def find_session(self, name: str) -> str:
         if name in self.active_branches:

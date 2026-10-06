@@ -149,6 +149,17 @@ store must preserve these invariants:
 - A conflict raises `SessionConflictError` and leaves history and branch pointers unchanged.
 - Metadata and history returned to callers must not expose mutable internal state.
 - Navigation failures leave the previous branch position intact.
+- `read_session()` returns a `HistorySnapshot` from one consistent read of entries,
+  branch heads, and metadata. It raises `ValueError` for an unknown session.
+- `prune_branches()` selects and removes pointers atomically. It preserves the
+  active branch, explicit keep names, all history records, and metadata.
+
+`resolve_history()`, `resolve_operation()`, and summary methods have default
+implementations over these public primitives. Override them for a different query
+strategy while preserving their selection and isolation rules. A snapshot remains
+usable after the store closes. Each item in `list_session_summaries()` is consistent;
+the entire list is not one transaction. A concurrent session deletion can raise
+`ValueError` while that list is assembled.
 
 Cache implementations inherit `SyncCache` or `AsyncCache`. `get()` returns `None`
 for a miss. `set()` replaces a value within its namespace. Namespace isolation is

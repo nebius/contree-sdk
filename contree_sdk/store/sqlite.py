@@ -4,7 +4,7 @@ import os
 import sqlite3
 import threading
 from asyncio import Lock
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +13,7 @@ from typing import Any
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
+from contree_sdk.store.models import HistorySnapshot, history_snapshot, prune_selection, validate_prune
 
 
 try:
@@ -367,6 +368,7 @@ class SyncSQLiteStore(SyncStore):
 
     def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             row = self.branch_tip_row(session_id, name)
             if row is None:
                 raise ValueError(f"branch {name!r} does not exist")
@@ -391,6 +393,7 @@ class SyncSQLiteStore(SyncStore):
 
     def delete_branch(self, session_id: str, name: str) -> None:
         with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
             if name == self.active_branch(session_id):
                 raise ValueError("cannot delete the active branch")
             cursor = self.conn.execute(
@@ -405,6 +408,33 @@ class SyncSQLiteStore(SyncStore):
         with self.rlock:
             rows = self.conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id").fetchall()
         return [row["session_id"] for row in rows]
+
+    def read_session(self, session_id: str) -> HistorySnapshot:
+        with self.rlock, self.transaction():
+            self.conn.execute("BEGIN")
+            active = self.active_branch(session_id)
+            entries, branches = self.history_dag(session_id)
+            metadata = self.get_session_metadata(session_id)
+            snapshot = history_snapshot(session_id, active, entries, branches, metadata)
+            self.conn.commit()
+            return snapshot
+
+    def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        retained = validate_prune(prefix, keep)
+        with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
+            if self.active_branch(session_id) is None:
+                raise ValueError(f"session {session_id!r} not found")
+            selected = prune_selection(self.list_branches(session_id), prefix, retained)
+            if not dry_run:
+                self.conn.executemany(
+                    "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
+                    [(session_id, name) for name in selected],
+                )
+            self.conn.commit()
+            return selected
 
     def find_session(self, name: str) -> str:
         with self.rlock:
@@ -519,6 +549,45 @@ async def latest_child_id_async(conn: Any, session_id: str, parent_id: int) -> i
     return None if row is None else row["id"]
 
 
+async def session_metadata_async(conn: Any, session_id: str) -> SessionMetadata:
+    cursor = await conn.execute("SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
+    row = await cursor.fetchone()
+    env_cursor = await conn.execute("SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,))
+    env_rows = await env_cursor.fetchall()
+    cwd = row["cwd"] if row is not None else None
+    return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
+
+
+async def history_dag_async(conn: Any, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
+    cursor = await conn.execute(
+        "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
+        (session_id,),
+    )
+    rows = await cursor.fetchall()
+    file_cursor = await conn.execute(
+        """
+        SELECT history_id, file_path FROM session_history_files_v1
+        WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
+        ORDER BY file_path
+        """,
+        (session_id,),
+    )
+    file_rows = await file_cursor.fetchall()
+    branch_cursor = await conn.execute(
+        "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
+        (session_id,),
+    )
+    branch_rows = await branch_cursor.fetchall()
+    files_map: dict[int, list[str]] = {}
+    for row in file_rows:
+        files_map.setdefault(row["history_id"], []).append(row["file_path"])
+    entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
+    branch_map: dict[int, list[str]] = {}
+    for row in branch_rows:
+        branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
+    return entries, branch_map
+
+
 class AsyncSQLiteStore(AsyncStore):
     """SQLite-backed Store using aiosqlite: one file holds many sessions, keyed by session_id.
 
@@ -587,12 +656,7 @@ class AsyncSQLiteStore(AsyncStore):
     async def get_session_metadata(self, session_id: str) -> SessionMetadata:
         conn = await self.ensure_connection()
         async with self.lock:
-            cursor = await conn.execute("SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
-            row = await cursor.fetchone()
-            env_cursor = await conn.execute("SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,))
-            env_rows = await env_cursor.fetchall()
-        cwd = row["cwd"] if row is not None else None
-        return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
+            return await session_metadata_async(conn, session_id)
 
     async def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
         conn = await self.ensure_connection()
@@ -782,6 +846,7 @@ class AsyncSQLiteStore(AsyncStore):
     async def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             row = await branch_tip_row_async(conn, session_id, name)
             if row is None:
                 raise ValueError(f"branch {name!r} does not exist")
@@ -809,6 +874,7 @@ class AsyncSQLiteStore(AsyncStore):
     async def delete_branch(self, session_id: str, name: str) -> None:
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
             if name == await active_branch_row_async(conn, session_id):
                 raise ValueError("cannot delete the active branch")
             cursor = await conn.execute(
@@ -825,6 +891,41 @@ class AsyncSQLiteStore(AsyncStore):
             cursor = await conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id")
             rows = await cursor.fetchall()
         return [row["session_id"] for row in rows]
+
+    async def read_session(self, session_id: str) -> HistorySnapshot:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            await conn.execute("BEGIN")
+            active = await active_branch_row_async(conn, session_id)
+            entries, branches = await history_dag_async(conn, session_id)
+            metadata = await session_metadata_async(conn, session_id)
+            snapshot = history_snapshot(session_id, active, entries, branches, metadata)
+            await conn.commit()
+            return snapshot
+
+    async def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        retained = validate_prune(prefix, keep)
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
+            active = await active_branch_row_async(conn, session_id)
+            if active is None:
+                raise ValueError(f"session {session_id!r} not found")
+            cursor = await conn.execute(
+                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ?", (session_id,)
+            )
+            rows = await cursor.fetchall()
+            branches = [(row["branch_name"], row["branch_name"] == active) for row in rows]
+            selected = prune_selection(branches, prefix, retained)
+            if not dry_run:
+                await conn.executemany(
+                    "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
+                    [(session_id, name) for name in selected],
+                )
+            await conn.commit()
+            return selected
 
     async def find_session(self, name: str) -> str:
         conn = await self.ensure_connection()
@@ -873,30 +974,4 @@ class AsyncSQLiteStore(AsyncStore):
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         conn = await self.ensure_connection()
         async with self.lock:
-            cursor = await conn.execute(
-                "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
-                (session_id,),
-            )
-            rows = await cursor.fetchall()
-            file_cursor = await conn.execute(
-                """
-                SELECT history_id, file_path FROM session_history_files_v1
-                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
-                ORDER BY file_path
-                """,
-                (session_id,),
-            )
-            file_rows = await file_cursor.fetchall()
-            branch_cursor = await conn.execute(
-                "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
-                (session_id,),
-            )
-            branch_rows = await branch_cursor.fetchall()
-        files_map: dict[int, list[str]] = {}
-        for row in file_rows:
-            files_map.setdefault(row["history_id"], []).append(row["file_path"])
-        entries = [entry_from_row(row, tuple(files_map.get(row["id"], ()))) for row in rows]
-        branch_map: dict[int, list[str]] = {}
-        for row in branch_rows:
-            branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
-        return entries, branch_map
+            return await history_dag_async(conn, session_id)

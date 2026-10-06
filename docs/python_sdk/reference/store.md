@@ -5,7 +5,7 @@ Use sync stores with `ContreeSession` and async stores with `ContreeAsyncSession
 Stores contain image references and history, not remote filesystem data.
 
 ```{automodule} contree_sdk.store
-:members: HistoryEntry, SessionMetadata, SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore
+:members: HistoryEntry, SessionMetadata, BranchInfo, HistorySnapshot, SessionSummary, SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore
 :inherited-members:
 :undoc-members:
 :member-order: bysource

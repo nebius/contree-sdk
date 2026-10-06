@@ -1,31 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
+from collections.abc import Iterable
 from types import EllipsisType
 
 from contree_sdk.compat import Self
-
-
-@dataclass(frozen=True)
-class HistoryEntry:
-    id: int
-    session_id: str
-    image_uuid: str
-    parent_id: int | None
-    kind: str
-    title: str
-    operation_uuid: str | None
-    exit_code: int | None
-    created_at: datetime
-    files: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class SessionMetadata:
-    cwd: str | None
-    env: dict[str, str]
+from contree_sdk.store.models import HistoryEntry, HistorySnapshot, SessionMetadata, SessionSummary
 
 
 class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
@@ -114,6 +94,51 @@ class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
     @abstractmethod
     def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         """All entries (root to tip order) + {history_id: [branch names pointing here]}."""
+
+    @abstractmethod
+    def read_session(self, session_id: str) -> HistorySnapshot:
+        """Read entries, branch pointers, and metadata in one consistent snapshot.
+
+        Raise ValueError for an unknown session. Never change its active branch,
+        head, or metadata. The returned view must not retain live store state.
+        """
+
+    def resolve_history(
+        self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None
+    ) -> HistoryEntry:
+        snapshot = self.read_session(session_id)
+        return snapshot.resolve(history_id=history_id, offset=offset, branch=branch)
+
+    def resolve_operation(
+        self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None
+    ) -> str:
+        snapshot = self.read_session(session_id)
+        return snapshot.resolve_operation(history_id=history_id, offset=offset, branch=branch)
+
+    def get_session_summary(self, session_id: str) -> SessionSummary:
+        return (self.read_session(session_id)).summary()
+
+    def list_session_summaries(self, *, prefix: str = "") -> list[SessionSummary]:
+        """Read per-session summaries in ID order, with a literal prefix filter.
+
+        Each summary is consistent. The entire list is not a cross-session transaction.
+
+        Returns:
+            Matching session summaries. Session names are not abbreviated.
+
+        """
+        return [self.get_session_summary(name) for name in self.list_sessions() if name.startswith(prefix)]
+
+    @abstractmethod
+    def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        """Atomically remove matching branch pointers, retaining active and keep names.
+
+        Require a nonempty literal prefix. Never remove history, metadata, or images.
+        With dry_run, return the selected names without changing the store.
+        An unknown session raises ValueError. Names in keep need not exist.
+        """
 
     def close(self) -> None:  # noqa: B027 - public extension contract
         """Release owned resources. The default implementation has no resources."""
@@ -211,6 +236,51 @@ class AsyncStore(ABC):  # noqa: PLR0904 - public extension contract
     @abstractmethod
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
         """All entries (root to tip order) + {history_id: [branch names pointing here]}."""
+
+    @abstractmethod
+    async def read_session(self, session_id: str) -> HistorySnapshot:
+        """Read entries, branch pointers, and metadata in one consistent snapshot.
+
+        Raise ValueError for an unknown session. Never change its active branch,
+        head, or metadata. The returned view must not retain live store state.
+        """
+
+    async def resolve_history(
+        self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None
+    ) -> HistoryEntry:
+        snapshot = await self.read_session(session_id)
+        return snapshot.resolve(history_id=history_id, offset=offset, branch=branch)
+
+    async def resolve_operation(
+        self, session_id: str, *, history_id: int | None = None, offset: int = 0, branch: str | None = None
+    ) -> str:
+        snapshot = await self.read_session(session_id)
+        return snapshot.resolve_operation(history_id=history_id, offset=offset, branch=branch)
+
+    async def get_session_summary(self, session_id: str) -> SessionSummary:
+        return (await self.read_session(session_id)).summary()
+
+    async def list_session_summaries(self, *, prefix: str = "") -> list[SessionSummary]:
+        """Read per-session summaries in ID order, with a literal prefix filter.
+
+        Each summary is consistent. The entire list is not a cross-session transaction.
+
+        Returns:
+            Matching session summaries. Session names are not abbreviated.
+
+        """
+        return [await self.get_session_summary(name) for name in await self.list_sessions() if name.startswith(prefix)]
+
+    @abstractmethod
+    async def prune_branches(
+        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
+    ) -> tuple[str, ...]:
+        """Atomically remove matching branch pointers, retaining active and keep names.
+
+        Require a nonempty literal prefix. Never remove history, metadata, or images.
+        With dry_run, return the selected names without changing the store.
+        An unknown session raises ValueError. Names in keep need not exist.
+        """
 
     async def close(self) -> None:  # noqa: B027 - public extension contract
         """Release owned resources. The default implementation has no resources."""
