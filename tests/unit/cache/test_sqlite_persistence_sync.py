@@ -43,7 +43,7 @@ def test_transaction_rolls_back_on_error_so_second_connection_can_still_write(tm
     def failing_write() -> None:
         with writer.transaction():
             writer.conn.execute(
-                "INSERT INTO cache_v1 (namespace, key, value) VALUES (?, ?, ?)",
+                "INSERT INTO cache_v2 (namespace, key, value) VALUES (?, ?, ?)",
                 ("default", "key1", '"value1"'),
             )
             raise RuntimeError("simulated failure mid-write")

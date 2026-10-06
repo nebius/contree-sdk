@@ -15,9 +15,10 @@ from typing import ClassVar
 from contree_client.models import EventDataStream, InstanceResult
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
-from contree_sdk.cache import AsyncCache, SyncCache
+from contree_sdk.cache import AsyncCache, CacheScope, SyncCache
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.execution import RunRequest
+from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import AsyncStore, SyncStore
@@ -130,6 +131,15 @@ class BuildContext:
     last_cache_hit: bool = False
     on_event: Callable[[BuildEvent], None] | None = None
     progress: BuildProgress = field(default_factory=BuildProgress)
+
+    upload_cache_ttl: float = 90 * 24 * 3600
+
+    def cache_namespace(self, namespace: str) -> str:
+        return CacheScope.from_client(self.client).namespace(namespace)
+
+    @property
+    def file_sources(self) -> SyncFileSources:
+        return SyncFileSources(self.cache, CacheScope.from_client(self.client))
 
     def emit_event(self, event_type: BuildEventType, *, data: bytes = b"", error: BaseException | None = None) -> None:
         """Deliver one notification through the configured build callback."""
@@ -360,6 +370,15 @@ class AsyncBuildContext:
             await directive.execute_async(self)
         else:
             await self.directive_executor(directive, self)
+
+    upload_cache_ttl: float = 90 * 24 * 3600
+
+    def cache_namespace(self, namespace: str) -> str:
+        return CacheScope.from_client(self.client).namespace(namespace)
+
+    @property
+    def file_sources(self) -> AsyncFileSources:
+        return AsyncFileSources(self.cache, CacheScope.from_client(self.client))
 
     def create_session(
         self, client: ContreeAsyncClient, *, session_id: str, store: AsyncStore, image: str

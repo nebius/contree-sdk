@@ -64,6 +64,7 @@ python_sdk/operation
 python_sdk/lazy-session
 python_sdk/images
 python_sdk/building-images
+python_sdk/caching
 ```
 
 ```{toctree}

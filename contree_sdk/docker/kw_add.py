@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import posixpath
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from typing import Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
@@ -127,13 +128,18 @@ def unchanged_by_etag(cached: Any, etag: str | None) -> bool:
 def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
     # conditional GET against the previously cached ETag/Last-Modified for this URL;
     # a 304 (empty body) reuses the cached (file_uuid, sha256) without re-uploading
-    cached = ctx.cache.get(url, namespace=URL_CACHE_NAMESPACE)
+    cached = ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
 
     status, headers, body = ctx.http_fetch(url, "GET", conditional_headers_for(cached))
     if status == HTTP_NOT_MODIFIED:
         hit = cached_uuid_sha256(cached)
         if hit is not None:
+            ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
+
+        raise DockerBuildError("URL returned 304 without a valid cached upload")
+    if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
+        raise DockerBuildError(f"URL download failed with HTTP {status}")
 
     content = b"".join(body)
     header_map = {key.lower(): value for key, value in headers}
@@ -143,6 +149,7 @@ def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
     if unchanged_by_etag(cached, etag):
         hit = cached_uuid_sha256(cached)
         if hit is not None:
+            ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
 
     sha256 = hashlib.sha256(content).hexdigest()
@@ -151,8 +158,10 @@ def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
     ctx.cache.set(
         url,
         {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
-        namespace=URL_CACHE_NAMESPACE,
+        namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE),
+        ttl=ctx.upload_cache_ttl,
     )
+    ctx.file_sources.record(file_uuid, sha256, url, kind="url")
     return file_uuid, sha256
 
 
@@ -175,13 +184,18 @@ def stage_urls(
 
 
 async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
-    cached = await ctx.cache.get(url, namespace=URL_CACHE_NAMESPACE)
+    cached = await ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
 
     status, headers, body = await ctx.http_fetch_async(url, "GET", conditional_headers_for(cached))
     if status == HTTP_NOT_MODIFIED:
         hit = cached_uuid_sha256(cached)
         if hit is not None:
+            await ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
+
+        raise DockerBuildError("URL returned 304 without a valid cached upload")
+    if not HTTPStatus.OK <= status < HTTPStatus.MULTIPLE_CHOICES:
+        raise DockerBuildError(f"URL download failed with HTTP {status}")
 
     chunks = [chunk async for chunk in body]
     content = b"".join(chunks)
@@ -192,6 +206,7 @@ async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
     if unchanged_by_etag(cached, etag):
         hit = cached_uuid_sha256(cached)
         if hit is not None:
+            await ctx.file_sources.record(hit[0], hit[1], url, kind="url")
             return hit
 
     sha256 = hashlib.sha256(content).hexdigest()
@@ -200,8 +215,10 @@ async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
     await ctx.cache.set(
         url,
         {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
-        namespace=URL_CACHE_NAMESPACE,
+        namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE),
+        ttl=ctx.upload_cache_ttl,
     )
+    await ctx.file_sources.record(file_uuid, sha256, url, kind="url")
     return file_uuid, sha256
 
 

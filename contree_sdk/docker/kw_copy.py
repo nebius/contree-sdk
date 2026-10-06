@@ -15,7 +15,6 @@ import posixpath
 import shlex
 import tarfile
 import tempfile
-import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,7 +33,6 @@ from .local_context import MappedFile
 
 
 SPOOL_MAX_MEMORY = 8 * 1024 * 1024
-MAX_CACHE_AGE = 90 * 24 * 3600  # 90 days
 MIN_COPY_LIKE_ARGS = 2
 
 
@@ -173,16 +171,16 @@ LOCAL_FILE_CACHE_NAMESPACE = "docker.copy"
 
 
 def cached_local_uuid(ctx: BuildContext, sha256: str) -> str | None:
-    cached = ctx.cache.get(sha256, namespace=LOCAL_FILE_CACHE_NAMESPACE)
+    cached = ctx.cache.get(sha256, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE))
     if isinstance(cached, dict) and cached.get("uuid"):
-        age = time.time() - cached.get("uploaded_at", 0)
-        if age < MAX_CACHE_AGE:
-            return str(cached["uuid"])
+        return str(cached["uuid"])
     return None
 
 
 def record_local_uuid(ctx: BuildContext, sha256: str, file_uuid: str) -> None:
-    ctx.cache.set(sha256, {"uuid": file_uuid, "uploaded_at": time.time()}, namespace=LOCAL_FILE_CACHE_NAMESPACE)
+    ctx.cache.set(
+        sha256, {"uuid": file_uuid}, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), ttl=ctx.upload_cache_ttl
+    )
 
 
 def upload_files(ctx: BuildContext, files: list[MappedFile]) -> dict[str, tuple[str, str]]:
@@ -194,13 +192,14 @@ def upload_files(ctx: BuildContext, files: list[MappedFile]) -> dict[str, tuple[
         cached = cached_local_uuid(ctx, sha256)
         if cached:
             uploaded[mf.host_path] = (cached, sha256)
-            record_local_uuid(ctx, sha256, cached)
+            ctx.file_sources.record(cached, sha256, mf.host_path)
             continue
         with Path(mf.host_path).open("rb") as handle:
             stored = ctx.client.ensure_file(handle, sha256=sha256)
         file_uuid = str(stored.uuid)
         uploaded[mf.host_path] = (file_uuid, sha256)
         record_local_uuid(ctx, sha256, file_uuid)
+        ctx.file_sources.record(file_uuid, sha256, mf.host_path)
     return uploaded
 
 
@@ -388,16 +387,16 @@ async def hash_mapped_file(mf: MappedFile) -> tuple[MappedFile, str]:
 
 
 async def cached_local_uuid_async(ctx: AsyncBuildContext, sha256: str) -> str | None:
-    cached = await ctx.cache.get(sha256, namespace=LOCAL_FILE_CACHE_NAMESPACE)
+    cached = await ctx.cache.get(sha256, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE))
     if isinstance(cached, dict) and cached.get("uuid"):
-        age = time.time() - cached.get("uploaded_at", 0)
-        if age < MAX_CACHE_AGE:
-            return str(cached["uuid"])
+        return str(cached["uuid"])
     return None
 
 
 async def record_local_uuid_async(ctx: AsyncBuildContext, sha256: str, file_uuid: str) -> None:
-    await ctx.cache.set(sha256, {"uuid": file_uuid, "uploaded_at": time.time()}, namespace=LOCAL_FILE_CACHE_NAMESPACE)
+    await ctx.cache.set(
+        sha256, {"uuid": file_uuid}, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), ttl=ctx.upload_cache_ttl
+    )
 
 
 async def upload_one_remote_async(ctx: AsyncBuildContext, mf: MappedFile, sha256: str) -> tuple[MappedFile, str, str]:
@@ -417,7 +416,7 @@ async def upload_files_async(ctx: AsyncBuildContext, files: list[MappedFile]) ->
         cached = await cached_local_uuid_async(ctx, sha256)
         if cached:
             uploaded[mf.host_path] = (cached, sha256)
-            await record_local_uuid_async(ctx, sha256, cached)
+            await ctx.file_sources.record(cached, sha256, mf.host_path)
         else:
             pending.append((mf, sha256))
 
@@ -428,6 +427,7 @@ async def upload_files_async(ctx: AsyncBuildContext, files: list[MappedFile]) ->
     for mf, file_uuid, sha256 in results:
         uploaded[mf.host_path] = (file_uuid, sha256)
         await record_local_uuid_async(ctx, sha256, file_uuid)
+        await ctx.file_sources.record(file_uuid, sha256, mf.host_path)
     return uploaded
 
 

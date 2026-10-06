@@ -162,8 +162,11 @@ the entire list is not one transaction. A concurrent session deletion can raise
 `ValueError` while that list is assembled.
 
 Cache implementations inherit `SyncCache` or `AsyncCache`. `get()` returns `None`
-for a miss. `set()` replaces a value within its namespace. Namespace isolation is
-part of the contract. SQLite caches require JSON-serializable values.
+for a miss. Implement `get_entry()`, `set()`, `entries()`, `delete()`, and
+`invalidate()`. `set(..., ttl=None)` replaces a value and its expiry. Enumeration
+returns live entries sorted by key; prefixes are literal. Namespace isolation,
+detached JSON values, and expiry are part of the contract for every backend.
+See {doc}`caching` for the full semantics and executable examples.
 
 Stores and caches have a `close()` method and matching context-manager methods.
 The default close is a no-op for implementations without resources. Override it

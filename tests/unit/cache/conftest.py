@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -31,3 +32,19 @@ async def async_cache(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIt
     cache = AsyncSQLiteCache(tmp_path / "cache.db")
     yield cache
     await cache.close()
+
+
+@pytest.fixture(params=["memory", "sqlite", "async-memory", "async-sqlite"])
+async def cache_case(request: pytest.FixtureRequest, tmp_path: Path):
+    now = [1000.0]
+    factories = {
+        "memory": lambda: SyncMemoryCache(clock=lambda: now[0]),
+        "sqlite": lambda: SyncSQLiteCache(tmp_path / "cache.db", clock=lambda: now[0]),
+        "async-memory": lambda: AsyncMemoryCache(clock=lambda: now[0]),
+        "async-sqlite": lambda: AsyncSQLiteCache(tmp_path / "cache.db", clock=lambda: now[0]),
+    }
+    cache = factories[request.param]()
+    yield cache, now
+    result = cache.close()
+    if inspect.isawaitable(result):
+        await result

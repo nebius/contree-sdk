@@ -59,7 +59,7 @@ class FromKeyword(DockerKeyword):
         if image_uuid is None:
             image_uuid = resolve_or_import(ctx, ref)
 
-        from_hash = hashlib.sha256(f"FROM:{image_uuid}".encode()).hexdigest()
+        from_hash = hashlib.sha256(ctx.cache_namespace(f"FROM:{image_uuid}").encode()).hexdigest()
         branch_name = f"layer:{ctx.short_hash(from_hash)}"
 
         ctx.pending.clear()
@@ -83,7 +83,7 @@ class FromKeyword(DockerKeyword):
         if image_uuid is None:
             image_uuid = await resolve_or_import_async(ctx, ref)
 
-        from_hash = hashlib.sha256(f"FROM:{image_uuid}".encode()).hexdigest()
+        from_hash = hashlib.sha256(ctx.cache_namespace(f"FROM:{image_uuid}").encode()).hexdigest()
         branch_name = f"layer:{ctx.short_hash(from_hash)}"
 
         ctx.pending.clear()

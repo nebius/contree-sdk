@@ -317,3 +317,17 @@ exception can stop the build. The async builder also accepts an awaitable callba
 
 Use `parser=`, `session_factory=`, or `execute_directive()` for custom behavior.
 See {doc}`customization` and {doc}`reference/docker`.
+
+## Upload cache lifetime and scope
+
+COPY and ADD cache uploads separately from layer history. The cache namespaces
+and layer hashes include the endpoint, project, and credential scope. Shared
+cache files and build session IDs therefore do not reuse another server’s UUIDs.
+Local paths and source URLs are retained through the public file-source registry.
+See {doc}`caching` for enumeration and invalidation.
+
+The default upload lifetime is 90 days. Cache hits and URL responses with status
+304 do not extend it. Override `create_context()` and set
+`context.upload_cache_ttl` to choose a shorter lifetime for your server. Expiry
+causes a new upload when the directive runs; it does not invalidate an existing
+image layer. A 304 response without a live cached upload raises `DockerBuildError`.

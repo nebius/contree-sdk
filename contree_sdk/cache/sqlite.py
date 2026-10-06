@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from asyncio import Lock
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from contree_sdk.cache.base import AsyncCache, SyncCache
+from contree_sdk.cache.models import CacheEntry, Clock, expiration
 
 
 try:
@@ -24,10 +26,11 @@ except ImportError:
 DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS cache_v1 (
+CREATE TABLE IF NOT EXISTS cache_v2 (
     namespace TEXT NOT NULL,
     key       TEXT NOT NULL,
     value     TEXT NOT NULL,
+    expires_at REAL,
     PRIMARY KEY (namespace, key)
 );
 """
@@ -40,13 +43,13 @@ class SyncSQLiteCache(SyncCache):
     *processes*. `check_same_thread=False` plus a `threading.RLock` make one
     instance safe to share across *threads* within this process too.
 
-    No in-place schema migrations: the table is named `cache_v1`. A future
-    schema change bumps the suffix (`cache_v2`, ...) instead of altering
-    `cache_v1` in place - old data under the previous suffix is abandoned,
-    not migrated forward.
+    No in-place schema migrations: the table is named `cache_v2`. The previous
+    disposable cache_v1 values are not imported. Permanent source records
+    introduced in cache_v2 must be preserved by future schema upgrades.
     """
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, clock: Clock = time.time) -> None:
+        self.clock = clock
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), timeout=DB_TIMEOUT, check_same_thread=False)
@@ -70,24 +73,51 @@ class SyncSQLiteCache(SyncCache):
             self.conn.rollback()
             raise
 
-    def get(self, key: str, *, namespace: str = "default") -> Any | None:
+    def get_entry(self, key: str, *, namespace: str = "default") -> CacheEntry | None:
         with self.rlock:
             row = self.conn.execute(
-                "SELECT value FROM cache_v1 WHERE namespace = ? AND key = ?", (namespace, key)
+                "SELECT value, expires_at FROM cache_v2 WHERE namespace = ? AND key = ? "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (namespace, key, self.clock()),
             ).fetchone()
-        return None if row is None else json.loads(row["value"])
+        return None if row is None else CacheEntry(key, json.loads(row["value"]), row["expires_at"])
 
-    def set(self, key: str, value: Any, *, namespace: str = "default") -> None:
-        """Store `value` as JSON; it must be JSON-serializable."""
+    def set(self, key: str, value: Any, *, namespace: str = "default", ttl: float | None = None) -> None:
+        encoded = json.dumps(value, allow_nan=False)
+        expires_at = expiration(ttl, self.clock())
         with self.rlock, self.transaction():
             self.conn.execute(
-                """
-                INSERT INTO cache_v1 (namespace, key, value) VALUES (?, ?, ?)
-                ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value
-                """,
-                (namespace, key, json.dumps(value)),
+                "INSERT INTO cache_v2 (namespace, key, value, expires_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at",
+                (namespace, key, encoded, expires_at),
             )
             self.conn.commit()
+
+    def entries(self, *, namespace: str = "default", prefix: str = "") -> tuple[CacheEntry, ...]:
+        with self.rlock:
+            rows = self.conn.execute(
+                "SELECT key, value, expires_at FROM cache_v2 WHERE namespace = ? "
+                "AND substr(CAST(key AS BLOB), 1, length(CAST(? AS BLOB))) = CAST(? AS BLOB) "
+                "AND (expires_at IS NULL OR expires_at > ?) ORDER BY key",
+                (namespace, prefix, prefix, self.clock()),
+            ).fetchall()
+        return tuple(CacheEntry(row["key"], json.loads(row["value"]), row["expires_at"]) for row in rows)
+
+    def delete(self, key: str, *, namespace: str = "default") -> bool:
+        with self.rlock, self.transaction():
+            cursor = self.conn.execute("DELETE FROM cache_v2 WHERE namespace = ? AND key = ?", (namespace, key))
+            self.conn.commit()
+            return cursor.rowcount > 0
+
+    def invalidate(self, *, namespace: str = "default", prefix: str = "") -> int:
+        with self.rlock, self.transaction():
+            cursor = self.conn.execute(
+                "DELETE FROM cache_v2 WHERE namespace = ? "
+                "AND substr(CAST(key AS BLOB), 1, length(CAST(? AS BLOB))) = CAST(? AS BLOB)",
+                (namespace, prefix, prefix),
+            )
+            self.conn.commit()
+            return cursor.rowcount
 
 
 class AsyncSQLiteCache(AsyncCache):
@@ -97,13 +127,13 @@ class AsyncSQLiteCache(AsyncCache):
     itself a coroutine and can't run in `__init__`. Requires the
     `contree-sdk[async]` extra.
 
-    No in-place schema migrations: the table is named `cache_v1`. A future
-    schema change bumps the suffix (`cache_v2`, ...) instead of altering
-    `cache_v1` in place - old data under the previous suffix is abandoned,
-    not migrated forward.
+    No in-place schema migrations: the table is named `cache_v2`. The previous
+    disposable cache_v1 values are not imported. Permanent source records
+    introduced in cache_v2 must be preserved by future schema upgrades.
     """
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, clock: Clock = time.time) -> None:
+        self.clock = clock
         if not AIOSQLITE_AVAILABLE:
             raise ImportError('AsyncSQLiteCache requires aiosqlite; install it via `pip install "contree-sdk[async]"`')
         self.db_path = Path(db_path)
@@ -146,21 +176,55 @@ class AsyncSQLiteCache(AsyncCache):
             await conn.rollback()
             raise
 
-    async def get(self, key: str, *, namespace: str = "default") -> Any | None:
+    async def get_entry(self, key: str, *, namespace: str = "default") -> CacheEntry | None:
         conn = await self.ensure_connection()
-        cursor = await conn.execute("SELECT value FROM cache_v1 WHERE namespace = ? AND key = ?", (namespace, key))
-        row = await cursor.fetchone()
-        return None if row is None else json.loads(row["value"])
+        async with self.lock:
+            cursor = await conn.execute(
+                "SELECT value, expires_at FROM cache_v2 WHERE namespace = ? AND key = ? "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (namespace, key, self.clock()),
+            )
+            row = await cursor.fetchone()
+        return None if row is None else CacheEntry(key, json.loads(row["value"]), row["expires_at"])
 
-    async def set(self, key: str, value: Any, *, namespace: str = "default") -> None:
-        """Store `value` as JSON; it must be JSON-serializable."""
+    async def set(self, key: str, value: Any, *, namespace: str = "default", ttl: float | None = None) -> None:
+        encoded = json.dumps(value, allow_nan=False)
+        expires_at = expiration(ttl, self.clock())
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
             await conn.execute(
-                """
-                INSERT INTO cache_v1 (namespace, key, value) VALUES (?, ?, ?)
-                ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value
-                """,
-                (namespace, key, json.dumps(value)),
+                "INSERT INTO cache_v2 (namespace, key, value, expires_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at",
+                (namespace, key, encoded, expires_at),
             )
             await conn.commit()
+
+    async def entries(self, *, namespace: str = "default", prefix: str = "") -> tuple[CacheEntry, ...]:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            cursor = await conn.execute(
+                "SELECT key, value, expires_at FROM cache_v2 WHERE namespace = ? "
+                "AND substr(CAST(key AS BLOB), 1, length(CAST(? AS BLOB))) = CAST(? AS BLOB) "
+                "AND (expires_at IS NULL OR expires_at > ?) ORDER BY key",
+                (namespace, prefix, prefix, self.clock()),
+            )
+            rows = await cursor.fetchall()
+        return tuple(CacheEntry(row["key"], json.loads(row["value"]), row["expires_at"]) for row in rows)
+
+    async def delete(self, key: str, *, namespace: str = "default") -> bool:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            cursor = await conn.execute("DELETE FROM cache_v2 WHERE namespace = ? AND key = ?", (namespace, key))
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def invalidate(self, *, namespace: str = "default", prefix: str = "") -> int:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            cursor = await conn.execute(
+                "DELETE FROM cache_v2 WHERE namespace = ? "
+                "AND substr(CAST(key AS BLOB), 1, length(CAST(? AS BLOB))) = CAST(? AS BLOB)",
+                (namespace, prefix, prefix),
+            )
+            await conn.commit()
+            return cursor.rowcount
