@@ -16,11 +16,18 @@ from {doc}`../python_sdk/getting-started`.
 
 ## Install and test the backend
 
-This integration requires Python 3.11 or newer. Install:
+This integration requires Python 3.11 or newer. Install the development API from
+the repository root, as in {doc}`../python_sdk/getting-started`:
 
 ```bash
-pip install "contree-sdk[langchain,async]"
+pip install -e ".[langchain,async]"
 ```
+
+The extra pins deepagents 0.7.10, the version tested with this SDK. Its async file
+tools delegate to `aexecute` and `aupload_files`. Version 0.6.8 instead calls sync
+methods from those tools and is incompatible with `ContreeAsyncSandbox`.
+The sandbox image needs a POSIX shell, Python 3, and the file utilities used by
+deepagents, including `grep` for search.
 
 Use the environment variables from {doc}`../python_sdk/getting-started`.
 This example exercises the backend directly, so no model credentials are needed.
@@ -101,22 +108,30 @@ when the agent needs to resume after a Python restart.
 
 Pass the sandbox as `backend=` to `deepagents.create_deep_agent`. Supply the model
 configured by your application. Keep the client open for the entire agent invocation.
-The following function accepts that model and uses a saved ConTree profile:
+The following function accepts that model and uses the environment variables from the getting-started guide:
 
 <!--
-name: async test_agent_wiring; fixtures: deepagents_available, doc_api, monkeypatch
+name: async test_agent_wiring; fixtures: deepagents_available, doc_api, agent_model_factory
 ```python
-from unittest.mock import AsyncMock, Mock
-import deepagents
+from langchain_core.messages import AIMessage, ToolMessage
 
-fake_agent = Mock()
-fake_agent.ainvoke = AsyncMock(return_value={"messages": []})
-factory = Mock(return_value=fake_agent)
-monkeypatch.setattr(deepagents, "create_deep_agent", factory)
+doc_api.complete()  # write preflight
+doc_api.complete()  # upload and commit
+doc_api.complete(stdout="2\n")  # execute
+model = agent_model_factory(responses=[
+    AIMessage(content="", tool_calls=[{
+        "name": "write_file", "args": {"file_path": "/calculator.py", "content": "print(1 + 1)\n"}, "id": "write-1"
+    }]),
+    AIMessage(content="", tool_calls=[{
+        "name": "execute", "args": {"command": "python3 /calculator.py"}, "id": "execute-1"
+    }]),
+    AIMessage(content="The result is 2."),
+])
 ```
 -->
 
 ```python
+import os
 from contree_client.asyncio import ContreeAsyncClient
 from deepagents import create_deep_agent
 from contree_sdk import ContreeAsyncSession
@@ -124,8 +139,8 @@ from contree_sdk.langchain import ContreeAsyncSandbox
 
 
 async def ask_agent(model):
-    async with ContreeAsyncClient.from_profile() as client:
-        session = ContreeAsyncSession(client, image="tag:tutorial-base")
+    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
         agent = create_deep_agent(model=model, backend=ContreeAsyncSandbox(session))
         request = {"messages": [{"role": "user", "content": "Create a calculator script and run it."}]}
         return await agent.ainvoke(request)
@@ -134,11 +149,12 @@ async def ask_agent(model):
 <!--
 name: test_agent_wiring
 ```python
-model = object()
-assert await ask_agent(model) == {"messages": []}
-assert factory.call_args.kwargs["model"] is model
-assert isinstance(factory.call_args.kwargs["backend"], ContreeAsyncSandbox)
-fake_agent.ainvoke.assert_awaited_once()
+result = await ask_agent(model)
+tool_results = [message for message in result["messages"] if isinstance(message, ToolMessage)]
+assert len(tool_results) == 2
+assert all(message.status == "success" for message in tool_results)
+assert "2" in str(tool_results[-1].content)
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 3
 ```
 -->
 

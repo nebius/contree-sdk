@@ -4,9 +4,10 @@ See {doc}`../troubleshooting` for recovery scenarios. Client API errors, transpo
 errors, `InterruptedError`, and validation errors can also propagate. A nonzero
 process exit code is returned in `InstanceResult`, not raised as an SDK exception.
 
-```{automodule} contree_sdk.exceptions
-:members: FailedOperationError, SessionConflictError, DockerBuildError
-:inherited-members:
-:undoc-members:
-:member-order: bysource
+```{eval-rst}
+.. automodule:: contree_sdk.exceptions
+   :members: FailedOperationError, SessionConflictError, DockerBuildError
+   :inherited-members:
+   :undoc-members:
+   :member-order: bysource
 ```

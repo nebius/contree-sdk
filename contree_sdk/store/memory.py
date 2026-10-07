@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from asyncio import Lock
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import EllipsisType
 
@@ -16,6 +17,7 @@ from contree_sdk.store.models import (
     validate_attachments,
     validate_prune,
 )
+from contree_sdk.store.operations import OperationRecord, validate_registration
 
 
 class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
@@ -23,6 +25,7 @@ class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
 
     def __init__(self) -> None:
         self.entries: dict[int, HistoryEntry] = {}
+        self.operations: dict[tuple[str, str], OperationRecord] = {}
         self.next_id = 1
         self.branches: dict[str, dict[str, int]] = {}
         self.active_branches: dict[str, str] = {}
@@ -51,30 +54,124 @@ class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
     ) -> HistoryEntry:
         validate_attachments(attachments)
         with self.lock:
-            branch_name = branch or self.active_branches.get(session_id) or "main"
-            if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
-                raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-            if parent_id is not None:
-                self.get_entry(session_id, parent_id)
-            entry = HistoryEntry(
-                id=self.next_id,
-                session_id=session_id,
+            return self._append(
+                session_id,
                 image_uuid=image_uuid,
                 parent_id=parent_id,
                 kind=kind,
                 title=title,
                 operation_uuid=operation_uuid,
                 exit_code=exit_code,
-                created_at=datetime.now(timezone.utc),
+                branch=branch,
                 files=files,
-                attachments=tuple(attachments),
-                applied_files=tuple(applied_files),
+                attachments=attachments,
+                applied_files=applied_files,
+                expected_tip=expected_tip,
             )
-            self.entries[entry.id] = entry
-            self.next_id += 1
-            self.branches.setdefault(session_id, {})[branch_name] = entry.id
-            self.active_branches.setdefault(session_id, branch_name)
-            return entry
+
+    def _append(
+        self,
+        session_id: str,
+        *,
+        image_uuid: str,
+        parent_id: int | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+        files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        branch_name = branch or self.active_branches.get(session_id) or "main"
+        if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
+            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
+        if parent_id is not None:
+            self.get_entry(session_id, parent_id)
+        entry = HistoryEntry(
+            id=self.next_id,
+            session_id=session_id,
+            image_uuid=image_uuid,
+            parent_id=parent_id,
+            kind=kind,
+            title=title,
+            operation_uuid=operation_uuid,
+            exit_code=exit_code,
+            created_at=datetime.now(timezone.utc),
+            files=files,
+            attachments=tuple(attachments),
+            applied_files=tuple(applied_files),
+        )
+        self.entries[entry.id] = entry
+        self.next_id += 1
+        self.branches.setdefault(session_id, {})[branch_name] = entry.id
+        self.active_branches.setdefault(session_id, branch_name)
+        return entry
+
+    def register_operation(self, record: OperationRecord) -> OperationRecord:
+        with self.lock:
+            parent = self.get_entry(record.session_id, record.parent_id)
+            if parent.image_uuid != record.image_uuid:
+                raise ValueError("operation source image does not match its history entry")
+            key = (record.session_id, record.uuid)
+            saved = validate_registration(record, self.operations.get(key))
+            self.operations[key] = saved
+            return saved
+
+    def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        with self.lock:
+            record = self.operations.get((session_id, operation_uuid))
+            if record is None:
+                raise ValueError("operation is not registered in this session")
+            return record
+
+    def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        with self.lock:
+            return tuple(
+                record
+                for (session, _), record in sorted(self.operations.items())
+                if session == session_id and (not pending_only or record.pending)
+            )
+
+    def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        with self.lock:
+            key = (session_id, operation_uuid)
+            record = self.operations.get(key)
+            if record is None:
+                raise ValueError("operation is not registered in this session")
+            if not record.pending:
+                return record
+            completed = replace(record, response_json=response_json)
+            if image_uuid is not None:
+                if record.disposable:
+                    raise ValueError("cannot commit a disposable operation")
+                entry = self._append(
+                    session_id,
+                    image_uuid=image_uuid,
+                    parent_id=record.parent_id,
+                    kind="run",
+                    title=record.title,
+                    operation_uuid=record.uuid,
+                    exit_code=exit_code,
+                    branch=branch or record.branch,
+                    files=record.files,
+                    applied_files=record.files,
+                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
+                )
+                completed = replace(completed, history_id=entry.id)
+            self.operations[key] = completed
+            return completed
 
     def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         entry = self.entries.get(history_id)
@@ -240,6 +337,7 @@ class SyncMemoryStore(SyncStore):  # noqa: PLR0904 - public store contract
             del self.active_branches[session_id]
             self.cwds.pop(session_id, None)
             self.envs.pop(session_id, None)
+            self.operations = {key: value for key, value in self.operations.items() if key[0] != session_id}
             return True
 
     def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
@@ -257,6 +355,7 @@ class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
 
     def __init__(self) -> None:
         self.entries: dict[int, HistoryEntry] = {}
+        self.operations: dict[tuple[str, str], OperationRecord] = {}
         self.next_id = 1
         self.branches: dict[str, dict[str, int]] = {}
         self.active_branches: dict[str, str] = {}
@@ -285,30 +384,124 @@ class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
     ) -> HistoryEntry:
         validate_attachments(attachments)
         async with self.lock:
-            branch_name = branch or self.active_branches.get(session_id) or "main"
-            if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
-                raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-            if parent_id is not None:
-                await self.get_entry(session_id, parent_id)
-            entry = HistoryEntry(
-                id=self.next_id,
-                session_id=session_id,
+            return await self._append(
+                session_id,
                 image_uuid=image_uuid,
                 parent_id=parent_id,
                 kind=kind,
                 title=title,
                 operation_uuid=operation_uuid,
                 exit_code=exit_code,
-                created_at=datetime.now(timezone.utc),
+                branch=branch,
                 files=files,
-                attachments=tuple(attachments),
-                applied_files=tuple(applied_files),
+                attachments=attachments,
+                applied_files=applied_files,
+                expected_tip=expected_tip,
             )
-            self.entries[entry.id] = entry
-            self.next_id += 1
-            self.branches.setdefault(session_id, {})[branch_name] = entry.id
-            self.active_branches.setdefault(session_id, branch_name)
-            return entry
+
+    async def _append(
+        self,
+        session_id: str,
+        *,
+        image_uuid: str,
+        parent_id: int | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+        files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        branch_name = branch or self.active_branches.get(session_id) or "main"
+        if expected_tip is not Ellipsis and self.branch_tip_id(session_id, branch_name) != expected_tip:
+            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
+        if parent_id is not None:
+            await self.get_entry(session_id, parent_id)
+        entry = HistoryEntry(
+            id=self.next_id,
+            session_id=session_id,
+            image_uuid=image_uuid,
+            parent_id=parent_id,
+            kind=kind,
+            title=title,
+            operation_uuid=operation_uuid,
+            exit_code=exit_code,
+            created_at=datetime.now(timezone.utc),
+            files=files,
+            attachments=tuple(attachments),
+            applied_files=tuple(applied_files),
+        )
+        self.entries[entry.id] = entry
+        self.next_id += 1
+        self.branches.setdefault(session_id, {})[branch_name] = entry.id
+        self.active_branches.setdefault(session_id, branch_name)
+        return entry
+
+    async def register_operation(self, record: OperationRecord) -> OperationRecord:
+        async with self.lock:
+            parent = await self.get_entry(record.session_id, record.parent_id)
+            if parent.image_uuid != record.image_uuid:
+                raise ValueError("operation source image does not match its history entry")
+            key = (record.session_id, record.uuid)
+            saved = validate_registration(record, self.operations.get(key))
+            self.operations[key] = saved
+            return saved
+
+    async def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        async with self.lock:
+            record = self.operations.get((session_id, operation_uuid))
+            if record is None:
+                raise ValueError("operation is not registered in this session")
+            return record
+
+    async def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        async with self.lock:
+            return tuple(
+                record
+                for (session, _), record in sorted(self.operations.items())
+                if session == session_id and (not pending_only or record.pending)
+            )
+
+    async def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        async with self.lock:
+            key = (session_id, operation_uuid)
+            record = self.operations.get(key)
+            if record is None:
+                raise ValueError("operation is not registered in this session")
+            if not record.pending:
+                return record
+            completed = replace(record, response_json=response_json)
+            if image_uuid is not None:
+                if record.disposable:
+                    raise ValueError("cannot commit a disposable operation")
+                entry = await self._append(
+                    session_id,
+                    image_uuid=image_uuid,
+                    parent_id=record.parent_id,
+                    kind="run",
+                    title=record.title,
+                    operation_uuid=record.uuid,
+                    exit_code=exit_code,
+                    branch=branch or record.branch,
+                    files=record.files,
+                    applied_files=record.files,
+                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
+                )
+                completed = replace(completed, history_id=entry.id)
+            self.operations[key] = completed
+            return completed
 
     async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
         entry = self.entries.get(history_id)
@@ -474,6 +667,7 @@ class AsyncMemoryStore(AsyncStore):  # noqa: PLR0904 - public store contract
             del self.active_branches[session_id]
             self.cwds.pop(session_id, None)
             self.envs.pop(session_id, None)
+            self.operations = {key: value for key, value in self.operations.items() if key[0] != session_id}
             return True
 
     async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:

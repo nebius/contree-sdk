@@ -149,6 +149,78 @@ The default build session ID derives from the context path. Supply `session_id=`
 when you need a stable identity after moving a context. Avoid concurrent builds
 that mutate the same build session.
 
+## Rebuild a multi-stage image after changing inputs
+
+This standalone example creates `multi-context` in the current directory. Its
+first stage builds an output file. The second stage copies only that output with
+`COPY --from`. Use a base image with `cat`, `tar`, and standard POSIX file utilities.
+
+Keep the same builder, store, and build session to observe layer reuse. Changing
+an ignored file leaves the build inputs unchanged. Changing `message.txt`
+invalidates the source RUN and the stage copy that depends on its output.
+
+<!--
+name: test_multistage_rebuild; fixtures: doc_api, doc_stage_archive
+```python
+for _ in range(4):
+    doc_api.complete()
+```
+-->
+
+```python
+import os
+from pathlib import Path
+
+from contree_client.sync import ContreeClient
+from contree_sdk.docker import ContreeDockerBuilder
+
+context = Path("multi-context")
+context.mkdir(exist_ok=True)
+(context / "Dockerfile").write_text(
+    "ARG BASE_IMAGE\n"
+    "FROM ${BASE_IMAGE} AS source\n"
+    "COPY . /src/\n"
+    "RUN cat /src/message.txt > /built.txt\n"
+    "FROM ${BASE_IMAGE}\n"
+    "COPY --from=source /built.txt /result.txt\n"
+)
+(context / ".dockerignore").write_text("ignored.txt\n")
+(context / "message.txt").write_text("one\n")
+(context / "ignored.txt").write_text("local notes\n")
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    builder = ContreeDockerBuilder(client)
+
+    def rebuild():
+        events = []
+        image = builder.build(
+            context,
+            build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+            session_id="multi-stage-demo",
+            on_event=events.append,
+        )
+        started = [event for event in events if event.type == "operation_started"]
+        return image, started
+
+    first_image, first_runs = rebuild()
+    repeated_image, repeated_runs = rebuild()
+    (context / "ignored.txt").write_text("changed local notes\n")
+    ignored_image, ignored_runs = rebuild()
+    (context / "message.txt").write_text("two\n")
+    changed_image, changed_runs = rebuild()
+
+assert len(first_runs) == 2  # Source RUN and COPY --from extraction.
+assert repeated_runs == ignored_runs == []
+assert first_image == repeated_image == ignored_image
+assert len(changed_runs) == 2
+```
+
+The cache comparison uses file content and execution inputs. It does not require
+the server to return a different image UUID for every submission. To retain this
+cache across Python restarts, supply SQLite store and cache components as above.
+Use the async builder with the same inputs and await each `build` call in async
+applications.
+
 ## Supported Dockerfile behavior
 
 `FROM`, `RUN`, `COPY`, `ADD`, `WORKDIR`, `ENV`, `ARG`, and `USER` are implemented.

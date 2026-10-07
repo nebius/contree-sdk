@@ -7,6 +7,7 @@ from types import EllipsisType
 from contree_sdk.compat import Self
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.models import HistoryEntry, HistorySnapshot, SessionMetadata, SessionSummary, StagedFile
+from contree_sdk.store.operations import OperationRecord
 
 
 class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
@@ -105,6 +106,41 @@ class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
         Raise ValueError for an unknown session. Never change its active branch,
         head, or metadata. The returned view must not retain live store state.
         """
+
+    def register_operation(self, record: OperationRecord) -> OperationRecord:
+        """Persist a pending operation; identical registration is idempotent.
+
+        Reject a changed context or a source entry outside the session.
+        """
+        raise NotImplementedError("this store does not support detached operations")
+
+    def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        """Read one registered operation; raise ValueError when absent."""
+        raise NotImplementedError("this store does not support detached operations")
+
+    def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        """List registered operations in UUID order without modifying them."""
+        raise NotImplementedError("this store does not support detached operations")
+
+    def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        """Atomically store the first final response and optional history entry.
+
+        With image_uuid, append on the recorded branch using its source parent
+        as expected_tip. An explicit different branch must not exist. Never
+        switch the active branch. A conflict leaves the entire record pending.
+        Without image_uuid, store the response without appending history.
+        Repeated calls return the first completed record without further writes.
+        """
+        raise NotImplementedError("this store does not support detached operations")
 
     def stage_files(
         self,
@@ -295,6 +331,41 @@ class AsyncStore(ABC):  # noqa: PLR0904 - public extension contract
         Raise ValueError for an unknown session. Never change its active branch,
         head, or metadata. The returned view must not retain live store state.
         """
+
+    async def register_operation(self, record: OperationRecord) -> OperationRecord:
+        """Persist a pending operation; identical registration is idempotent.
+
+        Reject a changed context or a source entry outside the session.
+        """
+        raise NotImplementedError("this store does not support detached operations")
+
+    async def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        """Read one registered operation; raise ValueError when absent."""
+        raise NotImplementedError("this store does not support detached operations")
+
+    async def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        """List registered operations in UUID order without modifying them."""
+        raise NotImplementedError("this store does not support detached operations")
+
+    async def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        """Atomically store the first final response and optional history entry.
+
+        With image_uuid, append on the recorded branch using its source parent
+        as expected_tip. An explicit different branch must not exist. Never
+        switch the active branch. A conflict leaves the entire record pending.
+        Without image_uuid, store the response without appending history.
+        Repeated calls return the first completed record without further writes.
+        """
+        raise NotImplementedError("this store does not support detached operations")
 
     async def stage_files(
         self,

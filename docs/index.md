@@ -16,6 +16,7 @@ and a complete program that prints `Hello from ConTree!`.
 | I want to…                                            | Read                               |
 | ----------------------------------------------------- | ---------------------------------- |
 | Run a command and handle its result                   | {doc}`python_sdk/running-commands` |
+| Choose Session, Operation, or LazySession             | {doc}`python_sdk/architecture`     |
 | Upload inputs and download an output                  | {doc}`python_sdk/files`            |
 | Continue work after restarting Python                 | {doc}`python_sdk/sessions`         |
 | Try a change and return to a checkpoint               | {doc}`python_sdk/branching`        |
@@ -49,6 +50,7 @@ ConTree. See {doc}`python_sdk/sessions` for ownership and lifetime rules.
 :hidden:
 
 python_sdk/getting-started
+python_sdk/architecture
 python_sdk/running-commands
 python_sdk/files
 ```
@@ -61,8 +63,8 @@ python_sdk/files
 python_sdk/sessions
 python_sdk/branching
 python_sdk/operation
+python_sdk/detached-operations
 python_sdk/lazy-session
-python_sdk/runtime
 python_sdk/images
 python_sdk/building-images
 python_sdk/caching

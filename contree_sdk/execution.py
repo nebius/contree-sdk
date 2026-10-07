@@ -11,6 +11,7 @@ from types import MappingProxyType
 from contree_client.models import InstanceNetworking, InstanceResourcesLimits, InstanceResult
 
 from contree_sdk.files import InputSource, RunFiles
+from contree_sdk.store.models import StagedFile
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -66,6 +67,8 @@ class OperationContext:
     parent_id: int | None
     branch: str | None
     files: tuple[str, ...] = ()
+    attachments: tuple[StagedFile, ...] = ()
+    detached: bool = False
 
 
 class SyncExecutor(ABC):

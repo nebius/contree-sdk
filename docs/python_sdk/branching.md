@@ -291,8 +291,11 @@ the current state again, so its returned names can differ from the preview.
 
 ::::{tab} Sync
 
-<!--
-name: test_prune_branches; fixtures: doc_api
+Create a small session in a new `prune.db` database, then preview and remove its
+temporary branches:
+
+<!-- name: test_prune_branches; fixtures: doc_api -->
+
 ```python
 from contree_sdk.store import SyncSQLiteStore
 
@@ -300,12 +303,6 @@ with SyncSQLiteStore("prune.db") as initial:
     root = initial.append("demo", image_uuid="base", parent_id=None)
     initial.create_branch("demo", "temporary:old")
     initial.create_branch("demo", "temporary:keep")
-```
--->
-
-```python
-from contree_sdk.store import SyncSQLiteStore
-
 with SyncSQLiteStore("prune.db") as store:
     candidates = store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",), dry_run=True)
     removed = store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",))
@@ -326,8 +323,10 @@ with SyncSQLiteStore("prune.db") as reopened:
 
 ::::{tab} Async
 
-<!--
-name: async test_prune_branches_async; fixtures: doc_api
+Use a new `prune_async.db` database for this standalone example:
+
+<!-- name: async test_prune_branches_async; fixtures: doc_api -->
+
 ```python
 from contree_sdk.store import AsyncSQLiteStore
 
@@ -335,12 +334,6 @@ async with AsyncSQLiteStore("prune_async.db") as initial:
     root = await initial.append("demo", image_uuid="base", parent_id=None)
     await initial.create_branch("demo", "temporary:old")
     await initial.create_branch("demo", "temporary:keep")
-```
--->
-
-```python
-from contree_sdk.store import AsyncSQLiteStore
-
 async with AsyncSQLiteStore("prune_async.db") as store:
     candidates = await store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",), dry_run=True)
     removed = await store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",))

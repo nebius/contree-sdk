@@ -7,6 +7,8 @@ icon: diagram-project
 Use `run()` when you only need a completed result. Use `spawn()` to obtain an
 operation handle immediately, stream output, send input, or cancel work.
 Enter an operation context to start additional processes in the same running sandbox.
+Use {doc}`detached-operations` to save its context and collect the result after
+restarting Python.
 
 :::{note}
 Async snippets with top-level `await` run inside an async function or a notebook
@@ -220,6 +222,16 @@ subscriber. A failed or cancelled operation `wait()` attempts remote cancellatio
 and therefore affects all consumers of the operation. Call `shutdown()` if you
 stop consuming before completion and no longer need the operation.
 
+Session `run()`, `execute()`, and `wait_operation()` and Docker builds close the
+operation handles they create. Async cleanup waits for the reader to stop, even
+if the caller cancels again during cleanup. Cleanup can extend a timeout while
+cancellation requests and reader shutdown finish. These helpers do not close a
+client supplied by the caller.
+
+Synchronous shutdown waits for the reader thread for a bounded time. It cannot
+interrupt an arbitrary blocking event source. If the source remains blocked,
+the thread exits only when that source returns or raises.
+
 Sharing applies to one `Operation` or `AsyncOperation` object. Constructing another
 handle for the same UUID creates a separate owner and can open another stream.
 Reuse the existing handle when consumers run in the same application.
@@ -330,9 +342,13 @@ name: test_operation_input; fixtures: stdin_api
 ```python
 import os
 from functools import partial
+from pathlib import Path
 
 from contree_client.sync import ContreeClient
 from contree_sdk import ContreeSession
+
+# Create sample input; replace it with your own file when using this workflow.
+Path("input.bin").write_bytes(bytes(range(256)) * 1024)
 
 with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
@@ -366,9 +382,13 @@ name: async test_operation_input_async; fixtures: stdin_api
 ```python
 import asyncio
 import os
+from pathlib import Path
 
 from contree_client.asyncio import ContreeAsyncClient
 from contree_sdk import ContreeAsyncSession
+
+# Create sample input before starting the remote process.
+Path("input.bin").write_bytes(bytes(range(256)) * 1024)
 
 
 async def input_chunks():

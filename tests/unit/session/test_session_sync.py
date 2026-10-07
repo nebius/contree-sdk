@@ -177,6 +177,7 @@ def test_stale_operation_does_not_rewrite_history(client):
     first.wait()
     second.wait()
     committed = session.commit_result(first)
+    assert committed is not None
     with pytest.raises(SessionConflictError):
         session.commit_result(second)
     entries, _ = session.history()

@@ -20,7 +20,6 @@ from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, std
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
-SHUTDOWN_POLL_INTERVAL = 0.1
 
 
 class Operation(OperationContract):
@@ -65,6 +64,8 @@ class Operation(OperationContract):
         self.terminal_event = threading.Event()
         self.result_lock = threading.Lock()
         self.final_response: OperationResponse | None = None
+        self.cancel_requested = False
+        self.cancel_lock = threading.Lock()
 
     def add_observer(self, observer: OperationObserver) -> None:
         with self.lock:
@@ -198,7 +199,10 @@ class Operation(OperationContract):
         self.client.operation_subprocess_kill(self.uuid, spid, signal=sig)
 
     def cancel(self) -> None:
-        self.client.cancel_operation(self.uuid)
+        with self.cancel_lock:
+            if not self.cancel_requested:
+                self.client.cancel_operation(self.uuid)
+                self.cancel_requested = True
 
     def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
@@ -354,12 +358,12 @@ class Operation(OperationContract):
         try:
             if self.stream_error is not None:
                 self.cancel()
-            elif not self.terminal:
+            elif not self.terminal and not self.cancel_requested:
                 try:
-                    self.signal(DEFAULT_SHUTDOWN_SIGNAL)
-                    deadline = time.monotonic() + self.shutdown_timeout
-                    while time.monotonic() < deadline and not self.terminal:
-                        time.sleep(SHUTDOWN_POLL_INTERVAL)
+                    # Without a reader, no event can confirm graceful completion.
+                    if self.consumer_thread is not None:
+                        self.signal(DEFAULT_SHUTDOWN_SIGNAL)
+                        self.terminal_event.wait(timeout=self.shutdown_timeout)
                 finally:
                     if not self.terminal:
                         self.cancel()

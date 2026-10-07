@@ -5,6 +5,8 @@ timeout in `prepare_request()` before replacing operation handling.
 Use a public contract when replacing a component. Subclass a built-in implementation
 when changing one policy or lifecycle step. All imports in the examples below are
 public SDK imports. HTTP transports remain a separate `contree-client` concern.
+See {doc}`architecture` for layer ownership and backend compatibility before
+replacing a component.
 
 ## Customize command policy and operations
 
@@ -13,7 +15,7 @@ mapping are copied at construction. Files and stdin remain caller-owned resource
 Use `dataclasses.replace()` to apply policy without mutating the caller's request.
 
 This example rejects shell commands, applies a default timeout, and counts waits.
-It uses a saved profile as described in {doc}`getting-started`. The complete code
+It uses the environment variables from {doc}`getting-started`. The complete code
 includes both the session policy and its operation implementation.
 
 <!--
@@ -24,6 +26,7 @@ doc_api.complete()
 -->
 
 ```python
+import os
 from dataclasses import replace
 
 from contree_client.models import InstanceResult, InstanceSpawnResponse
@@ -54,8 +57,8 @@ class PolicySession(ContreeSession):
         return AuditedOperation(self.client, response.uuid, timeout=context.request.timeout_seconds, context=context)
 
 
-with ContreeClient.from_profile() as client:
-    session = PolicySession(client, image="tag:tutorial-base")
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = PolicySession(client, image=os.environ["CONTREE_IMAGE"])
     operation = session.spawn("echo", args=["hello"])
     result = operation.wait()
     assert isinstance(operation, AuditedOperation)
@@ -142,7 +145,7 @@ Inject a component with `file_transfer=`. `ClientFileTransfer` and
 subclassed. Import `UploadFileSpec`, `UploadedFile`, `InputSource`, and the readable
 protocols from `contree_sdk.files`.
 
-## Implement history and cache storage
+## Implement history storage
 
 History implementations inherit `SyncStore` or `AsyncStore`. Their contract includes
 session metadata, history lookup, branch navigation, and atomic append. A custom
@@ -165,6 +168,13 @@ strategy while preserving their selection and isolation rules. A snapshot remain
 usable after the store closes. Each item in `list_session_summaries()` is consistent;
 the entire list is not one transaction. A concurrent session deletion can raise
 `ValueError` while that list is assembled.
+
+Staging and detached operations add atomicity requirements: applied files must
+track the committed entry, and completing a registered operation must update its
+record, history, and branch in one transaction. Repeated completion must reuse the
+first saved outcome. See {doc}`detached-operations` for custom-store requirements.
+
+## Implement cache storage
 
 Cache implementations inherit `SyncCache` or `AsyncCache`. `get()` returns `None`
 for a miss. Implement `get_entry()`, `set()`, `entries()`, `delete()`, and
@@ -197,6 +207,14 @@ sharing the same executor must coordinate any additional concurrent mutations.
 The adapters never access a concrete session's client, store, or history internals.
 They do not close the executor. The async adapter requires native async methods;
 its sync entry points raise `NotImplementedError`.
+
+The executor interface alone does not guarantee file-transfer compatibility.
+Uploads require `execute(RunRequest(files=..., disposable=False))`; LazySession
+rejects command-time attachments. Its `read_file` rejects active work: the caller
+must first snapshot and stop the VM. Use a regular Session for agent workflows
+that need both upload and download, or implement an executor with explicit live
+transfer semantics. The compatibility table in {doc}`architecture` lists these
+differences.
 
 ## Extend Dockerfile builds
 
@@ -351,6 +369,7 @@ name: test_resolve_policy; fixtures: doc_api
 -->
 
 ```python
+import os
 from contree_client.sync import ContreeClient
 from contree_sdk import ContreeSession
 
@@ -360,7 +379,7 @@ class NamedImageSession(ContreeSession):
         return {"test-base": "8a0269a2-7720-4daa-aa96-dca93b20bb33"}[image]
 
 
-with ContreeClient.from_profile() as client:
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = NamedImageSession(client, image="test-base")
     print(session.image_uuid)
 ```
@@ -390,3 +409,73 @@ entry as an applied path remain pending; consumption applies to its ancestors.
 Deleting a session must also remove its attachment and consumption records.
 Native SQLite stores use additional v1 tables and retain existing v1 history.
 See {doc}`files` for executable staging and rollback examples.
+
+## Select a commit policy
+
+`ApiSuccessCommitPolicy` is the default for both session implementations. It
+retains successful API results from non-disposable commands, including nonzero
+and unknown process exit codes. API failure and cancellation raise errors and
+never change history.
+
+Pass `commit_policy=ZeroExitCommitPolicy()` to retain only results with an explicit
+zero exit code. A rejected result is still returned to the caller. Rejection does
+not change the session image, branches, or pending files. `commit_result()` uses
+the same policy after an explicit `spawn()` and `wait()`; it returns `None` when
+it skips the commit. Disposable requests cannot create history entries through
+`commit_result()`, even if the server returns an image.
+
+<!--
+name: test_sync_commit_policy; fixtures: doc_api
+```python
+doc_api.complete(exit_code=7)
+```
+-->
+
+```python
+import os
+from contree_client.sync import ContreeClient
+from contree_sdk import ContreeSession
+from contree_sdk.session import ZeroExitCommitPolicy
+
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], commit_policy=ZeroExitCommitPolicy())
+    original_image = session.image_uuid
+    result = session.run(shell="exit 7", disposable=False)
+    assert result.state.exit_code == 7
+    assert session.image_uuid == original_image
+```
+
+<!--
+name: async test_async_commit_policy; fixtures: doc_api
+```python
+doc_api.complete(exit_code=7)
+```
+-->
+
+```python
+import os
+from contree_client.asyncio import ContreeAsyncClient
+from contree_sdk import ContreeAsyncSession
+from contree_sdk.session import ZeroExitCommitPolicy
+
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], commit_policy=ZeroExitCommitPolicy())
+    operation = await session.spawn(shell="exit 7", disposable=False)
+    result = await operation.wait()
+    entry = await session.commit_result(operation)
+    assert result.state.exit_code == 7
+    assert entry is None
+```
+
+For an application-specific rule, inherit `AbstractCommitPolicy` and implement
+`should_commit(context: OperationContext, result: InstanceResult) -> bool`. The
+session passes the effective request and its original history position. The
+method must not perform blocking I/O. The session validates API success before
+calling it and requires a result image before committing an accepted result.
+Policies are session components; pass the same policy when resuming a session.
+
+A `LazySession` snapshot also uses the underlying session's commit policy. If the
+policy rejects that snapshot, the lazy session fails and leaves history unchanged.
+It cannot restart from the previous image while claiming that changes were saved.
+The policy sees the keepalive process result, not individual subprocess results.
+Use the default policy to preserve snapshots after terminating the keepalive.

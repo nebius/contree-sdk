@@ -122,6 +122,21 @@ def deepagents_available() -> None:
 
 
 @pytest.fixture
+def agent_model_factory() -> type:
+    """Replace only model responses; retain real framework tools and orchestration."""
+    pytest.importorskip("deepagents")
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+
+    from contree_sdk.compat import Self
+
+    class ScriptedModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools: object, **kwargs: object) -> Self:
+            return self
+
+    return ScriptedModel
+
+
+@pytest.fixture
 def doc_build_context(doc_api: DocumentationAPI, request: pytest.FixtureRequest, tmp_path: Path) -> None:
     """Use the files shown on the build page instead of maintaining test copies."""
     import re
@@ -134,6 +149,21 @@ def doc_build_context(doc_api: DocumentationAPI, request: pytest.FixtureRequest,
         if match is None:
             raise ValueError(f"missing {language} block in {request.path}")
         (context / filename).write_text(match[1] + "\n")
+
+
+@pytest.fixture
+def doc_stage_archive(doc_api: DocumentationAPI) -> None:
+    """Provide the remote stage export; context files are created by the example."""
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        member = tarfile.TarInfo("built.txt")
+        member.size = 4
+        archive.addfile(member, io.BytesIO(b"one\n"))
+    for client in (doc_api.sync, doc_api.async_client):
+        client.mock("inspect_image_archive", [buffer.getvalue()])
 
 
 @pytest.fixture
@@ -154,11 +184,10 @@ def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Docu
 
 
 @pytest.fixture
-def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> DocumentationAPI:
+def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> DocumentationAPI:
     """Deliver input to a controlled live process and emit completion after EOF."""
     from tests.unit.session.stdin_clients import AsyncStdinClient, StdinClient
 
-    (tmp_path / "input.bin").write_bytes(bytes(range(256)) * 1024)
     doc_api.sync = StdinClient()
     doc_api.async_client = AsyncStdinClient()
     for path, client in [
@@ -172,7 +201,7 @@ def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 @pytest.fixture
-def doc_runtime_client(monkeypatch: pytest.MonkeyPatch) -> LiveAsyncClient:
+def doc_runtime_client(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> LiveAsyncClient:
     """Drive a real runtime with a controllable single operation stream."""
     client = LiveAsyncClient()
     factory = Mock(return_value=client)

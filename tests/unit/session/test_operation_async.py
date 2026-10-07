@@ -136,17 +136,58 @@ class TestShutdown:
         assert client.calls_for("operation_subprocess_kill") == []
         assert client.calls_for("cancel_operation") == []
 
-    async def test_shutdown_signals_then_cancels_if_deadline_passes(self, client: ContreeAsyncClient):
-        client.mock("operation_subprocess_kill", None)
+    @pytest.mark.parametrize("cancel_first", [False, True])
+    async def test_shutdown_without_reader_does_not_wait(self, client, monkeypatch, cancel_first):
         client.mock("cancel_operation", None)
-        operation = AsyncOperation(client, "op-1", shutdown_timeout=0.05)
+        operation = AsyncOperation(client, "op-1")
+
+        async def unexpected_wait(*args, **kwargs):
+            pytest.fail("shutdown waited without an event reader")
+
+        monkeypatch.setattr(operation.terminal_event, "wait", unexpected_wait)
+        if cancel_first:
+            await operation.cancel()
+        await operation.shutdown()
+        await operation.shutdown()
+
+        assert len(client.calls_for("cancel_operation")) == 1
+        assert client.calls_for("operation_subprocess_kill") == []
+        assert client.calls_for("follow_operation_events") == []
+        assert not operation.terminal  # An accepted cancellation is not a completion event.
+
+    async def test_shutdown_retries_failed_cancel(self, client):
+        client.mock("cancel_operation", error=OSError("cancel failed"))
+        client.mock("cancel_operation", None)
+        operation = AsyncOperation(client, "op-1")
+        with pytest.raises(OSError, match="cancel failed"):
+            await operation.shutdown()
+        assert not operation.cancel_requested
 
         await operation.shutdown()
+        await operation.shutdown()
+        assert len(client.calls_for("cancel_operation")) == 2
+
+    async def test_shutdown_signals_then_cancels_if_deadline_passes(self, client, monkeypatch):
+        released = asyncio.Event()
+
+        class WaitingOperation(AsyncOperation):
+            async def open_event_stream(self):
+                await released.wait()
+                yield make_event(1, "completion", ...)
+
+        async def cancel(uuid):
+            released.set()
+
+        monkeypatch.setattr(client, "cancel_operation", cancel)
+        client.mock("operation_subprocess_kill", None)
+        async with WaitingOperation(client, "op-1", shutdown_timeout=0.05) as operation:
+            pass
 
         signal_call = client.calls_for("operation_subprocess_kill")[0]
         assert signal_call.args == ("op-1", 1)
         assert signal_call.kwargs["signal"] == "SIGTERM"
-        assert len(client.calls_for("cancel_operation")) == 1
+        assert operation.cancel_requested
+        assert operation.terminal
 
 
 class TestRichMode:

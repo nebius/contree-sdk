@@ -15,8 +15,7 @@ import posixpath
 import shlex
 import tarfile
 import tempfile
-import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import IO, ClassVar, TypedDict
 
 from contree_client.exceptions import NotFoundError
@@ -286,9 +285,9 @@ def copy_from_image(
     """Stage a `COPY --from` directive as one extraction layer."""
     stage_ref = ctx.substitute(from_stage)
     image_uuid = resolve_stage_image(ctx, stage_ref)
-    scratch_dir = f"/.contree-build-{uuid.uuid4().hex[:8]}"
     sub_sources = tuple(ctx.substitute(s) for s in sources)
     spec = build_extract_spec(ctx, sub_sources, dest, chown, chmod)
+    scratch_dir = copy_scratch_dir(ctx, image_uuid, sub_sources, spec)
 
     script: list[str] = []
     for index, raw_src in enumerate(sub_sources):
@@ -303,6 +302,21 @@ def copy_from_image(
         ctx.execute_directive(RunKeyword(parts=(command,), shell_form=True))
     finally:
         ctx.user = saved_user
+
+
+def copy_scratch_dir(
+    ctx: BuildContext | AsyncBuildContext, image_uuid: str, sources: tuple[str, ...], spec: ExtractSpec
+) -> str:
+    """Derive a stable extraction path from the complete stage-copy inputs.
+
+    Returns:
+        A build scratch path that preserves RUN cache identity across rebuilds.
+
+    """
+    contribution = json.dumps(
+        {"kind": "COPY --from", "image": image_uuid, "sources": sources, "extract": asdict(spec)}, sort_keys=True
+    )
+    return f"/.contree-build-{ctx.chain(contribution)[:24]}"
 
 
 def export_source(
@@ -465,9 +479,9 @@ async def copy_from_image_async(
 ) -> None:
     stage_ref = ctx.substitute(from_stage)
     image_uuid = await resolve_stage_image_async(ctx, stage_ref)
-    scratch_dir = f"/.contree-build-{uuid.uuid4().hex[:8]}"
     sub_sources = tuple(ctx.substitute(s) for s in sources)
     spec = build_extract_spec(ctx, sub_sources, dest, chown, chmod)
+    scratch_dir = copy_scratch_dir(ctx, image_uuid, sub_sources, spec)
 
     script: list[str] = []
     for index, raw_src in enumerate(sub_sources):

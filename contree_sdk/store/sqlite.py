@@ -6,6 +6,7 @@ import threading
 from asyncio import Lock
 from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import EllipsisType
@@ -21,6 +22,7 @@ from contree_sdk.store.models import (
     validate_attachments,
     validate_prune,
 )
+from contree_sdk.store.operations import OperationRecord, validate_registration
 
 
 try:
@@ -34,6 +36,13 @@ except ImportError:
 DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS session_operations_v1 (
+    session_id TEXT NOT NULL,
+    operation_uuid TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (session_id, operation_uuid)
+);
+
 CREATE TABLE IF NOT EXISTS session_history_v1 (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id     TEXT NOT NULL,
@@ -286,6 +295,90 @@ class SyncSQLiteStore(SyncStore):
             ).fetchone()
         return None if row is None else row["id"]
 
+    def register_operation(self, record: OperationRecord) -> OperationRecord:
+        session_id, operation_uuid = record.session_id, record.uuid
+        with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
+            parent = self.get_entry_row(record.session_id, record.parent_id)
+            if parent.image_uuid != record.image_uuid:
+                raise ValueError("operation source image does not match its history entry")
+            row = self.conn.execute(
+                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                (session_id, operation_uuid),
+            ).fetchone()
+            saved = validate_registration(record, None if row is None else OperationRecord.from_json(row["payload"]))
+            self.conn.execute(
+                "INSERT OR IGNORE INTO session_operations_v1 (session_id, operation_uuid, payload) VALUES (?, ?, ?)",
+                (session_id, operation_uuid, saved.to_json()),
+            )
+            self.conn.commit()
+            return saved
+
+    def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        with self.rlock:
+            row = self.conn.execute(
+                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                (session_id, operation_uuid),
+            ).fetchone()
+            if row is None:
+                raise ValueError("operation is not registered in this session")
+            return OperationRecord.from_json(row["payload"])
+
+    def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        with self.rlock:
+            rows = self.conn.execute(
+                "SELECT payload FROM session_operations_v1 WHERE session_id = ? ORDER BY operation_uuid", (session_id,)
+            ).fetchall()
+            records = (OperationRecord.from_json(row["payload"]) for row in rows)
+            return tuple(record for record in records if not pending_only or record.pending)
+
+    def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        with self.rlock, self.transaction():
+            self.conn.execute("BEGIN IMMEDIATE")
+            row = self.conn.execute(
+                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                (session_id, operation_uuid),
+            ).fetchone()
+            if row is None:
+                raise ValueError("operation is not registered in this session")
+            record = OperationRecord.from_json(row["payload"])
+            if not record.pending:
+                self.conn.commit()
+                return record
+            completed = replace(record, response_json=response_json)
+            if image_uuid is not None:
+                if record.disposable:
+                    raise ValueError("cannot commit a disposable operation")
+                entry = self._append(
+                    session_id,
+                    image_uuid=image_uuid,
+                    parent_id=record.parent_id,
+                    kind="run",
+                    title=record.title,
+                    operation_uuid=record.uuid,
+                    exit_code=exit_code,
+                    branch=branch or record.branch,
+                    files=record.files,
+                    applied_files=record.files,
+                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
+                )
+                completed = replace(completed, history_id=entry.id)
+            self.conn.execute(
+                "UPDATE session_operations_v1 SET payload = ? WHERE session_id = ? AND operation_uuid = ?",
+                (completed.to_json(), session_id, operation_uuid),
+            )
+            self.conn.commit()
+            return completed
+
     def append(
         self,
         session_id: str,
@@ -305,57 +398,88 @@ class SyncSQLiteStore(SyncStore):
         validate_attachments(attachments)
         with self.rlock, self.transaction():
             self.conn.execute("BEGIN IMMEDIATE")
-            branch_name = branch or self.active_branch(session_id) or "main"
-            tip_row = self.branch_tip_row(session_id, branch_name)
-            tip_id = tip_row["history_id"] if tip_row is not None else None
-            if expected_tip is not Ellipsis and tip_id != expected_tip:
-                raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-            if parent_id is not None:
-                self.get_entry_row(session_id, parent_id)
-            cursor = self.conn.execute(
-                """
-                INSERT INTO session_history_v1
-                    (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+            entry = self._append(
+                session_id,
+                image_uuid=image_uuid,
+                parent_id=parent_id,
+                kind=kind,
+                title=title,
+                operation_uuid=operation_uuid,
+                exit_code=exit_code,
+                branch=branch,
+                files=files,
+                attachments=attachments,
+                applied_files=applied_files,
+                expected_tip=expected_tip,
             )
-            new_id = cursor.lastrowid
-            if new_id is None:
-                raise RuntimeError("INSERT into session_history_v1 did not report a row id")
-            for path in files:
-                self.conn.execute(
-                    "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
-                    (new_id, path),
-                )
-            self.conn.executemany(
-                "INSERT INTO session_history_attachments_v1 "
-                "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
-                [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
-            )
-            self.conn.executemany(
-                "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
-                [(new_id, path) for path in sorted(set(applied_files))],
-            )
-            self.conn.execute(
-                """
-                INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
-                VALUES (?, ?, ?)
-                ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
-                """,
-                (session_id, branch_name, new_id),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
-                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
-                ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-                """,
-                (session_id, branch_name),
-            )
-            entry = self.get_entry_row(session_id, new_id)
             self.conn.commit()
             return entry
+
+    def _append(
+        self,
+        session_id: str,
+        *,
+        image_uuid: str,
+        parent_id: int | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+        files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        branch_name = branch or self.active_branch(session_id) or "main"
+        tip_row = self.branch_tip_row(session_id, branch_name)
+        tip_id = tip_row["history_id"] if tip_row is not None else None
+        if expected_tip is not Ellipsis and tip_id != expected_tip:
+            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
+        if parent_id is not None:
+            self.get_entry_row(session_id, parent_id)
+        cursor = self.conn.execute(
+            """
+            INSERT INTO session_history_v1
+                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+        )
+        new_id = cursor.lastrowid
+        if new_id is None:
+            raise RuntimeError("INSERT into session_history_v1 did not report a row id")
+        for path in files:
+            self.conn.execute(
+                "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
+                (new_id, path),
+            )
+        self.conn.executemany(
+            "INSERT INTO session_history_attachments_v1 "
+            "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
+            [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
+        )
+        self.conn.executemany(
+            "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
+            [(new_id, path) for path in sorted(set(applied_files))],
+        )
+        self.conn.execute(
+            """
+            INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
+            """,
+            (session_id, branch_name, new_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
+            ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+            """,
+            (session_id, branch_name),
+        )
+        return self.get_entry_row(session_id, new_id)
 
     def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         with self.rlock, self.read_transaction():
@@ -569,6 +693,7 @@ class SyncSQLiteStore(SyncStore):
             self.conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
             self.conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
+            self.conn.execute("DELETE FROM session_operations_v1 WHERE session_id = ?", (session_id,))
             self.conn.commit()
             return True
 
@@ -871,6 +996,103 @@ class AsyncSQLiteStore(AsyncStore):
         async with self.lock:
             return await active_branch_row_async(conn, session_id)
 
+    async def register_operation(self, record: OperationRecord) -> OperationRecord:
+        conn = await self.ensure_connection()
+        session_id, operation_uuid = record.session_id, record.uuid
+        async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
+            parent = await get_entry_row_async(conn, record.session_id, record.parent_id)
+            if parent.image_uuid != record.image_uuid:
+                raise ValueError("operation source image does not match its history entry")
+            row = await (
+                await conn.execute(
+                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                    (session_id, operation_uuid),
+                )
+            ).fetchone()
+            saved = validate_registration(record, None if row is None else OperationRecord.from_json(row["payload"]))
+            await conn.execute(
+                "INSERT OR IGNORE INTO session_operations_v1 (session_id, operation_uuid, payload) VALUES (?, ?, ?)",
+                (session_id, operation_uuid, saved.to_json()),
+            )
+            await conn.commit()
+            return saved
+
+    async def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            row = await (
+                await conn.execute(
+                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                    (session_id, operation_uuid),
+                )
+            ).fetchone()
+            if row is None:
+                raise ValueError("operation is not registered in this session")
+            return OperationRecord.from_json(row["payload"])
+
+    async def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
+        conn = await self.ensure_connection()
+        async with self.lock:
+            rows = await (
+                await conn.execute(
+                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? ORDER BY operation_uuid",
+                    (session_id,),
+                )
+            ).fetchall()
+            records = (OperationRecord.from_json(row["payload"]) for row in rows)
+            return tuple(record for record in records if not pending_only or record.pending)
+
+    async def finish_operation(
+        self,
+        session_id: str,
+        operation_uuid: str,
+        response_json: str,
+        *,
+        image_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+    ) -> OperationRecord:
+        conn = await self.ensure_connection()
+        async with self.lock, self.transaction():
+            await conn.execute("BEGIN IMMEDIATE")
+            row = await (
+                await conn.execute(
+                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
+                    (session_id, operation_uuid),
+                )
+            ).fetchone()
+            if row is None:
+                raise ValueError("operation is not registered in this session")
+            record = OperationRecord.from_json(row["payload"])
+            if not record.pending:
+                await conn.commit()
+                return record
+            completed = replace(record, response_json=response_json)
+            if image_uuid is not None:
+                if record.disposable:
+                    raise ValueError("cannot commit a disposable operation")
+                entry = await self._append(
+                    session_id,
+                    image_uuid=image_uuid,
+                    parent_id=record.parent_id,
+                    kind="run",
+                    title=record.title,
+                    operation_uuid=record.uuid,
+                    exit_code=exit_code,
+                    branch=branch or record.branch,
+                    files=record.files,
+                    applied_files=record.files,
+                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
+                )
+                completed = replace(completed, history_id=entry.id)
+            await conn.execute(
+                "UPDATE session_operations_v1 SET payload = ? WHERE session_id = ? AND operation_uuid = ?",
+                (completed.to_json(), session_id, operation_uuid),
+            )
+            await conn.commit()
+            return completed
+
     async def append(
         self,
         session_id: str,
@@ -891,57 +1113,89 @@ class AsyncSQLiteStore(AsyncStore):
         conn = await self.ensure_connection()
         async with self.lock, self.transaction():
             await conn.execute("BEGIN IMMEDIATE")
-            branch_name = branch or await active_branch_row_async(conn, session_id) or "main"
-            tip_row = await branch_tip_row_async(conn, session_id, branch_name)
-            tip_id = tip_row["history_id"] if tip_row is not None else None
-            if expected_tip is not Ellipsis and tip_id != expected_tip:
-                raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-            if parent_id is not None:
-                await get_entry_row_async(conn, session_id, parent_id)
-            cursor = await conn.execute(
-                """
-                INSERT INTO session_history_v1
-                    (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+            entry = await self._append(
+                session_id,
+                image_uuid=image_uuid,
+                parent_id=parent_id,
+                kind=kind,
+                title=title,
+                operation_uuid=operation_uuid,
+                exit_code=exit_code,
+                branch=branch,
+                files=files,
+                attachments=attachments,
+                applied_files=applied_files,
+                expected_tip=expected_tip,
             )
-            new_id = cursor.lastrowid
-            if new_id is None:
-                raise RuntimeError("INSERT into session_history_v1 did not report a row id")
-            for path in files:
-                await conn.execute(
-                    "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
-                    (new_id, path),
-                )
-            await conn.executemany(
-                "INSERT INTO session_history_attachments_v1 "
-                "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
-                [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
-            )
-            await conn.executemany(
-                "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
-                [(new_id, path) for path in sorted(set(applied_files))],
-            )
-            await conn.execute(
-                """
-                INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
-                VALUES (?, ?, ?)
-                ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
-                """,
-                (session_id, branch_name, new_id),
-            )
-            await conn.execute(
-                """
-                INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
-                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
-                ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-                """,
-                (session_id, branch_name),
-            )
-            entry = await get_entry_row_async(conn, session_id, new_id)
             await conn.commit()
             return entry
+
+    async def _append(
+        self,
+        session_id: str,
+        *,
+        image_uuid: str,
+        parent_id: int | None,
+        kind: str = "",
+        title: str = "",
+        operation_uuid: str | None = None,
+        exit_code: int | None = None,
+        branch: str | None = None,
+        files: tuple[str, ...] = (),
+        attachments: tuple[StagedFile, ...] = (),
+        applied_files: tuple[str, ...] = (),
+        expected_tip: int | EllipsisType | None = ...,
+    ) -> HistoryEntry:
+        conn = await self.ensure_connection()
+        branch_name = branch or await active_branch_row_async(conn, session_id) or "main"
+        tip_row = await branch_tip_row_async(conn, session_id, branch_name)
+        tip_id = tip_row["history_id"] if tip_row is not None else None
+        if expected_tip is not Ellipsis and tip_id != expected_tip:
+            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
+        if parent_id is not None:
+            await get_entry_row_async(conn, session_id, parent_id)
+        cursor = await conn.execute(
+            """
+            INSERT INTO session_history_v1
+                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+        )
+        new_id = cursor.lastrowid
+        if new_id is None:
+            raise RuntimeError("INSERT into session_history_v1 did not report a row id")
+        for path in files:
+            await conn.execute(
+                "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
+                (new_id, path),
+            )
+        await conn.executemany(
+            "INSERT INTO session_history_attachments_v1 "
+            "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
+            [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
+        )
+        await conn.executemany(
+            "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
+            [(new_id, path) for path in sorted(set(applied_files))],
+        )
+        await conn.execute(
+            """
+            INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
+            """,
+            (session_id, branch_name, new_id),
+        )
+        await conn.execute(
+            """
+            INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
+            ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+            """,
+            (session_id, branch_name),
+        )
+        return await get_entry_row_async(conn, session_id, new_id)
 
     async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
         conn = await self.ensure_connection()
@@ -1178,6 +1432,7 @@ class AsyncSQLiteStore(AsyncStore):
             await conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
             await conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
             await conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM session_operations_v1 WHERE session_id = ?", (session_id,))
             await conn.commit()
             return True
 

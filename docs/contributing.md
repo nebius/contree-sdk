@@ -19,6 +19,13 @@ The first pytest command runs the standard suite, including documentation. The
 second selects Markdown scenarios. SDK e2e tests are outside the default suite;
 transport e2e coverage belongs to `contree-client` and is not a gate for these guides.
 
+Run Semgrep in its own tool environment, as the security workflow does. Its
+dependencies conflict with the agent integration dependencies:
+
+```bash
+uv tool run --from semgrep==1.168.0 semgrep ci
+```
+
 The fixtures replace client construction with `contree_client.testing` clients.
 They provide explicit API outcomes; session logic, operation handling, memory stores,
 and SQLite stores remain real. Check both user-visible results and transport calls.

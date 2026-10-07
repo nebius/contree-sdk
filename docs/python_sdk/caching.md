@@ -15,7 +15,7 @@ cancellation. Concurrent misses can upload the same content more than once.
 
 This example attaches the same local input to two commands. The second command
 reuses its uploaded UUID. Each request still supplies its own destination and
-permissions. Use a saved profile as described in {doc}`getting-started`.
+permissions. Set the environment variables described in {doc}`getting-started`.
 
 ::::{tab} Sync
 
@@ -28,6 +28,7 @@ doc_api.complete()
 -->
 
 ```python
+import os
 from pathlib import Path
 
 from contree_client.sync import ContreeClient
@@ -38,10 +39,13 @@ from contree_sdk.files import ClientFileTransfer
 from contree_sdk.upload_cache import CachedFileTransfer
 
 Path("input.txt").write_text("hello")
-with ContreeClient.from_profile() as client, SyncSQLiteCache("uploads.db") as cache:
+with (
+    ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    SyncSQLiteCache("uploads.db") as cache,
+):
     scope = CacheScope.from_client(client, profile="work")
     transfer = CachedFileTransfer(ClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeSession(client, image="tag:tutorial-base", file_transfer=transfer)
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
     session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 
@@ -76,6 +80,7 @@ doc_api.complete()
 -->
 
 ```python
+import os
 import asyncio
 from pathlib import Path
 
@@ -87,10 +92,13 @@ from contree_sdk.files import AsyncClientFileTransfer
 from contree_sdk.upload_cache import AsyncCachedFileTransfer
 
 await asyncio.to_thread(Path("input.txt").write_text, "hello")
-async with ContreeAsyncClient.from_profile() as client, AsyncSQLiteCache("uploads.db") as cache:
+async with (
+    ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    AsyncSQLiteCache("uploads.db") as cache,
+):
     scope = CacheScope.from_client(client, profile="work")
     transfer = AsyncCachedFileTransfer(AsyncClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeAsyncSession(client, image="tag:tutorial-base", file_transfer=transfer)
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
     await session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     await session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 

@@ -6,7 +6,7 @@ import pytest
 from contree_client.models import InstanceNetworking, InstanceResourcesLimits, StreamRepr
 
 from contree_sdk import ContreeAsyncSession, RunRequest
-from contree_sdk.runtime import ContreeAsyncRuntime, RuntimeOptions
+from contree_sdk.harbor.runtime import ContreeAsyncRuntime, RuntimeOptions
 from tests.unit.session.lazy_clients import LiveAsyncClient, event
 
 
@@ -294,7 +294,7 @@ async def test_partial_start_failure_releases_the_known_operation(monkeypatch):
 async def test_factory_can_return_an_independent_runtime():
     from contree_client.models import InstanceResult
 
-    from contree_sdk.runtime import AsyncRuntime, create_runtime
+    from contree_sdk.harbor.runtime import AsyncRuntime, create_runtime
 
     result = InstanceResult(stdout=StreamRepr.from_text("independent"))
 

@@ -68,6 +68,8 @@ class AsyncOperation(AsyncOperationContract):
         self.changed = asyncio.Condition()
         self.result_lock = asyncio.Lock()
         self.final_response: OperationResponse | None = None
+        self.cancel_requested = False
+        self.cancel_lock = asyncio.Lock()
 
     def add_observer(self, observer: AsyncOperationObserver) -> None:
         if self.consumer_task is not None:
@@ -217,7 +219,10 @@ class AsyncOperation(AsyncOperationContract):
         await self.client.operation_subprocess_kill(self.uuid, spid, signal=sig)
 
     async def cancel(self) -> None:
-        await self.client.cancel_operation(self.uuid)
+        async with self.cancel_lock:
+            if not self.cancel_requested:
+                await self.client.cancel_operation(self.uuid)
+                self.cancel_requested = True
 
     async def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
@@ -381,11 +386,13 @@ class AsyncOperation(AsyncOperationContract):
         try:
             if self.stream_error is not None:
                 await self.cancel()
-            elif not self.terminal:
+            elif not self.terminal and not self.cancel_requested:
                 try:
-                    await self.signal(DEFAULT_SHUTDOWN_SIGNAL)
-                    with suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(self.terminal_event.wait(), timeout=self.shutdown_timeout)
+                    # Without a reader, no event can confirm graceful completion.
+                    if self.consumer_task is not None:
+                        await self.signal(DEFAULT_SHUTDOWN_SIGNAL)
+                        with suppress(asyncio.TimeoutError):
+                            await asyncio.wait_for(self.terminal_event.wait(), timeout=self.shutdown_timeout)
                 finally:
                     if not self.terminal:
                         await self.cancel()

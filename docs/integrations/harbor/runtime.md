@@ -1,9 +1,18 @@
-# Keep one VM until explicit stop
+# Experimental Harbor runtime
 
-Use `ContreeAsyncRuntime` for an environment that must retain one VM between
-commands. Files and background processes remain in that VM until explicit stop,
-a server lifetime limit, or a failure. This runtime supports the fixed lifetime
-needed by agent environments such as Harbor.
+```{warning}
+This module is an unfinished prototype, not a supported Harbor environment
+backend. Its fixed VM lifetime is pending redesign: the intended integration
+must allow snapshot and restart through `AsyncLazySession`. Do not use the
+current manual-only lifetime as the integration contract.
+```
+
+The `contree_sdk.harbor.runtime` module contains the Harbor-specific wrapper
+around `AsyncLazySession`. The current implementation retains files and background
+processes in one VM until explicit stop, a server lifetime limit, or a failure.
+The complete Harbor environment adapter, framework factory integration, and
+full-trial tests are not yet available. The examples below describe the existing
+prototype so that its current behavior can be inspected and tested.
 
 `AsyncLazySession` can snapshot automatically between commands. A runtime uses a
 manual snapshot policy and never schedules an idle or command-count shutdown.
@@ -18,17 +27,19 @@ to choose another keepalive command or provide startup files and VM options.
 
 This example creates a file and reads it in the same VM. It then requests a snapshot
 and advances the wrapped session only after the server confirms a result image.
-Use a saved profile as described in {doc}`getting-started`.
+Set the environment variables described in {doc}`../../python_sdk/getting-started`.
 
 <!--
 name: async test_runtime_commands; fixtures: doc_runtime_client
 -->
 
 ```python
+import os
 from contree_client.asyncio import ContreeAsyncClient
 from contree_client.models import InstanceNetworking, InstanceResourcesLimits
 
-from contree_sdk import ContreeAsyncSession, RunRequest, RuntimeOptions, create_runtime
+from contree_sdk import ContreeAsyncSession, RunRequest
+from contree_sdk.harbor.runtime import RuntimeOptions, create_runtime
 
 options = RuntimeOptions(
     vm_request=RunRequest(
@@ -41,8 +52,8 @@ options = RuntimeOptions(
     terminate_timeout=5,
     stop_timeout=30,
 )
-async with ContreeAsyncClient.from_profile() as client:
-    session = ContreeAsyncSession(client, image="tag:tutorial-base")
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
     async with create_runtime(session, options=options) as runtime:
         await runtime.start()
         operation_uuid = runtime.operation_uuid
@@ -93,11 +104,13 @@ doc_runtime_client.auto_exit = False
 -->
 
 ```python
+import os
 from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession, create_runtime
+from contree_sdk import ContreeAsyncSession
+from contree_sdk.harbor.runtime import create_runtime
 
-async with ContreeAsyncClient.from_profile() as client:
-    session = ContreeAsyncSession(client, image="tag:tutorial-base")
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
     async with create_runtime(session) as runtime:
         try:
             await runtime.run("sleep", args=["60"], timeout=0.01)

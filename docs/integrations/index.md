@@ -8,14 +8,16 @@ Use the deepagents sandbox adapter to expose a session to agent tools. It suppor
 sync and native async execution and retains filesystem changes between tool calls.
 It also accepts a custom executor implementation.
 
-| Integration                          | Status for this SDK API                                       |
-| ------------------------------------ | ------------------------------------------------------------- |
-| deepagents / LangChain               | Supported through `ContreeSandbox` and `ContreeAsyncSandbox`. |
-| mini-swe-agent 2.4.6 bundled adapter | Uses the removed API; see the compatibility note.             |
+| Integration                          | Status for this SDK API                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| deepagents / LangChain               | Supported through `ContreeSandbox` and `ContreeAsyncSandbox`.                                                     |
+| mini-swe-agent 2.4.6 bundled adapter | Uses the removed API; see the compatibility note.                                                                 |
+| Harbor                               | Experimental runtime only; the environment backend is not implemented. Its fixed VM lifetime is pending redesign. |
 
 ```{toctree}
 :maxdepth: 1
 
 langchain
+harbor/runtime
 mini-swe-agent
 ```

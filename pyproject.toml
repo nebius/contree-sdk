@@ -52,12 +52,8 @@ dev = [
     "pyyaml",
 ]
 
-dev-security = [
-"semgrep>=1.0",
-]
-
 langchain = [
-    "deepagents; python_version >= '3.11'",
+    "deepagents==0.7.10; python_version >= '3.11'",
 ]
 
 docs = [

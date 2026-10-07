@@ -159,6 +159,7 @@ def contract_operation(contract, *, asynchronous=False):
     assert isinstance(operation.response.metadata, OperationInstanceMetadata)
     result = operation.response.metadata.result
     operation.wait = AsyncMock(return_value=result) if asynchronous else MagicMock(return_value=result)
+    operation.shutdown = AsyncMock() if asynchronous else MagicMock()
     return operation
 
 
@@ -174,6 +175,7 @@ def test_session_commits_using_only_the_operation_contract(monkeypatch):
     assert session.image_uuid == "img-uuid-1"
     assert result is operation.response.metadata.result
     assert client.calls_for("wait_operation") == []
+    operation.shutdown.assert_called_once_with()
 
 
 async def test_async_session_commits_using_only_the_operation_contract(monkeypatch):
@@ -188,3 +190,4 @@ async def test_async_session_commits_using_only_the_operation_contract(monkeypat
     assert session.image_uuid == "img-uuid-1"
     assert result is operation.response.metadata.result
     assert client.calls_for("wait_operation") == []
+    operation.shutdown.assert_awaited_once_with()

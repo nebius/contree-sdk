@@ -1,4 +1,4 @@
-"""A fixed VM lifetime for agent environments and other long-lived consumers."""
+"""Harbor-specific lifecycle components built on AsyncLazySession."""
 
 from __future__ import annotations
 

@@ -201,8 +201,8 @@ from contree_sdk import ContreeSession
 with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
     session.set_cwd("/tmp")
-    session.set_env({"APP_MODE": "test"})
-    result = session.run(shell='printf "%s\\n" "$APP_MODE"')
+    session.set_env({"APP_MODE": "default", "RETAINED": "yes"})
+    result = session.run(shell='printf "%s\\n" "$APP_MODE"', env={"APP_MODE": "test"})
     if isinstance(result.stdout, StreamRepr):
         print(result.stdout.as_text(), end="")
 ```
@@ -212,7 +212,7 @@ name: test_defaults
 ```python
 call = doc_api.sync.calls_for("spawn_instance")[0]
 assert call.kwargs["cwd"] == "/tmp"
-assert call.kwargs["env"] == {"APP_MODE": "test"}
+assert call.kwargs["env"] == {"APP_MODE": "test", "RETAINED": "yes"}
 assert capsys.readouterr().out == "test\n"
 ```
 -->
@@ -238,8 +238,8 @@ from contree_sdk import ContreeAsyncSession
 async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
     await session.set_cwd("/tmp")
-    await session.set_env({"APP_MODE": "test"})
-    result = await session.run(shell='printf "%s\\n" "$APP_MODE"')
+    await session.set_env({"APP_MODE": "default", "RETAINED": "yes"})
+    result = await session.run(shell='printf "%s\\n" "$APP_MODE"', env={"APP_MODE": "test"})
     if isinstance(result.stdout, StreamRepr):
         print(result.stdout.as_text(), end="")
 ```
@@ -249,15 +249,17 @@ name: test_defaults_async
 ```python
 call = doc_api.async_client.calls_for("spawn_instance")[0]
 assert call.kwargs["cwd"] == "/tmp"
-assert call.kwargs["env"] == {"APP_MODE": "test"}
+assert call.kwargs["env"] == {"APP_MODE": "test", "RETAINED": "yes"}
 assert capsys.readouterr().out == "test\n"
 ```
 -->
 
 ::::
 
-A per-command `env=` replaces the session's default mapping for that request.
-Use `env={**session.env, "KEY": "value"}` to merge it explicitly.
+A per-command `env=` overlays the session's default mapping for that request.
+Command values win on duplicate keys. An empty mapping keeps the session defaults;
+it does not clear them. Neither the supplied mapping nor the session defaults are
+mutated. Override `prepare_environment()` to use another merge policy.
 `set_env({"KEY": None})` removes a session default.
 
 Session defaults belong to the session, not a history entry. Rolling back an image

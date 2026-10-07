@@ -5,9 +5,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from asyncio import shield
 from collections.abc import Awaitable, Callable, Iterable
-from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -20,6 +18,7 @@ from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.execution import RunRequest
 from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
 from contree_sdk.session.asyncio import ContreeAsyncSession
+from contree_sdk.session.cleanup import owned_async_operation, owned_operation
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import AsyncStore, SyncStore
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
@@ -166,16 +165,12 @@ class BuildContext:
         effective = context.request if context is not None else request
         if self.progress.current is not None:
             self.progress.current.operation_uuid = operation.uuid
-        try:
+        with owned_operation(operation):
             self.emit_event("operation_started")
             for event in operation.events(timeout=effective.timeout_seconds):
                 if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
                     self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
             result = operation.wait()
-        except BaseException:
-            with suppress(Exception):
-                operation.cancel()
-            raise
         if self.progress.current is not None:
             self.progress.current.result = result
         if not effective.disposable:
@@ -349,16 +344,12 @@ class AsyncBuildContext:
         effective = context.request if context is not None else request
         if self.progress.current is not None:
             self.progress.current.operation_uuid = operation.uuid
-        try:
+        async with owned_async_operation(operation):
             await self.emit_event("operation_started")
             async for event in operation.events(timeout=effective.timeout_seconds):
                 if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
                     await self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
             result = await operation.wait()
-        except BaseException:
-            with suppress(Exception):
-                await shield(operation.cancel())
-            raise
         if self.progress.current is not None:
             self.progress.current.result = result
         if not effective.disposable:

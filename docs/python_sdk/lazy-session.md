@@ -185,6 +185,7 @@ name: test_custom_snapshot_policy; fixtures: lazy_api
 -->
 
 ```python
+import os
 from contree_client.sync import ContreeClient
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.session import AbstractSnapshotPolicy, SnapshotEvent
@@ -205,7 +206,7 @@ class AfterTwoExits(AbstractSnapshotPolicy):
                 self.future.set_result(None)
 
 
-with ContreeClient.from_profile() as client:
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeSession(client, image="tag:ubuntu:24.04")
     with LazySession(session, snapshot_policy=AfterTwoExits()) as lazy:
         lazy.run("echo", args=["first"])
@@ -273,13 +274,14 @@ name: async test_lazy_parallel; fixtures: lazy_api
 -->
 
 ```python
+import os
 import asyncio
 
 from contree_client.asyncio import ContreeAsyncClient
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.session import CommandCountSnapshotPolicy
 
-async with ContreeAsyncClient.from_profile() as client:
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     session = ContreeAsyncSession(client, image="tag:ubuntu:24.04")
     async with AsyncLazySession(session, snapshot_policy=CommandCountSnapshotPolicy(2)) as lazy:
         results = await asyncio.gather(

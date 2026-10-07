@@ -244,6 +244,8 @@ class AsyncLazySession(AsyncExecutor):
             if self.state.error is not None:
                 raise RuntimeError("event stream failed during snapshot") from self.state.error
         entry = await self.session.commit_result(operation, title="LazySession snapshot")
+        if entry is None:
+            raise RuntimeError("commit policy rejected the LazySession snapshot")
         async with self.condition:
             self.last_entry = entry
             self.operation = None

@@ -40,7 +40,10 @@ removing a referenced server image can make an old entry unusable.
 ## Execution and history
 
 `run()` and `spawn()` default to `disposable=True`. Pass `disposable=False` to retain
-the result image. `run()` commits that image automatically. After `spawn()`, wait
+the result image. `run()` applies the session commit policy automatically. The default
+`ApiSuccessCommitPolicy` retains API-success results even when the process exits
+with a nonzero code. Select `ZeroExitCommitPolicy` to retain only exit code zero.
+After `spawn()`, wait
 for completion and call `session.commit_result(operation)` explicitly.
 
 An operation records its source entry and branch at spawn time. A commit raises

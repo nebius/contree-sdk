@@ -241,15 +241,16 @@ doc_api.complete()
 -->
 
 ```python
+import os
 from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSession
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.store import SyncSQLiteStore
 
-with ContreeClient.from_profile() as client:
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     with SyncSQLiteStore("staging.db") as store:
-        session = ContreeSession(client, image="tag:tutorial-base", session_id="edit-demo", store=store)
+        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], session_id="edit-demo", store=store)
         staged = session.stage_files(
             {
                 "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
@@ -292,15 +293,16 @@ doc_api.complete()
 -->
 
 ```python
+import os
 from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.store import AsyncSQLiteStore
 
-async with ContreeAsyncClient.from_profile() as client:
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     async with AsyncSQLiteStore("staging-async.db") as store:
-        session = ContreeAsyncSession(client, image="tag:tutorial-base", session_id="edit-demo", store=store)
+        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], session_id="edit-demo", store=store)
         staged = await session.stage_files(
             {
                 "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
@@ -378,7 +380,7 @@ snapshot. Bytes inputs are already in memory. `read_file()` still returns the
 whole file; use `iter_file()` or `download_file()` for large results.
 
 The examples upload a directory with an exclusion, then stream a result into a
-local file. Use a saved profile as described in {doc}`getting-started`.
+local file. Set the environment variables described in {doc}`getting-started`.
 
 ::::{tab} Sync
 
@@ -391,6 +393,7 @@ doc_api.sync.mock("inspect_image_download_stream", [b"hello", b"\n"])
 -->
 
 ```python
+import os
 from pathlib import Path
 
 from contree_client.sync import ContreeClient
@@ -403,9 +406,9 @@ Path("project/input.txt").write_text("hello\n")
 Path("project/ignored.tmp").write_text("excluded")
 files = prepare_file_tree("project", "/app", exclude=("*.tmp",), mode=0o640)
 progress = []
-with ContreeClient.from_profile() as client:
+with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     transfer = ClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
-    session = ContreeSession(client, image="tag:tutorial-base", file_transfer=transfer)
+    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
     session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
     count = transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6
@@ -439,6 +442,7 @@ doc_api.async_client.mock("inspect_image_download_stream", [b"hello", b"\n"])
 -->
 
 ```python
+import os
 import asyncio
 from functools import partial
 from pathlib import Path
@@ -453,9 +457,9 @@ await asyncio.to_thread(Path("project/input.txt").write_text, "hello\n")
 await asyncio.to_thread(Path("project/ignored.tmp").write_text, "excluded")
 files = await asyncio.to_thread(partial(prepare_file_tree, "project", "/app", exclude=("*.tmp",), mode=0o640))
 progress = []
-async with ContreeAsyncClient.from_profile() as client:
+async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
     transfer = AsyncClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
-    session = ContreeAsyncSession(client, image="tag:tutorial-base", file_transfer=transfer)
+    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
     await session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
     count = await transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6

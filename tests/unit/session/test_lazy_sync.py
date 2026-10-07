@@ -301,3 +301,27 @@ def test_staged_files_are_consumed_only_when_lazy_vm_is_snapshotted():
         assert base.pending_files() == ()
     base.rollback()
     assert base.pending_files() == staged.attachments
+
+
+def test_rejected_snapshot_does_not_restart_from_stale_image():
+    from contree_sdk.session import AbstractCommitPolicy
+
+    class RejectSnapshot(AbstractCommitPolicy):
+        def should_commit(self, context, result):
+            return False
+
+    client = LiveClient()
+    base = ContreeSession(client, image="base", commit_policy=RejectSnapshot())
+    lazy = LazySession(base)
+    lazy.run("write")
+    try:
+        with pytest.raises(RuntimeError):
+            lazy.snapshot(timeout=2)
+        assert lazy.last_entry is None
+        assert base.image_uuid == "base"
+        assert len((base.history())[0]) == 1
+        with pytest.raises(RuntimeError):
+            lazy.run("read")
+        assert len(client.calls_for("spawn_instance")) == 1
+    finally:
+        lazy.abort()

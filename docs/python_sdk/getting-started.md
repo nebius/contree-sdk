@@ -10,21 +10,21 @@ on that endpoint. The image must contain `echo`; later examples also need a POSI
 
 ## Install the SDK
 
+These guides describe the breaking 0.5 development API. Run the installation
+commands from the root of this repository checkout. A published 0.4 package
+does not provide this API.
+
 For synchronous programs:
 
 ```bash
-pip install contree-sdk
+pip install -e .
 ```
 
 For asynchronous programs, including async SQLite storage:
 
 ```bash
-pip install "contree-sdk[async]"
+pip install -e ".[async]"
 ```
-
-These guides describe the new 0.5 API. When testing this development checkout,
-install its code with `pip install -e ".[async]"` from the repository root.
-A published 0.4 package does not provide this API.
 
 ## Configure the connection and image
 

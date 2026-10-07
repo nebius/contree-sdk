@@ -1,6 +1,7 @@
 from contree_sdk.execution import OperationContext, RunRequest
 from contree_sdk.session.asyncio import ContreeAsyncSession, PendingRun
 from contree_sdk.session.base import instance_result
+from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCommitPolicy, ZeroExitCommitPolicy
 from contree_sdk.session.contracts import (
     AsyncOperationContract,
     AsyncSubprocessContract,
@@ -23,7 +24,9 @@ from contree_sdk.session.sync import ContreeSession
 
 
 __all__ = [
+    "AbstractCommitPolicy",
     "AbstractSnapshotPolicy",
+    "ApiSuccessCommitPolicy",
     "AsyncLazySession",
     "AsyncOperation",
     "AsyncOperationContract",
@@ -44,5 +47,6 @@ __all__ = [
     "StdinResult",
     "SubprocessContract",
     "SubprocessHandle",
+    "ZeroExitCommitPolicy",
     "instance_result",
 ]
