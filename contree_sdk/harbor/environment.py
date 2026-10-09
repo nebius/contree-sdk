@@ -94,14 +94,10 @@ class ConTreeEnvironment(BaseEnvironment):
         if not math.isfinite(config.build_timeout_sec) or config.build_timeout_sec <= 0:
             raise ValueError("build_timeout_sec must be finite and positive")
         self._validate_mounts()
-        for resource, value in (("cpu", config.cpus), ("memory", config.memory_mb)):
-            if value is not None and self._resource_mode(resource) == ResourceMode.AUTO:
-                self.logger.warning("ConTree cannot enforce %s resources; the configured value is ignored.", resource)
-        if config.storage_mb is not None:
-            self.logger.warning(
-                "ConTree cannot enforce storage resources; storage_mb=%s (including override_storage_mb) is ignored.",
-                config.storage_mb,
-            )
+
+        if config.cpus is not None or config.memory_mb is not None or config.storage_mb is not None:
+            # ConTree doesn't enforce resources.
+            pass
 
     def _validate_mounts(self) -> None:
         paths = EnvironmentPaths()

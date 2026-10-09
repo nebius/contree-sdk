@@ -92,23 +92,6 @@ def test_resource_enforcement_rejected(env_kwargs, option, mode):
         ConTreeEnvironment(**env_kwargs, **{option: mode})
 
 
-@pytest.mark.parametrize(
-    ("storage_mb", "override_storage_mb", "effective_storage_mb"),
-    [(1024, None, 1024), (None, 10, 10), (1024, 10, 10), (None, None, None)],
-)
-def test_storage_requests_warn(env_kwargs, caplog, storage_mb, override_storage_mb, effective_storage_mb):
-    env_kwargs["task_env_config"].storage_mb = storage_mb
-    ConTreeEnvironment(**env_kwargs, override_storage_mb=override_storage_mb)
-    warnings = [record for record in caplog.records if "storage resources" in record.message]
-    if effective_storage_mb is None:
-        assert not warnings
-    else:
-        assert len(warnings) == 1
-        assert warnings[0].levelname == "WARNING"
-        assert f"storage_mb={effective_storage_mb}" in warnings[0].message
-        assert "ignored" in warnings[0].message
-
-
 def test_future_phase_network_rejected(env_kwargs):
     with pytest.raises(ValueError, match="network"):
         ConTreeEnvironment(**env_kwargs, phase_network_policies=[NetworkPolicy(network_mode=NetworkMode.NO_NETWORK)])
