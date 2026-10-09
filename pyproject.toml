@@ -20,7 +20,7 @@ classifiers = [
 dependencies = [
     "strenum",
     "typing-extensions; python_version < '3.13'",
-    "contree-client>=0.2.1,<0.3",
+    "contree-client>=0.4.1,<0.5",
 ]
 
 [project.optional-dependencies]
@@ -28,7 +28,7 @@ dev = [
     # for tests -- all contree_client backends, so tests/examples can
     # exercise any concrete transport; contree_sdk itself stays
     # backend-agnostic (see main `dependencies` above)
-    "contree-client[aiohttp,httpx,requests,urllib3]>=0.2.1",
+    "contree-client[aiohttp,httpx,requests,urllib3]>=0.4.1,<0.5",
     "pytest>=8.4.1",
     "pytest-asyncio",
     "pytest-mock",
@@ -75,7 +75,7 @@ langchain = [
 ]
 harbor = [
     "harbor>=0.22,<0.23; python_version >= '3.12'",
-    "contree-client[httpx]>=0.2.1,<0.3; python_version >= '3.12'",
+    "contree-client[httpx]>=0.4,<0.5; python_version >= '3.12'",
 ]
 
 docs = [
