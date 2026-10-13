@@ -1,0 +1,40 @@
+imports = '''
+from typing_extensions import assert_type
+from contree_sdk.store import (
+    SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore,
+)
+'''
+
+[[cases]]
+name = "sync_store_context_preserves_self"
+code = '''
+class CustomStore(SyncMemoryStore):
+    pass
+
+def use(base: SyncStore, memory: SyncMemoryStore, sqlite: SyncSQLiteStore, custom: CustomStore):
+    with base as entered:
+        assert_type(entered, SyncStore)
+    with memory as entered_memory:
+        assert_type(entered_memory, SyncMemoryStore)
+    with sqlite as entered_sqlite:
+        assert_type(entered_sqlite, SyncSQLiteStore)
+    with custom as entered_custom:
+        assert_type(entered_custom, CustomStore)
+'''
+
+[[cases]]
+name = "async_store_context_preserves_self"
+code = '''
+class CustomStore(AsyncMemoryStore):
+    pass
+
+async def use(base: AsyncStore, memory: AsyncMemoryStore, sqlite: AsyncSQLiteStore, custom: CustomStore):
+    async with base as entered:
+        assert_type(entered, AsyncStore)
+    async with memory as entered_memory:
+        assert_type(entered_memory, AsyncMemoryStore)
+    async with sqlite as entered_sqlite:
+        assert_type(entered_sqlite, AsyncSQLiteStore)
+    async with custom as entered_custom:
+        assert_type(entered_custom, CustomStore)
+'''
