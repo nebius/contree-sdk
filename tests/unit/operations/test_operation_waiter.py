@@ -2,6 +2,7 @@ from io import BytesIO
 from uuid import UUID
 
 import pytest
+from contree_client.exceptions import APIConnectionError, APIStatusError
 from contree_client.models import OperationResponse, OperationStatus
 
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
@@ -162,3 +163,27 @@ async def test_connect_output_after_finish(fake_api, operation_id: str):
     buffer = BytesIO()
     await waiter.connect_output(output=buffer, spid=MAIN_SPID, stream_name="stdout")
     assert buffer.getvalue() == b"hi\n"
+
+
+@pytest.mark.parametrize("cancel_error", [APIStatusError(404, "operation missing"), APIConnectionError("offline")])
+async def test_wait_timeout_preserved_when_cancel_fails(fake_api, operation_id: str, cancel_error):
+    fake_api.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api.mock("cancel_operation", error=cancel_error)
+
+    waiter = AsyncOperationWaiter(fake_api, operation_id)
+    with pytest.raises(OperationTimedOutError):
+        await waiter.wait_for_result(timeout=0.01)
+
+    assert fake_api.calls_for("cancel_operation")
+
+
+@pytest.mark.parametrize("cancel_error", [APIStatusError(404, "operation missing"), APIConnectionError("offline")])
+def test_wait_timeout_preserved_when_cancel_fails_sync(fake_api_s, operation_id: str, cancel_error):
+    fake_api_s.mock("follow_operation_events", error=TimeoutError("no events arrived"))
+    fake_api_s.mock("cancel_operation", error=cancel_error)
+
+    waiter = SyncOperationWaiter(fake_api_s, operation_id)
+    with pytest.raises(OperationTimedOutError):
+        waiter.wait_for_result(timeout=0.01)
+
+    assert fake_api_s.calls_for("cancel_operation")
