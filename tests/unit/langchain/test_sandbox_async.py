@@ -2,8 +2,9 @@ import asyncio
 
 import pytest
 from contree_client.exceptions import NotFoundError
-from contree_client.models import FileResponse
 from contree_client.testing import ContreeAsyncClient
+
+from contree_sdk.session.base import stream_repr_for_stdin
 
 
 pytest.importorskip("deepagents")
@@ -39,12 +40,12 @@ async def test_execute_serializes_mutations(client, sandbox):
 
 
 async def test_upload_preserves_valid_paths(client, sandbox):
-    client.mock("ensure_file", FileResponse(uuid="file", sha256="hash", size=4))
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
     responses = await sandbox.aupload_files([("/file", b"data"), ("relative", b"data")])
     assert [response.error for response in responses] == [None, "invalid_path"]
-    assert len(client.calls_for("ensure_file")) == 1
+    assert not client.calls_for("ensure_file")
+    assert client.calls_for("spawn_instance")[0].kwargs["stdin"] == stream_repr_for_stdin(b"data", close=True)
 
 
 async def test_download_uses_image_inspection(client, sandbox):

@@ -17,3 +17,12 @@ class DockerBuildError(Exception):
 
 class SessionConflictError(RuntimeError):
     """The session branch changed after an operation started."""
+
+
+class FileWriteError(Exception):
+    """A file could not be written to the executor's filesystem."""
+
+    def __init__(self, path: str, message: str) -> None:
+        super().__init__(f"cannot write {path!r}: {message}")
+        self.path = path
+        self.message = message

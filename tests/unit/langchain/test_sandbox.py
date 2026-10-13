@@ -2,8 +2,9 @@ import threading
 
 import pytest
 from contree_client.exceptions import NotFoundError
-from contree_client.models import FileResponse
 from contree_client.testing import ContreeClient
+
+from contree_sdk.session.base import stream_repr_for_stdin
 
 
 pytest.importorskip("deepagents")
@@ -108,7 +109,6 @@ def test_upload_files_rejects_relative_paths(sandbox: ContreeSandbox):
 
 
 def test_upload_files_writes_valid_paths_only(client: ContreeClient, sandbox: ContreeSandbox):
-    client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
@@ -117,7 +117,8 @@ def test_upload_files_writes_valid_paths_only(client: ContreeClient, sandbox: Co
     by_path = {r.path: r for r in responses}
     assert by_path["/app.txt"].error is None
     assert by_path["relative.txt"].error == "invalid_path"
-    assert len(client.calls_for("ensure_file")) == 1
+    assert not client.calls_for("ensure_file")
+    assert client.calls_for("spawn_instance")[0].kwargs["stdin"] == stream_repr_for_stdin(b"data", close=True)
     assert len(client.calls_for("spawn_instance")) == 1
 
 

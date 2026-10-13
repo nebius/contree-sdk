@@ -6,10 +6,19 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import PurePosixPath
+from shlex import quote
 from types import MappingProxyType
 
-from contree_client.models import InstanceNetworking, InstanceResourcesLimits, InstanceResult
+from contree_client.models import (
+    InstanceNetworking,
+    InstanceResourcesLimits,
+    InstanceResult,
+    InstanceResultState,
+    StreamRepr,
+)
 
+from contree_sdk.exceptions import FileWriteError
 from contree_sdk.files import InputSource, RunFiles
 from contree_sdk.store.models import StagedFile
 
@@ -72,6 +81,20 @@ class OperationContext:
     detached: bool = False
 
 
+def _file_write_request(path: str, content: bytes) -> RunRequest:
+    if not path.startswith("/") or "\x00" in path:
+        raise ValueError("file path must be absolute and contain no NUL characters")
+    parent = str(PurePosixPath(path).parent)
+    return RunRequest(shell=f"mkdir -p -- {quote(parent)} && cat > {quote(path)}", stdin=content, disposable=False)
+
+
+def _check_file_write(path: str, result: InstanceResult) -> None:
+    exit_code = result.state.exit_code if isinstance(result.state, InstanceResultState) else None
+    if exit_code != 0:
+        message = result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else ""
+        raise FileWriteError(path, message or f"write command failed (exit code {exit_code})")
+
+
 class SyncExecutor(ABC):
     """Execution and file access required by synchronous framework adapters.
 
@@ -88,6 +111,21 @@ class SyncExecutor(ABC):
     @abstractmethod
     def read_file(self, path: str) -> bytes: ...
 
+    def write_file(self, path: str, content: bytes) -> None:
+        """Write bytes to an absolute path, creating its parent directories.
+
+        Returns after the write is applied to the executor's filesystem. It does
+        not merely stage a file or upload a blob. Persistence follows execute().
+        The default runs mkdir and cat through execute() with binary stdin.
+        Override this method to use another file-transfer mechanism. An override
+        must coordinate with the executor's commands and snapshot lifecycle.
+
+        Invalid paths raise ValueError; a failed write raises FileWriteError.
+        Transport errors, timeouts, and cancellation propagate unchanged.
+
+        """
+        _check_file_write(path, self.execute(_file_write_request(path, content)))
+
 
 class AsyncExecutor(ABC):
     """Native asynchronous execution and file access for framework adapters."""
@@ -99,3 +137,15 @@ class AsyncExecutor(ABC):
 
     @abstractmethod
     async def read_file(self, path: str) -> bytes: ...
+
+    async def write_file(self, path: str, content: bytes) -> None:
+        """Write bytes with the same contract as SyncExecutor.write_file.
+
+        The default awaits execute() with binary stdin. Override with native
+        async file transfer, coordinating with commands and snapshot lifecycle.
+        Returns after application, not after staging or blob upload. Invalid paths
+        raise ValueError; a failed write raises FileWriteError. Transport errors,
+        timeouts, and cancellation propagate unchanged.
+
+        """
+        _check_file_write(path, await self.execute(_file_write_request(path, content)))

@@ -10,8 +10,8 @@ from uuid import uuid4
 from contree_client.exceptions import NotFoundError, UnprocessableEntityError
 from contree_client.models import InstanceResult
 
+from contree_sdk.exceptions import FileWriteError
 from contree_sdk.execution import AsyncExecutor, RunRequest, SyncExecutor
-from contree_sdk.files import RunFiles
 from contree_sdk.session.base import or_none
 
 
@@ -75,11 +75,19 @@ class ContreeSandbox(BaseSandbox, Generic[SyncExecutorT]):
         return to_execute_response(result)
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        valid: RunFiles = {path: content for path, content in files if path.startswith("/")}
-        if valid:
-            with self.lock:
-                self.session.execute(RunRequest(shell=":", files=valid, disposable=False))
-        return [FileUploadResponse(path=path, error=None if path in valid else "invalid_path") for path, _ in files]
+        responses = []
+        with self.lock:
+            for path, content in files:
+                if not path.startswith("/") or "\x00" in path:
+                    responses.append(FileUploadResponse(path=path, error="invalid_path"))
+                    continue
+                try:
+                    self.session.write_file(path, content)
+                except FileWriteError as error:
+                    responses.append(FileUploadResponse(path=path, error=error.message))
+                else:
+                    responses.append(FileUploadResponse(path=path))
+        return responses
 
     def download_one_file(self, path: str) -> FileDownloadResponse:
         if not path.startswith("/"):
@@ -128,11 +136,19 @@ class ContreeAsyncSandbox(BaseSandbox, Generic[AsyncExecutorT]):
         return to_execute_response(result)
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        valid: RunFiles = {path: content for path, content in files if path.startswith("/")}
-        if valid:
-            async with self.lock:
-                await self.session.execute(RunRequest(shell=":", files=valid, disposable=False))
-        return [FileUploadResponse(path=path, error=None if path in valid else "invalid_path") for path, _ in files]
+        responses = []
+        async with self.lock:
+            for path, content in files:
+                if not path.startswith("/") or "\x00" in path:
+                    responses.append(FileUploadResponse(path=path, error="invalid_path"))
+                    continue
+                try:
+                    await self.session.write_file(path, content)
+                except FileWriteError as error:
+                    responses.append(FileUploadResponse(path=path, error=error.message))
+                else:
+                    responses.append(FileUploadResponse(path=path))
+        return responses
 
     async def download_one_file(self, path: str) -> FileDownloadResponse:
         if not path.startswith("/"):

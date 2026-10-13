@@ -48,7 +48,8 @@ def test_adapter_uses_only_the_executor_contract():
     assert sandbox.download_files(["/file"])[0].content == b"/file"
     assert executor.requests[0].shell == "echo"
     assert not executor.requests[0].disposable
-    assert executor.requests[1].files == {"/file": b"data"}
+    assert not executor.requests[1].files
+    assert executor.requests[1].stdin == b"data"
 
 
 async def test_async_adapter_uses_only_the_executor_contract():
@@ -59,4 +60,47 @@ async def test_async_adapter_uses_only_the_executor_contract():
     assert (await sandbox.adownload_files(["/file"]))[0].content == b"/file"
     assert executor.requests[0].shell == "echo"
     assert not executor.requests[0].disposable
-    assert executor.requests[1].files == {"/file": b"data"}
+    assert not executor.requests[1].files
+    assert executor.requests[1].stdin == b"data"
+
+
+def test_upload_uses_custom_writer_without_executing_a_command():
+    from contree_sdk.exceptions import FileWriteError
+
+    class Writer(CustomExecutor):
+        def __init__(self):
+            super().__init__()
+            self.writes = []
+
+        def write_file(self, path: str, content: bytes) -> None:
+            if path == "/bad":
+                raise FileWriteError(path, "backend refused write")
+            self.writes.append((path, content))
+
+    executor = Writer()
+    adapter = ContreeSandbox(executor)
+    responses = adapter.upload_files([("/bad", b"bad"), ("/good", b"\x00\xff")])
+    assert [item.error for item in responses] == ["backend refused write", None]
+    assert executor.writes == [("/good", b"\x00\xff")]
+    assert not executor.requests
+
+
+async def test_async_upload_uses_custom_writer_without_executing_a_command():
+    from contree_sdk.exceptions import FileWriteError
+
+    class Writer(CustomAsyncExecutor):
+        def __init__(self):
+            super().__init__()
+            self.writes = []
+
+        async def write_file(self, path: str, content: bytes) -> None:
+            if path == "/bad":
+                raise FileWriteError(path, "backend refused write")
+            self.writes.append((path, content))
+
+    executor = Writer()
+    adapter = ContreeAsyncSandbox(executor)
+    responses = await adapter.aupload_files([("/bad", b"bad"), ("/good", b"\x00\xff")])
+    assert [item.error for item in responses] == ["backend refused write", None]
+    assert executor.writes == [("/good", b"\x00\xff")]
+    assert not executor.requests
