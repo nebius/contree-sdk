@@ -16,9 +16,14 @@ from uuid import UUID, uuid4
 from contree_client.httpx import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
-from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
+from harbor.environments.definition import (
+    COMPOSE_FILE_NAME,
+    DOCKERFILE_NAME,
+    effective_exec_cwd,
+    parse_dockerfile_workdir,
+    should_upload_environment_dir,
+)
 from harbor.environments.tar_transfer import extract_dir_from_file, pack_dir_to_file, remote_unpack_command
-from harbor.models.trial.config import ResourceMode
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import Contree
@@ -41,6 +46,8 @@ class ConTreeEnvironment(BaseEnvironment):
     ``operation_timeout`` may be passed using Harbor's ``--ek`` option.
     An injected ``client`` is supported for Python callers and remains owned
     by the caller. Clients created from a profile are closed by this adapter.
+    When task workdir is unset, Harbor extracts WORKDIR from its Dockerfile as
+    the default cwd for commands and environment uploads.
     """
 
     def __init__(
@@ -67,6 +74,11 @@ class ConTreeEnvironment(BaseEnvironment):
         self.final_image_uuid: UUID | None = None
         self.retained_image_tag: str | None = None
         super().__init__(*args, **kwargs)
+        self._dockerfile_workdir = parse_dockerfile_workdir(self.environment_dir / DOCKERFILE_NAME)
+
+    @property
+    def _default_workdir(self) -> str | None:
+        return effective_exec_cwd(None, self.task_env_config.workdir, self._dockerfile_workdir)
 
     @staticmethod
     def type() -> str:
@@ -157,11 +169,13 @@ class ConTreeEnvironment(BaseEnvironment):
         self._check_result(check, "ConTree requires an image running as root with Bash and tar")
         paths = EnvironmentPaths()
         dirs = [str(paths.agent_dir), str(paths.verifier_dir), str(paths.artifacts_dir)]
+        if self._default_workdir:
+            dirs.append(self._default_workdir)
         dirs.extend(self._mount_targets(writable_only=True))
         result = await self._execute(self._ensure_dirs_command(dirs), cwd="/")
         self._check_result(result, "Creating Harbor log directories")
         if should_upload_environment_dir(self.environment_dir, docker_image=docker_image):
-            workdir = self.task_env_config.workdir
+            workdir = self._default_workdir
             if not workdir:
                 result = await self._execute("pwd")
                 self._check_result(result, "Resolving image workdir")
@@ -230,7 +244,7 @@ class ConTreeEnvironment(BaseEnvironment):
             command="/bin/bash",
             args=["-c", command],
             env=self._merge_env(env),
-            cwd=cwd if cwd is not None else self.task_env_config.workdir,
+            cwd=effective_exec_cwd(cwd, self.task_env_config.workdir, self._dockerfile_workdir),
             timeout=timeout,
             files=files,
             disposable=False,

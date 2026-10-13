@@ -168,6 +168,40 @@ async def test_env_precedence_workdir_and_user(environment, fake_api):
 
 
 @pytest.mark.parametrize(
+    ("dockerfile", "workdir"),
+    [
+        ("FROM ubuntu\nWORKDIR /app\n", "/app"),
+        ("FROM ubuntu\nWORKDIR /ignored\nFROM ubuntu\nWORKDIR /app\n", "/app"),
+        ("FROM ubuntu\nWORKDIR /workspace\nWORKDIR project\n", "/workspace/project"),
+    ],
+)
+async def test_dockerfile_workdir_survives_setup_and_transfers(
+    env_kwargs, fake_contree, fake_image, fake_api, monkeypatch, file_uuid, file_sha256, dockerfile, workdir
+):
+    (env_kwargs["environment_dir"] / "Dockerfile").write_text(dockerfile)
+    monkeypatch.setattr(fake_contree.images, "pull_image_by_oci", AsyncMock(return_value=fake_image))
+    for _ in range(2):
+        queue_run(fake_api, result_image_uuid=str(uuid4()))
+    env = ConTreeEnvironment(**env_kwargs)
+    await env.start(force_build=False)
+    assert workdir in fake_api.calls_for("spawn_instance")[-1].kwargs["args"][1]
+    source = env_kwargs["environment_dir"] / "input.txt"
+    source.write_text("input")
+    queue_upload(fake_api, file_uuid, file_sha256)
+    for _ in range(5):
+        queue_run(fake_api, result_image_uuid=str(uuid4()))
+    await env.exec("pwd")
+    await env.upload_file(source, "/app/input.txt")
+    await env.exec("pwd")
+    await env.exec("pwd", cwd="/override")
+    env.task_env_config.workdir = "/configured"
+    await env.exec("pwd")
+    calls = fake_api.calls_for("spawn_instance")[-5:]
+    assert [call.kwargs["cwd"] for call in calls] == [workdir, "/", workdir, "/override", "/configured"]
+    await env.stop(delete=True)
+
+
+@pytest.mark.parametrize(
     ("image_env", "command_env", "expected"),
     [
         ({}, {}, None),

@@ -72,7 +72,7 @@ and artifacts into its job directory.
 | Dockerfile | No builds. A supplied prebuilt image takes precedence; `--force-build` with a Dockerfile fails. |
 | Docker Compose and overlays | Unsupported. |
 | `build_timeout_sec` | Bounds image import and environment preparation. |
-| `workdir` | Default command directory; per-command `cwd` overrides it. |
+| `workdir` | Default command directory; per-command `cwd` overrides it. When unset, Harbor's shared Dockerfile parser extracts the final-stage `WORKDIR` for commands and environment uploads. Explicit task `workdir` takes precedence over the Dockerfile fallback. |
 | Task/trial/command environment variables | Harbor resolves host substitutions. Precedence: task, trial, command, then scoped Harbor overrides. Commands invoke `/bin/bash -c` directly, independently of `SHELL`. Supplied variables are saved into subsequent snapshots with `preserve_env=True`. |
 | `HOME` | When unset, initialized from the executing user's home directory using Bash. Image-defined and explicit Harbor values, including an empty value, are preserved. |
 | `cpus`, `memory_mb`, and numeric overrides | Not enforced. Harbor `auto` mode warns when a value is supplied; `ignore` explicitly accepts this. `limit`, `request`, and `guarantee` fail. |
