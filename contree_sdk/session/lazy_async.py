@@ -37,7 +37,7 @@ class AsyncLazySession(AsyncExecutor):
             raise ValueError("snapshot_timeout must be positive")
         self.session = session
         self.session_id = session.session_id
-        self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(60)
+        self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
         self.snapshot_timeout = snapshot_timeout
         self.state = LazyState()
         self.condition = asyncio.Condition()

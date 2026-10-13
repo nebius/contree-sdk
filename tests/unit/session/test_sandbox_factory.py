@@ -89,6 +89,8 @@ def test_default_sync_is_lazy_and_commits_once(profile):
     assert not FactoryClient.instances
     with context as session:
         assert type(session) is LazySession
+        assert isinstance(session.snapshot_policy, IdleSnapshotPolicy)
+        assert session.snapshot_policy.seconds == 10
         client = FactoryClient.instances[-1]
         assert client.opened == 1
         assert not client.calls_for("spawn_instance")
@@ -113,6 +115,8 @@ async def test_default_async_is_lazy_and_commits_once(profile):
     assert not FactoryAsyncClient.instances
     async with context as session:
         assert type(session) is AsyncLazySession
+        assert isinstance(session.snapshot_policy, IdleSnapshotPolicy)
+        assert session.snapshot_policy.seconds == 10
         client = FactoryAsyncClient.instances[-1]
         assert client.opened == 1
         assert not client.calls_for("spawn_instance")
@@ -292,13 +296,20 @@ def test_explicit_profile_and_all_client_parameters(profile):
     }
 
 
-def test_direct_arguments_and_helper():
-    explicit = profile_from_args(token="token", project="project", auth_type="iam")
-    assert explicit.auth_type == "iam"
+@pytest.mark.parametrize(
+    ("options", "expected_auth_type"),
+    [({}, "iam"), ({"auth_type": "iam"}, "iam"), ({"auth_type": "jwt", "url": "https://test.invalid"}, "jwt")],
+)
+def test_direct_arguments_and_helper(monkeypatch, options, expected_auth_type):
+    explicit = profile_from_args(token="token", project="project", **options)
+    assert explicit.auth_type == expected_auth_type
     assert explicit.url.startswith("https://")
+    factory = Mock(wraps=FactoryClient.from_profile)
+    monkeypatch.setattr(FactoryClient, "from_profile", factory)
     with create_sandbox_session(
-        image="base", token="token", project="project", auth_type="iam", client_type=FactoryClient
+        image="base", token="token", project="project", client_type=FactoryClient, **options
     ) as session:
+        assert factory.call_args.args[0].auth_type == expected_auth_type
         assert session.session.client.base_url == explicit.url
         assert session.session.client.project == "project"
 
@@ -341,7 +352,7 @@ def test_environment_aliases_and_ini_precedence(monkeypatch, tmp_path, profile):
     ("options", "error"),
     [
         ({"token": ""}, "token"),
-        ({"token": "t"}, "url"),
+        ({"token": "t", "auth_type": "jwt"}, "url"),
         ({"url": "https://test.invalid"}, "token"),
         ({"token": "t", "auth_type": "other"}, "auth_type"),
         ({"cache_ttl": -1}, "ttl"),

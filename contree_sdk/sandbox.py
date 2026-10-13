@@ -22,12 +22,13 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Generic, Literal, NoReturn, TypeVar, cast, overload
 
-from contree_client import profiles
 from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
 from contree_sdk.cache import AsyncCache, CacheScope, SyncCache
 from contree_sdk.cache.models import expiration
+from contree_sdk.connection import ConnectionConfig
+from contree_sdk.connection import profile_from_args as profile_from_args  # noqa: PLC0414 - public re-export
 from contree_sdk.execution import AsyncExecutor, SyncExecutor
 from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, ClientFileTransfer, SyncFileTransfer
 from contree_sdk.session.asyncio import ContreeAsyncSession
@@ -44,31 +45,6 @@ SyncSessionT = TypeVar("SyncSessionT", bound=SyncExecutor)
 AsyncSessionT = TypeVar("AsyncSessionT", bound=AsyncExecutor)
 ContextT = TypeVar("ContextT")
 Client = ContreeSyncClient | ContreeAsyncClient
-
-
-def profile_from_args(
-    *, token: str, url: str | None = None, project: str | None = None, auth_type: Literal["iam", "jwt"] = "jwt"
-) -> Profile:
-    """Build an explicit client profile without reading or writing configuration.
-
-    IAM can use the client's default URL. JWT requires an explicit URL.
-
-    Returns:
-        A regular contree-client Profile.
-
-    Raises:
-        ValueError: Credentials, URL, or authentication type are invalid.
-
-    """
-    if auth_type not in {"iam", "jwt"}:
-        raise ValueError("auth_type must be 'iam' or 'jwt'")
-    if not token or not token.strip():
-        raise ValueError("token must not be empty")
-    if url is None and auth_type == "iam":
-        url = profiles.DEFAULT_IAM_URL
-    if not url or not url.strip():
-        raise ValueError("url is required for JWT authentication")
-    return Profile(name="explicit", url=url, token=token, project=project, auth_type=auth_type)
 
 
 @dataclass
@@ -94,20 +70,21 @@ class SandboxConfig:
     client_type: type[ContreeSyncClient | ContreeAsyncClient] | None = None
     client_kwargs: dict[str, Any] = field(default_factory=dict, repr=False)
 
+    def connection(self) -> ConnectionConfig:
+        return ConnectionConfig(
+            url=self.url,
+            project=self.project,
+            token=self.token,
+            auth_type=self.auth_type,
+            profile=self.profile,
+            config_path=self.config_path,
+            client=self.client,
+            client_type=self.client_type,
+            client_kwargs=self.client_kwargs,
+        )
+
     def resolve_profile(self) -> Profile:
-        if any(value is not None for value in (self.url, self.project, self.token, self.auth_type)):
-            if self.profile is not None or self.config_path is not None:
-                raise ValueError("connection arguments cannot be combined with profile or config_path")
-            return profile_from_args(
-                token=self.token or "", url=self.url, project=self.project, auth_type=self.auth_type or "jwt"
-            )
-        if isinstance(self.profile, Profile):
-            if self.config_path is not None:
-                raise ValueError("a Profile object cannot be combined with config_path")
-            return self.profile
-        if self.profile is not None or self.config_path is not None:
-            return profiles.resolve_profile(self.profile, path=self.config_path)
-        return profiles.from_env() or profiles.resolve_profile()
+        return self.connection().resolve_profile()
 
     def validate(self, *, asynchronous: bool) -> None:
         mode = "async with" if asynchronous else "with"
@@ -116,11 +93,7 @@ class SandboxConfig:
             or not issubclass(self.session_type, AsyncExecutor if asynchronous else SyncExecutor)
         ):
             raise TypeError(f"session_type must be a compatible session class for {mode}")
-        if self.client_type is not None and (
-            not isinstance(self.client_type, type)
-            or not issubclass(self.client_type, ContreeAsyncClient if asynchronous else ContreeSyncClient)
-        ):
-            raise TypeError(f"client_type must be a compatible client class for {mode}")
+        self.connection().validate(asynchronous=asynchronous)
         if self.storage is not None and not isinstance(self.storage, AsyncStore if asynchronous else SyncStore):
             raise TypeError(f"storage must implement the store interface for {mode}")
         if self.cache is not None and not isinstance(self.cache, AsyncCache if asynchronous else SyncCache):
@@ -129,25 +102,8 @@ class SandboxConfig:
             self.file_transfer, AsyncFileTransfer if asynchronous else SyncFileTransfer
         ):
             raise TypeError(f"file_transfer must implement the file transfer interface for {mode}")
-        if self.client is not None and not isinstance(
-            self.client, ContreeAsyncClient if asynchronous else ContreeSyncClient
-        ):
-            raise TypeError(f"client must implement the client interface for {mode}")
         if self.image is None and self.session_id is None:
             raise ValueError("either image or session_id must be provided")
-        connection_values = (
-            self.client_type,
-            self.profile,
-            self.config_path,
-            self.url,
-            self.project,
-            self.token,
-            self.auth_type,
-        )
-        if self.client is not None and (self.client_kwargs or any(value is not None for value in connection_values)):
-            raise ValueError("client cannot be combined with client_type or connection settings")
-        if "base_url" in self.client_kwargs:
-            raise ValueError("use url or profile instead of base_url")
         expiration(self.cache_ttl, 0)
 
     def session_arguments(
@@ -182,16 +138,7 @@ class SyncSandboxSessionContext(Generic[SyncSessionT]):
 
     def _create(self) -> SyncExecutor:
         config, stack = self.config, self.stack
-        client = cast("ContreeSyncClient | None", config.client)
-        if client is None:
-            client_type = cast("type[ContreeSyncClient] | None", config.client_type)
-            if client_type is None:
-                from contree_client.httpx import ContreeClient
-
-                client_type = ContreeClient
-            client = client_type.from_profile(config.resolve_profile(), **config.client_kwargs)
-            stack.callback(client.close)
-            client.open()
+        client = config.connection().open_sync(stack)
         store = cast("SyncStore | None", config.storage)
         if store is None:
             store = SyncMemoryStore()
@@ -248,16 +195,7 @@ class AsyncSandboxSessionContext(Generic[AsyncSessionT]):
 
     async def _create(self) -> AsyncExecutor:
         config, stack = self.config, self.stack
-        client = cast("ContreeAsyncClient | None", config.client)
-        if client is None:
-            client_type = cast("type[ContreeAsyncClient] | None", config.client_type)
-            if client_type is None:
-                from contree_client.aiohttp import ContreeAsyncClient as AiohttpClient
-
-                client_type = AiohttpClient
-            client = client_type.from_profile(config.resolve_profile(), **config.client_kwargs)
-            stack.push_async_callback(client.close)
-            await client.open()
+        client = await config.connection().open_async(stack)
         store = cast("AsyncStore | None", config.storage)
         if store is None:
             store = AsyncMemoryStore()
@@ -516,7 +454,7 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
     profile, then its default INI resolution. client_kwargs is forwarded unchanged
     to the selected client's from_profile constructor.
 
-    The default lazy policy snapshots after 60 idle seconds. Normal exit saves
+    The default lazy policy snapshots after 10 idle seconds. Normal exit saves
     pending work; exceptional exit discards unsaved work. Snapshots retain files,
     not running processes. Ordinary Session classes retain their existing commit
     and disposable defaults.
