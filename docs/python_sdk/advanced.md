@@ -34,6 +34,27 @@ import and build helpers enable persistent caching by default. For the full
 component relationships and ownership rules, see {doc}`architecture` and
 {doc}`manual-sandbox`.
 
+### Bring your own storage
+
+Store and Cache are public interfaces. Memory and SQLite are ready-to-use
+implementations supplied by the SDK. You can implement the same interfaces for
+your own backend:
+
+- **Redis cache:** subclass `SyncCache` or `AsyncCache` from `contree_sdk.cache`
+  and implement its methods using Redis. See [Implement cache storage](customization.md#implement-cache-storage)
+  for namespace, value, and expiry rules.
+- **PostgreSQL session history:** subclass `SyncStore` or `AsyncStore` from
+  `contree_sdk.store` and implement its methods using PostgreSQL. See
+  [Implement history storage](customization.md#implement-history-storage) for
+  history, branch, and transaction rules.
+
+Pass your instances through `cache=` and `storage=` to the sandbox or build
+helpers. Direct session and builder constructors use `store=` instead of
+`storage=`. Use sync implementations with sync APIs and async implementations
+with async APIs. The SDK uses these interfaces, so changing the storage backend
+does not require changing its execution code. Your application owns and closes
+the supplied components.
+
 ## Select the session class and components
 
 Some async snippets use top-level `await`. Run them inside an async function or
