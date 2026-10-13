@@ -11,13 +11,26 @@ From the repository root:
 ```bash
 uv sync --extra dev --extra docs
 uv run pytest
-uv run pytest -m markdown README.md docs
-uv run sphinx-build -W --keep-going -b html docs /tmp/contree-sdk-docs
+make -C docs test
+make -C docs check
 ```
 
-The first pytest command runs the standard suite, including documentation. The
-second selects Markdown scenarios. SDK e2e tests are outside the default suite;
+The pytest command runs the standard suite, including documentation. The `test`
+target selects Markdown scenarios. SDK e2e tests are outside the default suite;
 transport e2e coverage belongs to `contree-client` and is not a gate for these guides.
+
+From `docs/`, use `make html` to build HTML in `_build/html` or `make serve` to
+preview it with live reload at <http://127.0.0.1:8000>. Use `make clean` to remove
+build output, `make mintlify` for Mintlify output, and `make help` to list targets.
+Use `make check` for an HTML build that treats Sphinx warnings as errors.
+
+Set `BUILDDIR` to change the output directory, `SPHINXOPTS` to change Sphinx options,
+or `HOST` and `PORT` to configure the preview server. For example:
+
+```bash
+make -C docs html BUILDDIR=/tmp/contree-sdk-docs
+make -C docs serve PORT=8080
+```
 
 Run Semgrep in its own tool environment, as the security workflow does. Its
 dependencies conflict with the agent integration dependencies:
@@ -55,7 +68,8 @@ For a file upload, verify the source bytes, destination, and download image.
 For error handling, inject the error and verify recovery or cleanup. A canned
 response alone cannot show whether a command was sent correctly.
 
-Build examples prepare files from the Dockerfile and text fences on the same page.
+Build examples prepare files from the Dockerfile and text fences in
+{doc}`python_sdk/building-images`, including scenarios on the advanced page.
 Do not keep a second copy of the documented program in a Python test or example file.
 Non-Python fences, such as installation commands and Dockerfile input, are explanatory
 inputs; `markdown-pytest` itself executes Python fences only.

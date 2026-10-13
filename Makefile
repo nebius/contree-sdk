@@ -3,13 +3,13 @@
 DOCS_DIR := docs
 
 rtd-dev:
-	uv run sphinx-autobuild $(DOCS_DIR) $(DOCS_DIR)/_build/html
+	$(MAKE) -C $(DOCS_DIR) serve
 
 docs-mintlify-clean:
 	rm -rf $(DOCS_DIR)/_build/mintlify
 
 docs-mintlify-build:
-	uv run --extra docs sphinx-build -b mintlify $(DOCS_DIR) $(DOCS_DIR)/_build/mintlify
+	$(MAKE) -C $(DOCS_DIR) mintlify
 
 docs-mintlify:
 	$(MAKE) docs-mintlify-clean
@@ -26,4 +26,4 @@ type-check-no-baseline:
 
 
 test-docs:
-	uv run --extra dev pytest -m markdown README.md docs
+	$(MAKE) -C $(DOCS_DIR) test
