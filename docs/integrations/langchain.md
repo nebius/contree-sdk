@@ -14,6 +14,11 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`../python_sdk/getting-started`.
 :::
 
+The examples use `create_sandbox_session` with an explicit `ContreeSession` or
+`ContreeAsyncSession`. Deepagents file tools upload startup attachments and read
+saved images, so they need independent operations rather than the default lazy
+session's live VM. The factory still handles connection setup and cleanup.
+
 ## Install and test the backend
 
 This integration requires Python 3.11 or newer. Install the development API from
@@ -27,9 +32,10 @@ The extra pins deepagents 0.7.10, the version tested with this SDK. Its async fi
 tools delegate to `aexecute` and `aupload_files`. Version 0.6.8 instead calls sync
 methods from those tools and is incompatible with `ContreeAsyncSandbox`.
 The sandbox image needs a POSIX shell, Python 3, and the file utilities used by
-deepagents, including `grep` for search.
+deepagents, including `grep` for search. Replace the example
+`tag:python:3.12-alpine` with an image available on your endpoint.
 
-Use the environment variables from {doc}`../python_sdk/getting-started`.
+Configure a connection as described in {ref}`sandbox-connection`.
 This example exercises the backend directly, so no model credentials are needed.
 
 ::::{tab} Sync
@@ -42,14 +48,11 @@ doc_api.complete(stdout="hello\n")
 -->
 
 ```python
-import os
+from contree_sdk import ContreeSession, create_sandbox_session
 from contree_sdk.langchain import ContreeSandbox
 
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+with create_sandbox_session(session_type=ContreeSession, image="tag:python:3.12-alpine") as session:
     sandbox = ContreeSandbox(session)
     result = sandbox.execute("echo hello")
     print(result.output, end="")
@@ -76,14 +79,11 @@ doc_api.complete(stdout="hello\n")
 -->
 
 ```python
-import os
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 from contree_sdk.langchain import ContreeAsyncSandbox
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:python:3.12-alpine") as session:
     sandbox = ContreeAsyncSandbox(session)
     result = await sandbox.aexecute("echo hello")
     print(result.output, end="")
@@ -108,39 +108,49 @@ when the agent needs to resume after a Python restart.
 
 Pass the sandbox as `backend=` to `deepagents.create_deep_agent`. Supply the model
 configured by your application. Keep the client open for the entire agent invocation.
-The following function accepts that model and uses the environment variables from the getting-started guide:
+The following function accepts that model and uses the connection configured in
+{ref}`sandbox-connection`:
 
 <!--
 name: async test_agent_wiring; fixtures: deepagents_available, doc_api, agent_model_factory
 ```python
 from langchain_core.messages import AIMessage, ToolMessage
 
+
 doc_api.complete()  # write preflight
 doc_api.complete()  # upload and commit
 doc_api.complete(stdout="2\n")  # execute
-model = agent_model_factory(responses=[
-    AIMessage(content="", tool_calls=[{
-        "name": "write_file", "args": {"file_path": "/calculator.py", "content": "print(1 + 1)\n"}, "id": "write-1"
-    }]),
-    AIMessage(content="", tool_calls=[{
-        "name": "execute", "args": {"command": "python3 /calculator.py"}, "id": "execute-1"
-    }]),
-    AIMessage(content="The result is 2."),
-])
+model = agent_model_factory(
+    responses=[
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "write_file",
+                    "args": {"file_path": "/calculator.py", "content": "print(1 + 1)\n"},
+                    "id": "write-1",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "execute", "args": {"command": "python3 /calculator.py"}, "id": "execute-1"}],
+        ),
+        AIMessage(content="The result is 2."),
+    ]
+)
 ```
 -->
 
 ```python
-import os
-from contree_client.asyncio import ContreeAsyncClient
 from deepagents import create_deep_agent
-from contree_sdk import ContreeAsyncSession
+
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 from contree_sdk.langchain import ContreeAsyncSandbox
 
 
 async def ask_agent(model):
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:python:3.12-alpine") as session:
         agent = create_deep_agent(model=model, backend=ContreeAsyncSandbox(session))
         request = {"messages": [{"role": "user", "content": "Create a calculator script and run it."}]}
         return await agent.ainvoke(request)
@@ -161,7 +171,7 @@ assert len(doc_api.async_client.calls_for("spawn_instance")) == 3
 Model-provider installation, credentials, and model selection belong to the agent
 application. The SDK does not choose a provider or supply a model key.
 
-## Transfer files and choose sync or async calls
+## Advanced: file transfers and executor contracts
 
 | Sync sandbox                    | Async sandbox                          |
 | ------------------------------- | -------------------------------------- |

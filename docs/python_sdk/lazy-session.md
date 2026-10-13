@@ -16,7 +16,7 @@ which starts a VM and saves an image for each command.
 
 ## Run commands and save their shared state
 
-Use the connection variables from {doc}`getting-started`. The base image must
+Configure a connection as described in {ref}`sandbox-connection`. The base image must
 provide `sleep` for the default keepalive process. Override `keepalive_request()`
 when an image needs a different long-running main process.
 
@@ -27,21 +27,19 @@ name: test_lazy_session; fixtures: lazy_api
 -->
 
 ```python
-import os
-
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession, LazySession
+from contree_sdk import create_sandbox_session
 from contree_sdk.session import IdleSnapshotPolicy
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-    with LazySession(session, snapshot_policy=IdleSnapshotPolicy(30)) as lazy:
-        first = lazy.run(shell="echo first > /work.txt")
-        second = lazy.run(shell="echo second >> /work.txt")
-        saved = lazy.snapshot()
-        assert saved is not None
-        assert session.image_uuid == saved.image_uuid
-        lazy.run(shell="cat /work.txt")
+
+with create_sandbox_session(
+    image="tag:alpine:latest", session_kwargs={"snapshot_policy": IdleSnapshotPolicy(30)}
+) as lazy:
+    first = lazy.run(shell="echo first > /work.txt")
+    second = lazy.run(shell="echo second >> /work.txt")
+    saved = lazy.snapshot()
+    assert saved is not None
+    assert lazy.session.image_uuid == saved.image_uuid
+    lazy.run(shell="cat /work.txt")
 ```
 
 <!--
@@ -53,7 +51,7 @@ assert len(lazy_api.sync.calls_for("follow_operation_events")) == 2
 assert not lazy_api.sync.calls_for("wait_operation")
 assert lazy_api.sync.calls_for("spawn_instance")[1].args[1] == saved.image_uuid
 assert lazy.phase == "closed"
-assert [entry.kind for entry in session.history()[0]] == ["init", "run", "run"]
+assert [entry.kind for entry in lazy.session.history()[0]] == ["init", "run", "run"]
 ```
 -->
 
@@ -68,21 +66,19 @@ name: async test_lazy_session_async; fixtures: lazy_api
 -->
 
 ```python
-import os
-
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import AsyncLazySession, ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 from contree_sdk.session import IdleSnapshotPolicy
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
-    async with AsyncLazySession(session, snapshot_policy=IdleSnapshotPolicy(30)) as lazy:
-        first = await lazy.run(shell="echo first > /work.txt")
-        second = await lazy.run(shell="echo second >> /work.txt")
-        saved = await lazy.snapshot()
-        assert saved is not None
-        assert session.image_uuid == saved.image_uuid
-        await lazy.run(shell="cat /work.txt")
+
+async with create_sandbox_session(
+    image="tag:alpine:latest", session_kwargs={"snapshot_policy": IdleSnapshotPolicy(30)}
+) as lazy:
+    first = await lazy.run(shell="echo first > /work.txt")
+    second = await lazy.run(shell="echo second >> /work.txt")
+    saved = await lazy.snapshot()
+    assert saved is not None
+    assert lazy.session.image_uuid == saved.image_uuid
+    await lazy.run(shell="cat /work.txt")
 ```
 
 <!--
@@ -94,7 +90,7 @@ assert len(lazy_api.async_client.calls_for("follow_operation_events")) == 2
 assert not lazy_api.async_client.calls_for("wait_operation")
 assert lazy_api.async_client.calls_for("spawn_instance")[1].args[1] == saved.image_uuid
 assert lazy.phase == "closed"
-assert [entry.kind for entry in (await session.history())[0]] == ["init", "run", "run"]
+assert [entry.kind for entry in (await lazy.session.history())[0]] == ["init", "run", "run"]
 ```
 -->
 
@@ -109,7 +105,8 @@ After a snapshot, the next command starts a new VM from the saved image. Normal
 context exit calls `close()`, which saves pending work and closes the wrapper.
 An exception inside the context calls `abort()` and cancels unsaved work.
 An already running snapshot finishes before `abort()` returns.
-The supplied session, client, and store remain caller-owned.
+The factory closes the client it creates. Supplied storage and other components
+remain caller-owned; see {doc}`manual-sandbox` for explicit assembly.
 
 ## Choose a snapshot policy
 
@@ -131,12 +128,8 @@ name: test_lazy_policies
 -->
 
 ```python
-from contree_sdk.session import (
-    CommandCountSnapshotPolicy,
-    CompositeSnapshotPolicy,
-    IdleSnapshotPolicy,
-    SnapshotEvent,
-)
+from contree_sdk.session import CommandCountSnapshotPolicy, CompositeSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
+
 
 idle = IdleSnapshotPolicy(30)
 count = CommandCountSnapshotPolicy(10)
@@ -158,7 +151,7 @@ cannot admit an extra command beyond the limit. Nonzero exits count as commands.
 A creation error fails the current VM lifecycle; the SDK does not retry that
 command automatically. All counters reset when the next VM starts.
 
-## Define a policy
+## Advanced: define a policy
 
 `notify(event)` receives lifecycle and execution notifications. `should_snapshot()`
 returns one `concurrent.futures.Future[None]` for the current VM cycle. Resolving it
@@ -185,9 +178,7 @@ name: test_custom_snapshot_policy; fixtures: lazy_api
 -->
 
 ```python
-import os
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession, LazySession
+from contree_sdk import create_sandbox_session
 from contree_sdk.session import AbstractSnapshotPolicy, SnapshotEvent
 
 
@@ -206,13 +197,11 @@ class AfterTwoExits(AbstractSnapshotPolicy):
                 self.future.set_result(None)
 
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image="tag:ubuntu:24.04")
-    with LazySession(session, snapshot_policy=AfterTwoExits()) as lazy:
-        lazy.run("echo", args=["first"])
-        lazy.run("echo", args=["second"])
-        saved = lazy.snapshot()
-        assert saved is not None
+with create_sandbox_session(image="tag:ubuntu:24.04", session_kwargs={"snapshot_policy": AfterTwoExits()}) as lazy:
+    lazy.run("echo", args=["first"])
+    lazy.run("echo", args=["second"])
+    saved = lazy.snapshot()
+    assert saved is not None
 ```
 
 <!--
@@ -220,7 +209,7 @@ name: test_custom_snapshot_policy
 ```python
 assert len(lazy_api.sync.calls_for("spawn_instance")) == 1
 assert len(lazy_api.sync.calls_for("operation_subprocess_create")) == 2
-assert len(session.history()[0]) == 2
+assert len(lazy.session.history()[0]) == 2
 assert lazy.phase == "closed"
 ```
 -->
@@ -229,7 +218,7 @@ assert lazy.phase == "closed"
 or start an idle timer. `CLOSE` must be safe to repeat, including after failure.
 A command-creation failure closes the policy and cancels pending timers.
 
-## Await a policy decision
+## Advanced: await a policy decision
 
 Sync code can wait on the policy future with `result()`. Async code can use
 `asyncio.wrap_future()` without a thread pool. Shield the wrapper so cancelling an
@@ -246,6 +235,7 @@ name: async test_async_policy_future
 import asyncio
 
 from contree_sdk.session import IdleSnapshotPolicy, SnapshotEvent
+
 
 policy = IdleSnapshotPolicy(0.01)
 policy.notify(SnapshotEvent.COMMAND_STARTED)
@@ -274,22 +264,21 @@ name: async test_lazy_parallel; fixtures: lazy_api
 -->
 
 ```python
-import os
 import asyncio
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import AsyncLazySession, ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 from contree_sdk.session import CommandCountSnapshotPolicy
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image="tag:ubuntu:24.04")
-    async with AsyncLazySession(session, snapshot_policy=CommandCountSnapshotPolicy(2)) as lazy:
-        results = await asyncio.gather(
-            lazy.run("echo", args=["first"]),
-            lazy.run("echo", args=["second"]),
-            lazy.run("echo", args=["third"]),
-        )
-        await lazy.snapshot()
+
+async with create_sandbox_session(
+    image="tag:ubuntu:24.04", session_kwargs={"snapshot_policy": CommandCountSnapshotPolicy(2)}
+) as lazy:
+    results = await asyncio.gather(
+        lazy.run("echo", args=["first"]),
+        lazy.run("echo", args=["second"]),
+        lazy.run("echo", args=["third"]),
+    )
+    await lazy.snapshot()
 ```
 
 <!--
@@ -307,7 +296,7 @@ counters even if the application never calls the handle's `wait()` method.
 One operation reader supplies those events, public event subscriptions, and waits.
 See {doc}`operation` for stream ownership and cancellation behavior.
 
-## Handle errors and history boundaries
+## Advanced: errors and history boundaries
 
 - A nonzero subprocess exit remains an `InstanceResult`; it does not discard filesystem changes.
 - A command timeout or cancelled async command wait attempts to kill that subprocess with `SIGKILL`.

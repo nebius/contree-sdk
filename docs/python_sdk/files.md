@@ -4,40 +4,34 @@ icon: file-arrow-up
 
 # Upload inputs and download results
 
-Use `run(files=...)` to attach local content before a command starts.
-Use `read_file()` to download a file from the session's current image.
+Send content through stdin to write a file in the running sandbox. Call
+`snapshot()` before `read_file()` to download the result from a saved image.
 
 This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
 and saves the result as `output.txt` in your local working directory.
-Use the connection variables from {doc}`getting-started`.
+Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
 <!--
-name: test_files; fixtures: doc_api, capsys
+name: test_files; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.download(b"Hello from a file!\n")
+sandbox_api.command()
+sandbox_api.download(b"Hello from a file!\n")
 ```
 -->
 
 ```python
-import os
 from pathlib import Path
 
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
+from contree_sdk import create_sandbox_session
 
 
 def main() -> None:
-    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-        session.run(
-            shell="cat /input.txt > /output.txt",
-            files={"/input.txt": b"Hello from a file!\n"},
-            disposable=False,
-        )
+    with create_sandbox_session(image="tag:alpine:latest") as session:
+        session.run(shell="cat > /input.txt", stdin=b"Hello from a file!\n")
+        session.run(shell="cat /input.txt > /output.txt")
+        session.snapshot()
         content = session.read_file("/output.txt")
         Path("output.txt").write_bytes(content)
         print(content.decode(), end="")
@@ -50,9 +44,9 @@ main()
 name: test_files
 ```python
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
-assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/output.txt")
-assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert doc_api.sync.calls_for("ensure_file")[0].args == (b"Hello from a file!\n",)
+assert sandbox_api.sync.calls_for("inspect_image_download")[0].args == ("image-op-1", "/output.txt")
+assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
+assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -62,31 +56,25 @@ assert capsys.readouterr().out == "Hello from a file!\n"
 ::::{tab} Async
 
 <!--
-name: test_files_async; fixtures: doc_api, capsys
+name: test_files_async; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.download(b"Hello from a file!\n")
+sandbox_api.command()
+sandbox_api.download(b"Hello from a file!\n")
 ```
 -->
 
 ```python
 import asyncio
-import os
 from pathlib import Path
 
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 
 
 async def main() -> None:
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
-        await session.run(
-            shell="cat /input.txt > /output.txt",
-            files={"/input.txt": b"Hello from a file!\n"},
-            disposable=False,
-        )
+    async with create_sandbox_session(image="tag:alpine:latest") as session:
+        await session.run(shell="cat > /input.txt", stdin=b"Hello from a file!\n")
+        await session.run(shell="cat /input.txt > /output.txt")
+        await session.snapshot()
         content = await session.read_file("/output.txt")
         await asyncio.to_thread(Path("output.txt").write_bytes, content)
         print(content.decode(), end="")
@@ -99,9 +87,9 @@ asyncio.run(main())
 name: test_files_async
 ```python
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
-assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/output.txt")
-assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert doc_api.async_client.calls_for("ensure_file")[0].args == (b"Hello from a file!\n",)
+assert sandbox_api.async_client.calls_for("inspect_image_download")[0].args == ("image-op-1", "/output.txt")
+assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -118,7 +106,12 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-## Choose a file source
+For a local file, pass `stdin=Path("local.txt")`. This streams its contents to
+the command. The default lazy sandbox does not support `run(files=...)` while a
+VM is active. The advanced examples below select `ContreeSession` or
+`ContreeAsyncSession` explicitly for startup attachments and per-command images.
+
+## Advanced: choose a file source
 
 | Input                                     | Meaning                                                    |
 | ----------------------------------------- | ---------------------------------------------------------- |
@@ -135,7 +128,7 @@ by content. A saved upload does not by itself change a session image.
 
 See {doc}`running-commands` for stdin, and {doc}`customization` to replace file transfer.
 
-## Upload an executable script
+## Advanced: upload an executable script
 
 Use `UploadFileSpec` to set a mode. This example runs the uploaded script directly.
 Its output is `script output`. It is disposable because the script is not needed
@@ -151,15 +144,13 @@ doc_api.complete(stdout="script output\n")
 -->
 
 ```python
-import os
 from contree_client.models import StreamRepr
+
+from contree_sdk import ContreeSession, create_sandbox_session
 from contree_sdk.files import UploadFileSpec
 
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
     result = session.run("/tool.sh", files={"/tool.sh": script})
     if isinstance(result.stdout, StreamRepr):
@@ -189,15 +180,13 @@ doc_api.complete(stdout="script output\n")
 -->
 
 ```python
-import os
 from contree_client.models import StreamRepr
+
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 from contree_sdk.files import UploadFileSpec
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
     result = await session.run("/tool.sh", files={"/tool.sh": script})
     if isinstance(result.stdout, StreamRepr):
@@ -217,7 +206,7 @@ assert capsys.readouterr().out == "script output\n"
 
 ::::
 
-## Stage files for a later command
+## Advanced: stage files for a later command
 
 `stage_files()` uploads content and appends a `stage` history entry. It does not
 start a VM or change the image. `pending_files()` returns the uploaded UUID,
@@ -241,21 +230,20 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSession
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.store import SyncSQLiteStore
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     with SyncSQLiteStore("staging.db") as store:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], session_id="edit-demo", store=store)
-        staged = session.stage_files(
-            {
-                "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
-            }
-        )
+        session = ContreeSession(client, image="tag:alpine:latest", session_id="edit-demo", store=store)
+        staged = session.stage_files({
+            "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
+        })
         pending = session.pending_files()
         assert pending[0].mode == 0o640
 
@@ -293,21 +281,20 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.store import AsyncSQLiteStore
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     async with AsyncSQLiteStore("staging-async.db") as store:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], session_id="edit-demo", store=store)
-        staged = await session.stage_files(
-            {
-                "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
-            }
-        )
+        session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="edit-demo", store=store)
+        staged = await session.stage_files({
+            "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
+        })
         pending = await session.pending_files()
         assert pending[0].mode == 0o640
 
@@ -360,7 +347,7 @@ with public `StagedFile` values for already uploaded content. Store-level
 async stores provide these methods. The store does not verify whether an uploaded
 UUID still exists on the server.
 
-## Prepare directory trees and stream large files
+## Advanced: prepare directory trees and stream large files
 
 Directory sources expand into regular-file attachments. For example,
 `files={"/app": Path("project")}` uploads the contents of `project` under `/app`.
@@ -380,7 +367,7 @@ snapshot. Bytes inputs are already in memory. `read_file()` still returns the
 whole file; use `iter_file()` or `download_file()` for large results.
 
 The examples upload a directory with an exclusion, then stream a result into a
-local file. Set the environment variables described in {doc}`getting-started`.
+local file. Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
@@ -393,22 +380,23 @@ doc_api.sync.mock("inspect_image_download_stream", [b"hello", b"\n"])
 -->
 
 ```python
-import os
 from pathlib import Path
 
+from contree_client import profiles
 from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSession
 from contree_sdk.files import ClientFileTransfer, prepare_file_tree
+
 
 Path("project").mkdir()
 Path("project/input.txt").write_text("hello\n")
 Path("project/ignored.tmp").write_text("excluded")
 files = prepare_file_tree("project", "/app", exclude=("*.tmp",), mode=0o640)
 progress = []
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     transfer = ClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
+    session = ContreeSession(client, image="tag:alpine:latest", file_transfer=transfer)
     session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
     count = transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6
@@ -442,24 +430,25 @@ doc_api.async_client.mock("inspect_image_download_stream", [b"hello", b"\n"])
 -->
 
 ```python
-import os
 import asyncio
 from functools import partial
 from pathlib import Path
 
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.files import AsyncClientFileTransfer, prepare_file_tree
+
 
 await asyncio.to_thread(Path("project").mkdir)
 await asyncio.to_thread(Path("project/input.txt").write_text, "hello\n")
 await asyncio.to_thread(Path("project/ignored.tmp").write_text, "excluded")
 files = await asyncio.to_thread(partial(prepare_file_tree, "project", "/app", exclude=("*.tmp",), mode=0o640))
 progress = []
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     transfer = AsyncClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", file_transfer=transfer)
     await session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
     count = await transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6

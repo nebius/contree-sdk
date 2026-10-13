@@ -1,4 +1,8 @@
-# Adapt the SDK to your application
+# Advanced: adapt the SDK to your application
+
+For ordinary commands, start with {doc}`getting-started` and its sandbox factory.
+This guide exposes lower-level controls. See {doc}`manual-sandbox` for manual
+component assembly and resource ownership.
 
 Start with the smallest change your application needs. For example, add a default
 timeout in `prepare_request()` before replacing operation handling.
@@ -15,7 +19,7 @@ mapping are copied at construction. Files and stdin remain caller-owned resource
 Use `dataclasses.replace()` to apply policy without mutating the caller's request.
 
 This example rejects shell commands, applies a default timeout, and counts waits.
-It uses the environment variables from {doc}`getting-started`. The complete code
+It uses the connection described in {ref}`sandbox-connection`. The complete code
 includes both the session policy and its operation implementation.
 
 <!--
@@ -26,9 +30,9 @@ doc_api.complete()
 -->
 
 ```python
-import os
 from dataclasses import replace
 
+from contree_client import profiles
 from contree_client.models import InstanceResult, InstanceSpawnResponse
 from contree_client.sync import ContreeClient
 
@@ -57,8 +61,8 @@ class PolicySession(ContreeSession):
         return AuditedOperation(self.client, response.uuid, timeout=context.request.timeout_seconds, context=context)
 
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = PolicySession(client, image=os.environ["CONTREE_IMAGE"])
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = PolicySession(client, image="tag:alpine:latest")
     operation = session.spawn("echo", args=["hello"])
     result = operation.wait()
     assert isinstance(operation, AuditedOperation)
@@ -69,6 +73,7 @@ with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTR
 name: test_custom_policy
 ```python
 import pytest
+
 
 with pytest.raises(ValueError, match="explicit arguments"):
     session.run(shell="echo blocked")
@@ -270,8 +275,10 @@ name: test_custom_directive
 assert parser.parse("BUILDMODE test") == [BuildMode(value="test")]
 assert "BUILDMODE" in capsys.readouterr().out
 import pytest
-from contree_sdk.docker import ContreeDockerBuilder, ContreeAsyncDockerBuilder
-from contree_sdk.store import SyncMemoryStore, AsyncMemoryStore
+
+from contree_sdk.docker import ContreeAsyncDockerBuilder, ContreeDockerBuilder
+from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
+
 
 assert parser.parse("BUILDMODE\ttest") == [BuildMode(value="test")]
 with pytest.raises(ValueError, match="unknown"):
@@ -369,9 +376,7 @@ name: test_resolve_policy; fixtures: doc_api
 -->
 
 ```python
-import os
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
+from contree_sdk import ContreeSession, create_sandbox_session
 
 
 class NamedImageSession(ContreeSession):
@@ -379,8 +384,7 @@ class NamedImageSession(ContreeSession):
         return {"test-base": "8a0269a2-7720-4daa-aa96-dca93b20bb33"}[image]
 
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = NamedImageSession(client, image="test-base")
+with create_sandbox_session(session_type=NamedImageSession, image="test-base") as session:
     print(session.image_uuid)
 ```
 
@@ -432,13 +436,13 @@ doc_api.complete(exit_code=7)
 -->
 
 ```python
-import os
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
+from contree_sdk import ContreeSession, create_sandbox_session
 from contree_sdk.session import ZeroExitCommitPolicy
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], commit_policy=ZeroExitCommitPolicy())
+
+with create_sandbox_session(
+    session_type=ContreeSession, image="tag:alpine:latest", commit_policy=ZeroExitCommitPolicy()
+) as session:
     original_image = session.image_uuid
     result = session.run(shell="exit 7", disposable=False)
     assert result.state.exit_code == 7
@@ -453,13 +457,13 @@ doc_api.complete(exit_code=7)
 -->
 
 ```python
-import os
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 from contree_sdk.session import ZeroExitCommitPolicy
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], commit_policy=ZeroExitCommitPolicy())
+
+async with create_sandbox_session(
+    session_type=ContreeAsyncSession, image="tag:alpine:latest", commit_policy=ZeroExitCommitPolicy()
+) as session:
     operation = await session.spawn(shell="exit 7", disposable=False)
     result = await operation.wait()
     entry = await session.commit_result(operation)

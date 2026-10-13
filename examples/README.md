@@ -5,6 +5,7 @@ Each program has a synchronous version in `sync/` and an asynchronous version in
 
 | Program          | Scenario                                                                |
 | ---------------- | ----------------------------------------------------------------------- |
+| `sandbox.py`     | Create a configured sandbox and run commands with automatic cleanup.    |
 | `workflow.py`    | Upload data, save results, compare branches, and reopen SQLite history. |
 | `build_image.py` | Create a local build context, build and tag an image, then run it.      |
 | `subprocess.py`  | Run two subprocesses within one operation.                              |
@@ -12,16 +13,15 @@ Each program has a synchronous version in `sync/` and an asynchronous version in
 
 ## Run a program
 
-Install the checkout and configure a ConTree endpoint. `CONTREE_IMAGE` must name an
-image on that endpoint with a POSIX shell and standard utilities, such as BusyBox.
+Configure the endpoint, token, and AI project using the
+[connection guide](../docs/python_sdk/sandbox-factory.md#select-a-connection-source).
+The sandbox examples use `image="tag:alpine:latest"`. Replace this tag with an
+image available on your endpoint.
 
 ```bash
 uv sync --extra async
-export CONTREE_URL="https://your-contree-endpoint"
-export CONTREE_TOKEN="your-token"
-export CONTREE_IMAGE="tag:your-base-image"
-uv run python examples/sync/workflow.py
-uv run python examples/async/workflow.py
+uv run python examples/sync/sandbox.py
+uv run python examples/async/sandbox.py
 ```
 
 `workflow.py` creates `workflow.db` in the current directory and retains its server

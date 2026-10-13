@@ -11,37 +11,33 @@ The filesystem images stay on the ConTree server.
 ## Save work, close the store, and reopen it
 
 This program writes `/saved.txt`, closes the database, then resumes the same session.
-It prints `saved`. Use the connection variables from {doc}`getting-started`.
+It prints `saved`. Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
 <!--
-name: test_resume; fixtures: doc_api, capsys
+name: test_resume; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.download(b"saved\n")
+sandbox_api.command()
+sandbox_api.download(b"saved\n")
 ```
 -->
 
 ```python
-import os
-
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
+from contree_sdk import create_sandbox_session
 from contree_sdk.store import SyncSQLiteStore
 
 
 def main() -> None:
-    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        with SyncSQLiteStore("sessions.db") as store:
-            session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], store=store, session_id="demo")
-            session.run(shell="printf 'saved\\n' > /saved.txt", disposable=False)
+    with SyncSQLiteStore("sessions.db") as storage:
+        with create_sandbox_session(image="tag:alpine:latest", storage=storage, session_id="demo") as session:
+            session.run(shell="echo saved > /saved.txt")
 
-        # Reopen the same database. No base image is needed to resume.
-        with SyncSQLiteStore("sessions.db") as store:
-            resumed = ContreeSession(client, store=store, session_id="demo")
-            print(resumed.read_file("/saved.txt").decode(), end="")
+    # Reopen the same database. No base image is needed to resume.
+    with SyncSQLiteStore("sessions.db") as storage:
+        with create_sandbox_session(storage=storage, session_id="demo") as resumed:
+            content = resumed.read_file("/saved.txt")
+            print(content.decode(), end="")
 
 
 main()
@@ -50,8 +46,8 @@ main()
 <!--
 name: test_resume
 ```python
-assert len(doc_api.sync.calls_for("resolve_image")) == 1
-assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/saved.txt")
+assert len(sandbox_api.sync.calls_for("resolve_image")) == 1
+assert sandbox_api.sync.calls_for("inspect_image_download")[0].args == ("image-op-1", "/saved.txt")
 assert capsys.readouterr().out == "saved\n"
 ```
 -->
@@ -61,33 +57,30 @@ assert capsys.readouterr().out == "saved\n"
 ::::{tab} Async
 
 <!--
-name: test_resume_async; fixtures: doc_api, capsys
+name: test_resume_async; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.download(b"saved\n")
+sandbox_api.command()
+sandbox_api.download(b"saved\n")
 ```
 -->
 
 ```python
 import asyncio
-import os
 
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 from contree_sdk.store import AsyncSQLiteStore
 
 
 async def main() -> None:
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        async with AsyncSQLiteStore("sessions.db") as store:
-            session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], store=store, session_id="demo")
-            await session.run(shell="printf 'saved\\n' > /saved.txt", disposable=False)
+    async with AsyncSQLiteStore("sessions.db") as storage:
+        async with create_sandbox_session(image="tag:alpine:latest", storage=storage, session_id="demo") as session:
+            await session.run(shell="echo saved > /saved.txt")
 
-        # Reopen the same database. No base image is needed to resume.
-        async with AsyncSQLiteStore("sessions.db") as store:
-            resumed = ContreeAsyncSession(client, store=store, session_id="demo")
-            print((await resumed.read_file("/saved.txt")).decode(), end="")
+    # Reopen the same database. No base image is needed to resume.
+    async with AsyncSQLiteStore("sessions.db") as storage:
+        async with create_sandbox_session(storage=storage, session_id="demo") as resumed:
+            content = await resumed.read_file("/saved.txt")
+            print(content.decode(), end="")
 
 
 asyncio.run(main())
@@ -96,8 +89,8 @@ asyncio.run(main())
 <!--
 name: test_resume_async
 ```python
-assert len(doc_api.async_client.calls_for("resolve_image")) == 1
-assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/saved.txt")
+assert len(sandbox_api.async_client.calls_for("resolve_image")) == 1
+assert sandbox_api.async_client.calls_for("inspect_image_download")[0].args == ("image-op-1", "/saved.txt")
 assert capsys.readouterr().out == "saved\n"
 ```
 -->
@@ -116,19 +109,21 @@ over `image=`. Use a new session ID to start from a different base image.
 
 | Resource                   | Default lifetime                       | How to retain it                                           |
 | -------------------------- | -------------------------------------- | ---------------------------------------------------------- |
-| Command filesystem changes | Discarded after a disposable operation | Pass `disposable=False`.                                   |
+| Command filesystem changes | Saved on normal sandbox exit | Call `snapshot()` for an earlier checkpoint. |
 | Session history            | A memory-store instance                | Supply a SQLite store and keep its database.               |
 | Session identity           | A generated ID                         | Supply a stable `session_id` or save `session.session_id`. |
-| Running processes          | One operation                          | Keep the operation open; see {doc}`operation`.             |
+| Running processes | Until the next snapshot or context exit | Choose a snapshot policy; see {doc}`lazy-session`. |
 | Server images              | Managed by the server                  | Keep required images available on that server.             |
 
 Reopening SQLite restores references to server images. It does not restore images
 that were deleted, nor restart processes from an earlier operation.
 
-## Close resources at the application boundary
+## Advanced: resource ownership
 
 Use `with` for sync clients, stores, and caches; use `async with` for async versions.
-Sessions, builders, and adapters do not close components supplied by the application.
+The sandbox closes its own client and session. It does not close supplied
+storage or other application-owned components. See {doc}`manual-sandbox` for
+explicit construction and cleanup.
 Sharing a store is supported: each `session_id` has separate history.
 
 A command with a nonzero exit code can still produce a saved image. Inspect the

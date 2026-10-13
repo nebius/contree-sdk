@@ -1,4 +1,8 @@
-# Resume a background operation
+# Advanced: resume a background operation
+
+For ordinary commands, start with {doc}`getting-started` and its sandbox factory.
+This guide exposes lower-level controls. See {doc}`manual-sandbox` for manual
+component assembly and resource ownership.
 
 Use `spawn_detached()` when a command must continue after the current Python
 process exits. The session records its UUID, source image, parent entry, branch,
@@ -23,16 +27,18 @@ doc_api.complete(stdout="saved\n")
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSession
 from contree_sdk.store import SyncSQLiteStore
 
+
 with (
-    ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     SyncSQLiteStore("session.db") as store,
 ):
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], session_id="background", store=store)
+    session = ContreeSession(client, image="tag:alpine:latest", session_id="background", store=store)
     record = session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
     operation_uuid = record.uuid
 ```
@@ -40,7 +46,7 @@ with (
 Run the next block in the process that collects the result. `wait_operation()`
 uses the session's commit policy and records completion atomically with history.
 It returns the process result, including a nonzero exit code. The consumer needs
-the same working directory and connection variables. It obtains the UUID from
+the same working directory and connection profile. It obtains the UUID from
 the store, so no Python variables from the submitting process are needed. This
 example has exactly one pending operation; applications with several operations
 must select the intended record or accept a UUID as an argument.
@@ -48,13 +54,15 @@ must select the intended record or accept a UUID as an argument.
 <!-- name: test_detached_sync -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSession
 from contree_sdk.store import SyncSQLiteStore
 
+
 with (
-    ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     SyncSQLiteStore("session.db") as store,
 ):
     session = ContreeSession(client, session_id="background", store=store)
@@ -90,16 +98,18 @@ doc_api.complete(stdout="saved\n")
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
+
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.store import AsyncSQLiteStore
 
+
 async with (
-    ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     AsyncSQLiteStore("async.db") as store,
 ):
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], session_id="background", store=store)
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="background", store=store)
     record = await session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
     operation_uuid = record.uuid
 ```
@@ -107,13 +117,15 @@ async with (
 <!-- name: test_detached_async -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
+
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.store import AsyncSQLiteStore
 
+
 async with (
-    ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     AsyncSQLiteStore("async.db") as store,
 ):
     session = ContreeAsyncSession(client, session_id="background", store=store)

@@ -11,37 +11,33 @@ it does not rerun earlier commands.
 ## Compare an experiment with its baseline
 
 This program writes a baseline, changes it on `experiment`, then returns to `main`.
-Finally, it rolls the experiment back by one entry. Use the connection variables
-from {doc}`getting-started`.
+Each `snapshot()` saves a checkpoint and stops the current VM. The example then
+rolls the experiment back by one checkpoint. Configure a connection as described
+in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
 <!--
-name: test_branches; fixtures: doc_api, capsys
+name: test_branches; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.complete()
-doc_api.download(b"candidate\n")
-doc_api.download(b"baseline\n")
-doc_api.download(b"baseline\n")
+sandbox_api.download(b"candidate\n")
+sandbox_api.download(b"baseline\n")
+sandbox_api.download(b"baseline\n")
 ```
 -->
 
 ```python
-import os
-
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
+from contree_sdk import create_sandbox_session
 
 
 def main() -> None:
-    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-        session.run(shell="echo baseline > /choice.txt", disposable=False)
+    with create_sandbox_session(image="tag:alpine:latest") as session:
+        session.run(shell="echo baseline > /choice.txt")
+        session.snapshot()
         session.create_branch("experiment")
         session.switch_branch("experiment")
-        session.run(shell="echo candidate > /choice.txt", disposable=False)
+        session.run(shell="echo candidate > /choice.txt")
+        session.snapshot()
         print("experiment:", session.read_file("/choice.txt").decode().strip())
 
         session.switch_branch("main")
@@ -57,8 +53,12 @@ main()
 <!--
 name: test_branches
 ```python
-assert [call.args[0] for call in doc_api.sync.calls_for("inspect_image_download")] == ["image-2", "image-1", "image-1"]
-assert doc_api.sync.calls_for("spawn_instance")[1].args[1] == "image-1"
+assert [call.args[0] for call in sandbox_api.sync.calls_for("inspect_image_download")] == [
+    "image-op-2",
+    "image-op-1",
+    "image-op-1",
+]
+assert sandbox_api.sync.calls_for("spawn_instance")[1].args[1] == "image-op-1"
 assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\nafter rollback: baseline\n"
 ```
 -->
@@ -68,32 +68,28 @@ assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\nafter 
 ::::{tab} Async
 
 <!--
-name: test_branches_async; fixtures: doc_api, capsys
+name: test_branches_async; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-doc_api.complete()
-doc_api.download(b"candidate\n")
-doc_api.download(b"baseline\n")
-doc_api.download(b"baseline\n")
+sandbox_api.download(b"candidate\n")
+sandbox_api.download(b"baseline\n")
+sandbox_api.download(b"baseline\n")
 ```
 -->
 
 ```python
 import asyncio
-import os
 
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 
 
 async def main() -> None:
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
-        await session.run(shell="echo baseline > /choice.txt", disposable=False)
+    async with create_sandbox_session(image="tag:alpine:latest") as session:
+        await session.run(shell="echo baseline > /choice.txt")
+        await session.snapshot()
         await session.create_branch("experiment")
         await session.switch_branch("experiment")
-        await session.run(shell="echo candidate > /choice.txt", disposable=False)
+        await session.run(shell="echo candidate > /choice.txt")
+        await session.snapshot()
         print("experiment:", (await session.read_file("/choice.txt")).decode().strip())
 
         await session.switch_branch("main")
@@ -109,12 +105,12 @@ asyncio.run(main())
 <!--
 name: test_branches_async
 ```python
-assert [call.args[0] for call in doc_api.async_client.calls_for("inspect_image_download")] == [
-    "image-2",
-    "image-1",
-    "image-1",
+assert [call.args[0] for call in sandbox_api.async_client.calls_for("inspect_image_download")] == [
+    "image-op-2",
+    "image-op-1",
+    "image-op-1",
 ]
-assert doc_api.async_client.calls_for("spawn_instance")[1].args[1] == "image-1"
+assert sandbox_api.async_client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
 assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\nafter rollback: baseline\n"
 ```
 -->
@@ -131,9 +127,15 @@ after rollback: baseline
 
 `create_branch()` creates a pointer without selecting it. `switch_branch()` selects
 that pointer and refreshes the session's current image. `rollback()` moves the
-active pointer back; it does not delete the later history entry.
+active pointer back; it does not delete later history entries or undo external
+side effects. Snapshot before switching or rolling back: these operations select
+saved filesystem images and do not modify a running VM.
 
-## Navigate recorded history
+## Advanced: navigate recorded history
+
+The following examples select `ContreeSession` or `ContreeAsyncSession` explicitly.
+Each non-disposable command produces a separate history entry.
+
 
 `history()` returns `(entries, branch_pointers)`. Each entry records its parent,
 image UUID, command title, and exit code. `branch_pointers` maps entry IDs to branch names.
@@ -182,14 +184,16 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSession
 from contree_sdk.store import SyncSQLiteStore
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     with SyncSQLiteStore("history-queries.db") as store:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], session_id="demo", store=store)
+        session = ContreeSession(client, image="tag:alpine:latest", session_id="demo", store=store)
         session.run("touch", args=["/one"], disposable=False)
         session.create_branch("checkpoint")
         session.run("touch", args=["/two"], disposable=False)
@@ -230,14 +234,16 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
+
 from contree_sdk import ContreeAsyncSession
 from contree_sdk.store import AsyncSQLiteStore
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     async with AsyncSQLiteStore("history-queries_async.db") as store:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], session_id="demo", store=store)
+        session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="demo", store=store)
         await session.run("touch", args=["/one"], disposable=False)
         await session.create_branch("checkpoint")
         await session.run("touch", args=["/two"], disposable=False)
@@ -299,6 +305,7 @@ temporary branches:
 ```python
 from contree_sdk.store import SyncSQLiteStore
 
+
 with SyncSQLiteStore("prune.db") as initial:
     root = initial.append("demo", image_uuid="base", parent_id=None)
     initial.create_branch("demo", "temporary:old")
@@ -329,6 +336,7 @@ Use a new `prune_async.db` database for this standalone example:
 
 ```python
 from contree_sdk.store import AsyncSQLiteStore
+
 
 async with AsyncSQLiteStore("prune_async.db") as initial:
     root = await initial.append("demo", image_uuid="base", parent_id=None)

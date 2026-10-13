@@ -2,7 +2,11 @@
 icon: diagram-project
 ---
 
-# Control a running sandbox
+# Advanced: control a running sandbox
+
+For ordinary commands, start with {doc}`getting-started` and its sandbox factory.
+This guide exposes lower-level controls. See {doc}`manual-sandbox` for manual
+component assembly and resource ownership.
 
 Use `run()` when you only need a completed result. Use `spawn()` to obtain an
 operation handle immediately, stream output, send input, or cancel work.
@@ -19,7 +23,7 @@ from {doc}`getting-started`.
 ## Run an additional process
 
 This program keeps a sandbox alive with `sleep`, runs `echo` inside it, and streams
-the output locally. Use the connection variables from {doc}`getting-started`.
+the output locally. Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
@@ -31,17 +35,13 @@ doc_api.subprocess()
 -->
 
 ```python
-import os
 import sys
 
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
+from contree_sdk import ContreeSession, create_sandbox_session
 
 
 def main() -> None:
-    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+    with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
         operation = session.spawn(shell="sleep 300", timeout=60)
         with operation:
             process = operation.run("echo", args=["Hello from a subprocess!"])
@@ -73,17 +73,13 @@ doc_api.subprocess()
 
 ```python
 import asyncio
-import os
 import sys
 
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
 
 async def main() -> None:
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
         operation = await session.spawn(shell="sleep 300", timeout=60)
         async with operation:
             process = await operation.run("echo", args=["Hello from a subprocess!"])
@@ -138,14 +134,12 @@ doc_api.subprocess(stdout="hello\n")
 -->
 
 ```python
-import os
 from contree_client.models import EventDataStream
 
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
+from contree_sdk import ContreeSession, create_sandbox_session
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+
+with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     operation = session.spawn(shell="echo hello")
     for event in operation.events():
         if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
@@ -175,14 +169,12 @@ doc_api.subprocess(stdout="hello\n")
 -->
 
 ```python
-import os
 from contree_client.models import EventDataStream
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+
+async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     operation = await session.spawn(shell="echo hello")
     async for event in operation.events():
         if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
@@ -250,13 +242,10 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_sdk import ContreeSession, create_sandbox_session
 
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     operation = session.spawn(shell="echo saved > /saved.txt", disposable=False)
     result = operation.wait()
     entry = session.commit_result(operation, title="Save output")
@@ -285,13 +274,10 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     operation = await session.spawn(shell="echo saved > /saved.txt", disposable=False)
     result = await operation.wait()
     entry = await session.commit_result(operation, title="Save output")
@@ -340,18 +326,16 @@ name: test_operation_input; fixtures: stdin_api
 -->
 
 ```python
-import os
 from functools import partial
 from pathlib import Path
 
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
+from contree_sdk import ContreeSession, create_sandbox_session
+
 
 # Create sample input; replace it with your own file when using this workflow.
 Path("input.bin").write_bytes(bytes(range(256)) * 1024)
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     operation = session.spawn("cat", stdin_open=True)
     with open("input.bin", "rb") as source:
         delivery = operation.pipe_stdin(iter(partial(source.read, 65536), b""))
@@ -362,6 +346,7 @@ with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTR
 name: test_operation_input
 ```python
 from pathlib import Path
+
 
 assert delivery.eof_sent
 assert delivery.bytes_sent == Path("input.bin").stat().st_size
@@ -381,11 +366,10 @@ name: async test_operation_input_async; fixtures: stdin_api
 
 ```python
 import asyncio
-import os
 from pathlib import Path
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
+
 
 # Create sample input before starting the remote process.
 Path("input.bin").write_bytes(bytes(range(256)) * 1024)
@@ -400,8 +384,7 @@ async def input_chunks():
         await asyncio.to_thread(source.close)
 
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     operation = await session.spawn("cat", stdin_open=True)
     source = input_chunks()
     try:
@@ -415,6 +398,7 @@ async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.env
 name: test_operation_input_async
 ```python
 from pathlib import Path
+
 
 assert delivery.eof_sent
 assert delivery.bytes_sent == Path("input.bin").stat().st_size
@@ -477,13 +461,15 @@ doc_api.complete()
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSession
 from contree_sdk.session import Operation
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = ContreeSession(client, image="tag:alpine:latest")
     operation = session.spawn("echo", args=["hello"])
     saved_uuid = operation.uuid
     reattached = Operation(client, saved_uuid)

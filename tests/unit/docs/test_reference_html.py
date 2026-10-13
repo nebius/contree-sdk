@@ -48,6 +48,7 @@ def reference_html(tmp_path_factory):
     ("page", "object_name"),
     [
         ("session", "contree_sdk.session.ContreeSession.run"),
+        ("sandbox", "contree_sdk.sandbox.SandboxSessionContext.__enter__"),
         ("execution", "contree_sdk.execution.AsyncExecutor.execute"),
         ("store", "contree_sdk.store.AsyncSQLiteStore.append"),
         ("docker", "contree_sdk.docker.ContreeDockerBuilder.build"),

@@ -16,7 +16,8 @@ and a complete program that prints `Hello from ConTree!`.
 | I want to…                                            | Read                               |
 | ----------------------------------------------------- | ---------------------------------- |
 | Run a command and handle its result                   | {doc}`python_sdk/running-commands` |
-| Choose Session, Operation, or LazySession             | {doc}`python_sdk/architecture`     |
+| Create a configured sync or async sandbox             | {doc}`python_sdk/sandbox-factory`  |
+| Assemble or extend the sandbox yourself (advanced) | {doc}`python_sdk/manual-sandbox` |
 | Upload inputs and download an output                  | {doc}`python_sdk/files`            |
 | Continue work after restarting Python                 | {doc}`python_sdk/sessions`         |
 | Try a change and return to a checkpoint               | {doc}`python_sdk/branching`        |
@@ -30,19 +31,21 @@ and a complete program that prints `Hello from ConTree!`.
 
 ## What persists?
 
-A **client** connects to ConTree. A **session** selects an image and records history.
-Each command starts a new **operation** from that image.
+The default sandbox reuses one VM between commands. Normal context exit and
+explicit `snapshot()` save filesystem changes. An exception discards changes
+since the last completed snapshot. The default policy also snapshots after 60
+idle seconds. Processes and memory do not survive a snapshot.
 
-By default, a command is disposable: its filesystem changes do not advance the
-session. Use `disposable=False` when the next command needs those changes.
-A session does not keep a process running between commands. Use an operation
-context when several processes must share one running sandbox. Use
-{doc}`python_sdk/lazy-session` to retain a VM between commands and save it according
-to an idle or command-count policy.
+History is in memory by default. Supply a SQLite store and a session ID to resume
+after Python exits. The store keeps references; filesystem images remain on the
+ConTree server. See {doc}`python_sdk/sessions`.
 
-Memory stores keep history in Python. SQLite stores keep history across restarts.
-Neither store contains the filesystem itself; referenced images must remain on
-ConTree. See {doc}`python_sdk/sessions` for ownership and lifetime rules.
+## Advanced control
+
+Use {doc}`python_sdk/manual-sandbox` to build the factory's components yourself.
+{doc}`python_sdk/architecture` explains the execution layers. Select an explicit
+`ContreeSession` when each command needs an independent operation, or use
+{doc}`python_sdk/operation` to manage a VM and its event stream directly.
 
 ```{toctree}
 :caption: Start here
@@ -50,7 +53,7 @@ ConTree. See {doc}`python_sdk/sessions` for ownership and lifetime rules.
 :hidden:
 
 python_sdk/getting-started
-python_sdk/architecture
+python_sdk/sandbox-factory
 python_sdk/running-commands
 python_sdk/files
 ```
@@ -71,11 +74,13 @@ python_sdk/caching
 ```
 
 ```{toctree}
-:caption: Integrate and extend
+:caption: Integrations and advanced usage
 :maxdepth: 1
 :hidden:
 
 integrations/index
+python_sdk/manual-sandbox
+python_sdk/architecture
 python_sdk/customization
 python_sdk/migration
 python_sdk/troubleshooting

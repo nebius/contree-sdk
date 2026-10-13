@@ -16,8 +16,8 @@ from {doc}`getting-started`.
 
 ## Create a small build context
 
-Use the connection variables from {doc}`getting-started`. `CONTREE_IMAGE` must
-refer to an imported image with a POSIX shell and `cat`.
+Configure a connection as described in {ref}`sandbox-connection`. Replace
+`tag:alpine:latest` below with an available image with a POSIX shell and `cat`.
 Create `build-context/Dockerfile`:
 
 ```dockerfile
@@ -35,8 +35,8 @@ Hello from a built image!
 
 ## Build and read the result
 
-Run this code from the directory containing `build-context`. The SQLite databases
-retain build history and upload-cache entries for later invocations.
+Run this code from the directory containing `build-context`. The builder uses
+in-memory history and caches by default. Open its result with the sandbox factory.
 
 ::::{tab} Sync
 
@@ -51,23 +51,21 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
-from contree_sdk.cache import SyncSQLiteCache
-from contree_sdk.docker import ContreeDockerBuilder
-from contree_sdk.store import SyncSQLiteStore
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    with SyncSQLiteStore("build-history.db") as store, SyncSQLiteCache("build-cache.db") as cache:
-        builder = ContreeDockerBuilder(client, store=store, cache=cache)
-        image_uuid = builder.build(
-            "build-context",
-            build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
-            session_id="tutorial-build",
-        )
-        session = ContreeSession(client, image=image_uuid)
-        print(session.read_file("/built.txt").decode(), end="")
+from contree_sdk import create_sandbox_session
+from contree_sdk.docker import ContreeDockerBuilder
+
+
+profile = profiles.from_env() or profiles.resolve_profile()
+with ContreeClient.from_profile(profile) as client:
+    builder = ContreeDockerBuilder(client)
+    image_uuid = builder.build("build-context", build_args={"BASE_IMAGE": "tag:alpine:latest"})
+
+with create_sandbox_session(image=image_uuid, profile=profile) as sandbox:
+    content = sandbox.read_file("/built.txt")
+    print(content.decode(), end="")
 ```
 
 <!--
@@ -75,6 +73,7 @@ name: test_build
 ```python
 assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 from pathlib import Path
+
 
 source_file = doc_api.sync.calls_for("ensure_file")[0].args[0]
 assert source_file.closed
@@ -98,23 +97,21 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
-from contree_sdk.cache import AsyncSQLiteCache
-from contree_sdk.docker import ContreeAsyncDockerBuilder
-from contree_sdk.store import AsyncSQLiteStore
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    async with AsyncSQLiteStore("build-history.db") as store, AsyncSQLiteCache("build-cache.db") as cache:
-        builder = ContreeAsyncDockerBuilder(client, store=store, cache=cache)
-        image_uuid = await builder.build(
-            "build-context",
-            build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
-            session_id="tutorial-build",
-        )
-        session = ContreeAsyncSession(client, image=image_uuid)
-        print((await session.read_file("/built.txt")).decode(), end="")
+from contree_sdk import create_sandbox_session
+from contree_sdk.docker import ContreeAsyncDockerBuilder
+
+
+profile = profiles.from_env() or profiles.resolve_profile()
+async with ContreeAsyncClient.from_profile(profile) as client:
+    builder = ContreeAsyncDockerBuilder(client)
+    image_uuid = await builder.build("build-context", build_args={"BASE_IMAGE": "tag:alpine:latest"})
+
+async with create_sandbox_session(image=image_uuid, profile=profile) as sandbox:
+    content = await sandbox.read_file("/built.txt")
+    print(content.decode(), end="")
 ```
 
 <!--
@@ -130,10 +127,11 @@ assert capsys.readouterr().out == "Hello from a built image!\n"
 ::::
 
 The output is `Hello from a built image!`. Changing `message.txt` changes the input
-hash and invalidates the dependent layer. Reusing the same store and build session
-allows an unchanged layer to be reused.
+hash and invalidates the dependent layer. The build result is a ConTree filesystem
+image. Dockerfile support is a subset listed below; this does not create a local
+Docker image.
 
-## Understand the two caches
+## Advanced: understand the two caches
 
 | Component | What it records                                           |
 | --------- | --------------------------------------------------------- |
@@ -149,7 +147,7 @@ The default build session ID derives from the context path. Supply `session_id=`
 when you need a stable identity after moving a context. Avoid concurrent builds
 that mutate the same build session.
 
-## Rebuild a multi-stage image after changing inputs
+## Advanced: rebuild a multi-stage image after changing inputs
 
 This standalone example creates `multi-context` in the current directory. Its
 first stage builds an output file. The second stage copies only that output with
@@ -168,11 +166,13 @@ for _ in range(4):
 -->
 
 ```python
-import os
 from pathlib import Path
 
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk.docker import ContreeDockerBuilder
+
 
 context = Path("multi-context")
 context.mkdir(exist_ok=True)
@@ -188,14 +188,14 @@ context.mkdir(exist_ok=True)
 (context / "message.txt").write_text("one\n")
 (context / "ignored.txt").write_text("local notes\n")
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     builder = ContreeDockerBuilder(client)
 
     def rebuild():
         events = []
         image = builder.build(
             context,
-            build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+            build_args={"BASE_IMAGE": "tag:alpine:latest"},
             session_id="multi-stage-demo",
             on_event=events.append,
         )
@@ -236,7 +236,7 @@ are not reproduced. `ENV`, `WORKDIR`, and `USER` guide build steps; pass the des
 runtime environment and working directory when executing the resulting image.
 `WORKDIR` sets a command's directory; ensure the directory exists in the image.
 
-## Observe a live build
+## Advanced: observe a live build
 
 Pass `on_event=` to receive `BuildEvent` notifications while a build runs.
 Output events arrive before RUN completes and carry raw `bytes`. Decode or format
@@ -269,21 +269,28 @@ exit codes. A cache hit emits no output and no new operation UUID.
 name: test_build_events; fixtures: doc_api, doc_build_context, capsys
 ```python
 from dataclasses import replace
+
 from contree_client.models import EventDataStream
 from tests.unit.session.lazy_clients import event
 
+
 doc_api.complete(stream=False)
-doc_api.sync.mock("follow_operation_events", [
-    replace(event("stdout"), data=EventDataStream.from_text("building\n")),
-    event("completion"),
-])
+doc_api.sync.mock(
+    "follow_operation_events",
+    [
+        replace(event("stdout"), data=EventDataStream.from_text("building\n")),
+        event("completion"),
+    ],
+)
 ```
 -->
 
 ```python
-import os
 import sys
+
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk.docker import BuildEvent, ContreeDockerBuilder
 
 
@@ -298,11 +305,11 @@ def report(event: BuildEvent) -> None:
         print(f"Step {event.step.id}: {event.step.keyword}", flush=True)
 
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     builder = ContreeDockerBuilder(client)
     image_uuid = builder.build(
         "build-context",
-        build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+        build_args={"BASE_IMAGE": "tag:alpine:latest"},
         on_event=report,
     )
 ```
@@ -323,22 +330,29 @@ assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
 name: async test_build_events_async; fixtures: doc_api, doc_build_context, capsys
 ```python
 from dataclasses import replace
+
 from contree_client.models import EventDataStream
 from tests.unit.session.lazy_clients import event
 
+
 doc_api.complete(stream=False)
-doc_api.async_client.mock("follow_operation_events", [
-    replace(event("stdout"), data=EventDataStream.from_text("building\n")),
-    event("completion"),
-])
+doc_api.async_client.mock(
+    "follow_operation_events",
+    [
+        replace(event("stdout"), data=EventDataStream.from_text("building\n")),
+        event("completion"),
+    ],
+)
 ```
 -->
 
 ```python
 import asyncio
-import os
 import sys
+
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
+
 from contree_sdk.docker import BuildEvent, ContreeAsyncDockerBuilder
 
 
@@ -351,11 +365,11 @@ async def report(event: BuildEvent) -> None:
         await asyncio.to_thread(print, f"Step {event.step.id}: {event.step.keyword}", flush=True)
 
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     builder = ContreeAsyncDockerBuilder(client)
     image_uuid = await builder.build(
         "build-context",
-        build_args={"BASE_IMAGE": os.environ["CONTREE_IMAGE"]},
+        build_args={"BASE_IMAGE": "tag:alpine:latest"},
         on_event=report,
     )
 ```

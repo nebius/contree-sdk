@@ -1,9 +1,12 @@
-# Choose an execution layer
+# Advanced: choose an execution layer
 
-Start with `ContreeSession` for independent commands that share saved files.
-Choose `LazySession` when several commands need the same running processes before
-a snapshot. Use `Operation` directly when your application must control a single
-VM, its subprocesses, and its event stream.
+Start with `create_sandbox_session` for a familiar sandbox workflow. It assembles
+a client, a history store, a base session, and a lazy wrapper. See
+{doc}`manual-sandbox` for the same assembly with explicit component ownership.
+
+Use `ContreeSession` for independent commands that share saved files.
+`LazySession` shares a running VM until a snapshot. `Operation` gives direct
+control over a single VM, its subprocesses, and its event stream.
 
 ## Execution and persistence
 

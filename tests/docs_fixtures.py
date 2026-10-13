@@ -77,6 +77,12 @@ class DocumentationAPI:
         for client in (self.sync, self.async_client):
             client.mock("inspect_image_download", data)
 
+    def command(self, stdout: str = "", exit_code: int = 0) -> None:
+        """Set the response returned for commands in a shared sandbox."""
+        self.command_result = InstanceResult(
+            state=InstanceResultState(exit_code=exit_code), stdout=StreamRepr.from_text(stdout)
+        )
+
     def subprocess(self, stdout: str = "Hello from a subprocess!\n") -> None:
         self.complete(stream=False)
         events = [
@@ -106,9 +112,12 @@ def doc_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> DocumentationAPI
     monkeypatch.setenv("CONTREE_TOKEN", "documentation-token")
     monkeypatch.setenv("CONTREE_URL", "https://contree.invalid")
     monkeypatch.setenv("CONTREE_IMAGE", "tag:tutorial-base")
+    monkeypatch.setenv("CONTREE_PROJECT", "documentation-project")
     for path, client in [
         ("contree_client.sync.ContreeClient", api.sync),
         ("contree_client.asyncio.ContreeAsyncClient", api.async_client),
+        ("contree_client.httpx.ContreeClient", api.sync),
+        ("contree_client.aiohttp.ContreeAsyncClient", api.async_client),
     ]:
         factory = Mock(return_value=client)
         factory.from_profile = Mock(return_value=client)
@@ -173,14 +182,35 @@ def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Docu
 
     doc_api.sync = LiveClient()
     doc_api.async_client = LiveAsyncClient()
+    for client in (doc_api.sync, doc_api.async_client):
+        client.mock("ensure_file", FileResponse(uuid="uploaded-file", sha256="a" * 64, size=4))
+        client.mock("operation_subprocess_stdin", None)
     for path, client in [
         ("contree_client.sync.ContreeClient", doc_api.sync),
         ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),
+        ("contree_client.httpx.ContreeClient", doc_api.sync),
+        ("contree_client.aiohttp.ContreeAsyncClient", doc_api.async_client),
     ]:
         factory = Mock(return_value=client)
         factory.from_profile = Mock(return_value=client)
         monkeypatch.setattr(path, factory)
     return doc_api
+
+
+@pytest.fixture
+def sandbox_api(lazy_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> DocumentationAPI:
+    """Replace factory transports while retaining profile resolution and SDK lifecycle."""
+    lazy_api.command("Hello from ConTree!\n")
+
+    def result(operation_id: str, spid: int) -> InstanceResult:
+        return lazy_api.command_result
+
+    async def async_result(operation_id: str, spid: int) -> InstanceResult:
+        return result(operation_id, spid)
+
+    monkeypatch.setattr(lazy_api.sync, "operation_subprocess", result)
+    monkeypatch.setattr(lazy_api.async_client, "operation_subprocess", async_result)
+    return lazy_api
 
 
 @pytest.fixture
@@ -193,6 +223,8 @@ def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Doc
     for path, client in [
         ("contree_client.sync.ContreeClient", doc_api.sync),
         ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),
+        ("contree_client.httpx.ContreeClient", doc_api.sync),
+        ("contree_client.aiohttp.ContreeAsyncClient", doc_api.async_client),
     ]:
         factory = Mock(return_value=client)
         factory.from_profile = Mock(return_value=client)
@@ -207,4 +239,5 @@ def doc_runtime_client(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatc
     factory = Mock(return_value=client)
     factory.from_profile = Mock(return_value=client)
     monkeypatch.setattr("contree_client.asyncio.ContreeAsyncClient", factory)
+    monkeypatch.setattr("contree_client.aiohttp.ContreeAsyncClient", factory)
     return client

@@ -15,9 +15,9 @@ Those pages contain the executable sync and async scenarios for the new API.
 
 | Previous API                           | Replacement                                                                                                                  |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Contree` / `ContreeSync`              | Construct a `contree_client` client, then a session.                                                                         |
+| `Contree` / `ContreeSync`              | Use `create_sandbox_session` with `with` or `async with`.                                                                         |
 | SDK image and file managers            | Use the corresponding `contree_client` methods.                                                                              |
-| Image objects and `ContreeSessionSync` | `ContreeSession` for sync code; `ContreeAsyncSession` for async code.                                                        |
+| Image objects and `ContreeSessionSync` | Use the factory defaults, or select an explicit class with `session_type`.                                                        |
 | `.run(...).wait().result`              | `session.run(...)` returns `InstanceResult`; await it in async code.                                                         |
 | SDK result wrappers                    | Read `result.state.exit_code`, `result.stdout.as_text()`, and `result.stderr.as_bytes()`. Optional fields can be `Ellipsis`. |
 | `.popen()`                             | Use `session.spawn()` and an operation context manager for subprocesses.                                                     |
@@ -25,9 +25,9 @@ Those pages contain the executable sync and async scenarios for the new API.
 
 ## Client and store ownership
 
-The application owns the client. Close it with `with` or `async with`. A session
-never closes a supplied client or store. Use matching context managers for SQLite stores and caches
-so their resources close when the work is complete.
+The sandbox factory closes the client and memory store it creates. Components
+you supply remain yours: close them with `with` or `async with`. See
+{doc}`manual-sandbox` for explicit construction and cleanup.
 
 Use `SyncMemoryStore` or `SyncSQLiteStore` with a synchronous session. Use
 `AsyncMemoryStore` or `AsyncSQLiteStore` with an asynchronous session. Install
@@ -37,7 +37,17 @@ The default memory store lasts for one process. Pass the same `session_id` and a
 SQLite store to resume a saved session. Session history contains image references;
 removing a referenced server image can make an old entry unusable.
 
-## Execution and history
+## Default sandbox execution
+
+The factory selects `LazySession` or `AsyncLazySession`. Commands share a VM;
+normal context exit saves pending files. Use `snapshot()` before reading saved
+files or changing branches. Exceptions discard changes since the last snapshot.
+Processes and memory do not survive snapshots. See {doc}`lazy-session`.
+
+## Advanced: independent operations and history
+
+Select `session_type=ContreeSession` or `ContreeAsyncSession` to retain the
+following per-operation behavior:
 
 `run()` and `spawn()` default to `disposable=True`. Pass `disposable=False` to retain
 the result image. `run()` applies the session commit policy automatically. The default

@@ -6,7 +6,81 @@ Choose a lifetime shorter than the server's upload retention period. The cache
 cannot detect uploads removed from the server before expiry; invalidate them
 explicitly when necessary.
 
-## Reuse local files across commands
+## Enable upload caching through the factory
+
+Pass a cache to the sandbox factory. These examples select `ContreeSession` or
+`ContreeAsyncSession` because startup `files=` attachments need independent
+operations. The factory constructs the cached transfer and its connection scope.
+For the default lazy sandbox, see {doc}`files` for writing files through stdin.
+
+::::{tab} Sync
+
+<!--
+name: test_factory_upload_cache; fixtures: doc_api
+```python
+doc_api.complete()
+doc_api.complete()
+```
+-->
+
+```python
+from contree_sdk import ContreeSession, create_sandbox_session
+from contree_sdk.cache import SyncMemoryCache
+
+
+with SyncMemoryCache() as cache:
+    with create_sandbox_session(image="tag:alpine:latest", session_type=ContreeSession, cache=cache) as sandbox:
+        sandbox.run("cat", args=["/input.txt"], files={"/input.txt": b"hello"})
+        sandbox.run("wc", args=["-c", "/input.txt"], files={"/input.txt": b"hello"})
+```
+
+<!--
+name: test_factory_upload_cache
+```python
+assert len(doc_api.sync.calls_for("ensure_file")) == 1
+assert len(doc_api.sync.calls_for("spawn_instance")) == 2
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_factory_upload_cache_async; fixtures: doc_api
+```python
+doc_api.complete()
+doc_api.complete()
+```
+-->
+
+```python
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
+from contree_sdk.cache import AsyncMemoryCache
+
+
+async with AsyncMemoryCache() as cache:
+    async with create_sandbox_session(
+        image="tag:alpine:latest", session_type=ContreeAsyncSession, cache=cache
+    ) as sandbox:
+        await sandbox.run("cat", args=["/input.txt"], files={"/input.txt": b"hello"})
+        await sandbox.run("wc", args=["-c", "/input.txt"], files={"/input.txt": b"hello"})
+```
+
+<!--
+name: test_factory_upload_cache_async
+```python
+assert len(doc_api.async_client.calls_for("ensure_file")) == 1
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 2
+```
+-->
+
+::::
+
+The factory's default `cache_ttl` is 60 seconds. The caller owns the supplied cache.
+Replace it with a SQLite cache to retain entries across Python restarts.
+
+## Advanced: construct a cached transfer
 
 The transfer creates a temporary copy while hashing a local file in chunks. It
 uploads that copy, so later changes to the source cannot change the bytes associated
@@ -15,7 +89,7 @@ cancellation. Concurrent misses can upload the same content more than once.
 
 This example attaches the same local input to two commands. The second command
 reuses its uploaded UUID. Each request still supplies its own destination and
-permissions. Set the environment variables described in {doc}`getting-started`.
+permissions. Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
@@ -28,9 +102,9 @@ doc_api.complete()
 -->
 
 ```python
-import os
 from pathlib import Path
 
+from contree_client import profiles
 from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSession
@@ -38,14 +112,15 @@ from contree_sdk.cache import CacheScope, SyncSQLiteCache
 from contree_sdk.files import ClientFileTransfer
 from contree_sdk.upload_cache import CachedFileTransfer
 
+
 Path("input.txt").write_text("hello")
 with (
-    ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     SyncSQLiteCache("uploads.db") as cache,
 ):
     scope = CacheScope.from_client(client, profile="work")
     transfer = CachedFileTransfer(ClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
+    session = ContreeSession(client, image="tag:alpine:latest", file_transfer=transfer)
     session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 
@@ -80,10 +155,10 @@ doc_api.complete()
 -->
 
 ```python
-import os
 import asyncio
 from pathlib import Path
 
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import ContreeAsyncSession
@@ -91,14 +166,15 @@ from contree_sdk.cache import AsyncSQLiteCache, CacheScope
 from contree_sdk.files import AsyncClientFileTransfer
 from contree_sdk.upload_cache import AsyncCachedFileTransfer
 
+
 await asyncio.to_thread(Path("input.txt").write_text, "hello")
 async with (
-    ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client,
+    ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
     AsyncSQLiteCache("uploads.db") as cache,
 ):
     scope = CacheScope.from_client(client, profile="work")
     transfer = AsyncCachedFileTransfer(AsyncClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"], file_transfer=transfer)
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", file_transfer=transfer)
     await session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     await session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 
@@ -134,7 +210,7 @@ Source records describe provenance; they do not prove that a remote upload still
 exists or that the local file still contains those bytes. Operation state belongs
 in the session store, separately from these caches.
 
-## Enumerate and invalidate cache entries
+## Advanced: enumerate and invalidate cache entries
 
 All native caches store detached JSON values. Memory and SQLite have the same
 contract. `get_entry()` distinguishes a missing entry from a stored JSON `null`.
@@ -147,6 +223,7 @@ name: test_cache_contract
 
 ```python
 from contree_sdk.cache import SyncMemoryCache
+
 
 now = [100.0]
 cache = SyncMemoryCache(clock=lambda: now[0])

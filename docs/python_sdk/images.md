@@ -17,7 +17,7 @@ from {doc}`getting-started`.
 
 ## Import a base image
 
-Set `CONTREE_TOKEN` and `CONTREE_URL` as described in {doc}`getting-started`.
+Configure the endpoint, token, and AI project as described in {ref}`sandbox-connection`.
 This example imports a BusyBox image through the Docker Hub mirror and assigns
 the ConTree tag `tutorial-base`. The registry must be reachable by the server.
 
@@ -33,12 +33,12 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
+from contree_client import profiles
 from contree_client.models import ImageImportRegistry, OperationStatus
 from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     operation_id = client.import_image(
         ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
         tag="tutorial-base",
@@ -46,7 +46,6 @@ with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTR
     response = client.wait_operation(operation_id)
     if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
         raise RuntimeError(f"Image import failed: {response.error}")
-    session = ContreeSession(client, image=response.result_image_uuid)
     print(response.result_image_uuid)
 ```
 
@@ -70,12 +69,12 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
-from contree_client.models import ImageImportRegistry, OperationStatus
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
-from contree_sdk import ContreeAsyncSession
+from contree_client.models import ImageImportRegistry, OperationStatus
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     operation_id = await client.import_image(
         ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
         tag="tutorial-base",
@@ -83,7 +82,6 @@ async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.env
     response = await client.wait_operation(operation_id)
     if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
         raise RuntimeError(f"Image import failed: {response.error}")
-    session = ContreeAsyncSession(client, image=response.result_image_uuid)
     print(response.result_image_uuid)
 ```
 
@@ -96,8 +94,8 @@ assert capsys.readouterr().out == "image-1\n"
 
 ::::
 
-After a successful import, set `CONTREE_IMAGE="tag:tutorial-base"` for the other
-guides. Registry tags and ConTree tags are separate names. Importing the same
+After a successful import, pass `image="tag:tutorial-base"` to
+`create_sandbox_session` in the other guides. Registry tags and ConTree tags are separate names. Importing the same
 registry reference later can produce a different image if the registry tag changed.
 Use an image UUID when you need to select a specific imported image.
 
@@ -105,7 +103,7 @@ The sync session resolves a tag during construction. The async session resolves 
 on first use or `ensure_ready()`. Resolving an unknown tag raises the client's
 `NotFoundError`; session construction does not automatically import it.
 
-## Tag a saved result
+## Advanced: tag a saved result
 
 A tag gives another workflow a name for an image. Assigning an existing tag moves
 it to the new image; it does not copy a session's history or defaults.
@@ -122,13 +120,14 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
-
+from contree_client import profiles
 from contree_client.sync import ContreeClient
+
 from contree_sdk import ContreeSession
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
+
+with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = ContreeSession(client, image="tag:alpine:latest")
     session.run(shell="echo ready > /ready.txt", disposable=False)
     client.update_image_tag(session.image_uuid, "prepared-base")
     print(session.image_uuid)
@@ -156,13 +155,14 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-import os
-
+from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
+
 from contree_sdk import ContreeAsyncSession
 
-async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = ContreeAsyncSession(client, image="tag:alpine:latest")
     await session.run(shell="echo ready > /ready.txt", disposable=False)
     await client.update_image_tag(session.image_uuid, "prepared-base")
     print(session.image_uuid)

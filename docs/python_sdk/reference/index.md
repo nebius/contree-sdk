@@ -8,6 +8,7 @@ belong to the separate `contree-client` package.
 :maxdepth: 1
 
 session
+sandbox
 files
 store
 docker

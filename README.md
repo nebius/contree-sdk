@@ -17,54 +17,53 @@ pip install -e ".[async]"
 
 ## Run a command
 
-You need a ConTree endpoint and token, plus an image already available on that
-endpoint. Set `CONTREE_URL`, `CONTREE_TOKEN`, and `CONTREE_IMAGE` to your values.
-The image must contain `echo`.
+Configure the endpoint, token, and AI project using the
+[connection guide](docs/python_sdk/sandbox-factory.md#select-a-connection-source).
+Replace `tag:alpine:latest` with an image available on your endpoint.
 
-<!--
-name: test_readme; fixtures: doc_api, capsys
-```python
-doc_api.complete(stdout="Hello from ConTree!\n")
-```
--->
+<!-- name: test_readme; fixtures: sandbox_api, capsys -->
 
 ```python
-import os
-from contree_client.models import StreamRepr
-from contree_client.sync import ContreeClient
-from contree_sdk import ContreeSession
+from contree_sdk import create_sandbox_session
 
-with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-    session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-    result = session.run("echo", args=["Hello from ConTree!"])
-    if isinstance(result.stdout, StreamRepr):
+
+def main() -> None:
+    with create_sandbox_session(image="tag:alpine:latest") as sandbox:
+        result = sandbox.run("echo", args=["Hello from ConTree!"])
         print(result.stdout.as_text(), end="")
+
+
+main()
 ```
 
 <!--
 name: test_readme
 ```python
 assert capsys.readouterr().out == "Hello from ConTree!\n"
-assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is True
+assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
+assert len(sandbox_api.sync.calls_for("operation_subprocess_kill")) == 1
 ```
 -->
 
-The program prints `Hello from ConTree!`. Commands are disposable by default.
-Pass `disposable=False` to retain filesystem changes for the next command.
+Commands share a VM until a snapshot. Normal context exit saves pending filesystem
+changes. Snapshots preserve files; running processes and memory do not survive.
+See [manual assembly](docs/python_sdk/manual-sandbox.md) when you need direct
+control over the components the factory supplies.
 
 ## Follow a workflow
 
-| Task                                             | Guide                                               |
-| ------------------------------------------------ | --------------------------------------------------- |
-| Configure credentials and use sync or async code | [First command](docs/python_sdk/getting-started.md) |
-| Upload inputs and download results               | [Files](docs/python_sdk/files.md)                   |
-| Continue after restarting Python                 | [Save and resume](docs/python_sdk/sessions.md)      |
-| Try alternatives from a checkpoint               | [Branches](docs/python_sdk/branching.md)            |
-| Control a running sandbox                        | [Operations](docs/python_sdk/operation.md)          |
-| Build from a Dockerfile                          | [Image builds](docs/python_sdk/building-images.md)  |
-| Connect deepagents                               | [Agent integration](docs/integrations/langchain.md) |
-| Override policy or replace components            | [Customization](docs/python_sdk/customization.md)   |
-| Upgrade from the old SDK                         | [Migration](docs/python_sdk/migration.md)           |
+| Task                                             | Guide                                                   |
+| ------------------------------------------------ | ------------------------------------------------------- |
+| Configure credentials and use sync or async code | [First command](docs/python_sdk/getting-started.md)     |
+| Create a configured sandbox                      | [Sandbox factories](docs/python_sdk/sandbox-factory.md) |
+| Upload inputs and download results               | [Files](docs/python_sdk/files.md)                       |
+| Continue after restarting Python                 | [Save and resume](docs/python_sdk/sessions.md)          |
+| Try alternatives from a checkpoint               | [Branches](docs/python_sdk/branching.md)                |
+| Control a running sandbox                        | [Operations](docs/python_sdk/operation.md)              |
+| Build from a Dockerfile                          | [Image builds](docs/python_sdk/building-images.md)      |
+| Connect deepagents                               | [Agent integration](docs/integrations/langchain.md)     |
+| Override policy or replace components            | [Customization](docs/python_sdk/customization.md)       |
+| Upgrade from the old SDK                         | [Migration](docs/python_sdk/migration.md)               |
 
 The [documentation](https://docs.contree.dev/sdk/) includes API references and
 failure-handling examples. The mini-swe-agent 2.4.6 bundled adapter needs a port

@@ -4,115 +4,28 @@ icon: hand-wave
 
 # Run your first command
 
-This guide runs `echo` in a remote sandbox and prints its output locally.
-You need Python 3.10–3.14, a ConTree endpoint and token, and an image available
-on that endpoint. The image must contain `echo`; later examples also need a POSIX shell.
+Create a sandbox, execute a command, and print its output. The SDK loads your
+connection from environment variables or a saved profile by default.
 
-## Install the SDK
+## Create a sandbox
 
-These guides describe the breaking 0.5 development API. Run the installation
-commands from the root of this repository checkout. A published 0.4 package
-does not provide this API.
-
-For synchronous programs:
-
-```bash
-pip install -e .
-```
-
-For asynchronous programs, including async SQLite storage:
-
-```bash
-pip install -e ".[async]"
-```
-
-## Configure the connection and image
-
-Set the values supplied for your ConTree deployment:
-
-```bash
-export CONTREE_URL="https://your-contree-endpoint"
-export CONTREE_TOKEN="your-token"
-export CONTREE_IMAGE="tag:your-existing-image"
-```
-
-`CONTREE_IMAGE` is an environment variable used by these examples. It can contain
-an existing image UUID or tag. Setting it does not import an image. If you need a
-base image, follow {doc}`images` first.
-
-The programs below pass the token and URL explicitly to `contree-client`.
-They do not require the ConTree CLI or a saved profile.
-
-## Run the program
-
-Choose one version and save it as `first_command.py`. Run `python first_command.py`.
-
-::::{tab} Sync
-
-<!--
-name: test_first_command; fixtures: doc_api, capsys
-```python
-doc_api.complete(stdout="Hello from ConTree!\n")
-```
--->
-
-```python
-import os
-
-from contree_client.models import StreamRepr
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
-
-
-def main() -> None:
-    with ContreeClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeSession(client, image=os.environ["CONTREE_IMAGE"])
-        result = session.run("echo", args=["Hello from ConTree!"])
-        if isinstance(result.stdout, StreamRepr):
-            print(result.stdout.as_text(), end="")
-
-
-main()
-```
-
-<!--
-name: test_first_command
-```python
-assert doc_api.sync.calls_for("spawn_instance")[0].args == ("echo", "base-image")
-assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["args"] == ["Hello from ConTree!"]
-assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is True
-assert capsys.readouterr().out == "Hello from ConTree!\n"
-```
--->
-
-::::
+Save either program as `first_command.py` and run it with Python. Both programs
+print `Hello from ConTree!` and save pending work when the context exits.
 
 ::::{tab} Async
 
-<!--
-name: test_first_command_async; fixtures: doc_api, capsys
-```python
-doc_api.complete(stdout="Hello from ConTree!\n")
-```
--->
+<!-- name: test_first_command_async; fixtures: sandbox_api, capsys -->
 
 ```python
 import asyncio
-import os
 
-from contree_client.asyncio import ContreeAsyncClient
-from contree_client.models import StreamRepr
-
-from contree_sdk import ContreeAsyncSession
+from contree_sdk import create_sandbox_session
 
 
 async def main() -> None:
-    async with ContreeAsyncClient(token=os.environ["CONTREE_TOKEN"], base_url=os.environ["CONTREE_URL"]) as client:
-        session = ContreeAsyncSession(client, image=os.environ["CONTREE_IMAGE"])
+    async with create_sandbox_session(image="tag:alpine:latest") as session:
         result = await session.run("echo", args=["Hello from ConTree!"])
-        if isinstance(result.stdout, StreamRepr):
-            print(result.stdout.as_text(), end="")
+        print(result.stdout.as_text(), end="")
 
 
 asyncio.run(main())
@@ -121,43 +34,104 @@ asyncio.run(main())
 <!--
 name: test_first_command_async
 ```python
-assert doc_api.async_client.calls_for("spawn_instance")[0].args == ("echo", "base-image")
-assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["args"] == ["Hello from ConTree!"]
-assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is True
+assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
+assert sandbox_api.async_client.calls_for("operation_subprocess_create")[0].args[1] == "echo"
 assert capsys.readouterr().out == "Hello from ConTree!\n"
 ```
 -->
 
 ::::
 
-Expected output:
+::::{tab} Sync
 
-```text
-Hello from ConTree!
+<!-- name: test_first_command; fixtures: sandbox_api, capsys -->
+
+```python
+from contree_sdk import create_sandbox_session
+
+
+def main() -> None:
+    with create_sandbox_session(image="tag:alpine:latest") as session:
+        result = session.run("echo", args=["Hello from ConTree!"])
+        print(result.stdout.as_text(), end="")
+
+
+main()
 ```
 
-The client context closes the connection. The session selects the starting image.
-`run()` starts a command, waits for it, and returns an `InstanceResult`.
-`StreamRepr.as_text()` decodes stdout for display.
+<!--
+name: test_first_command
+```python
+assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
+assert sandbox_api.sync.calls_for("operation_subprocess_create")[0].args[1] == "echo"
+assert capsys.readouterr().out == "Hello from ConTree!\n"
+```
+-->
 
-The synchronous session resolves its image during construction. The async session
-loads its state on first use; call `await session.ensure_ready()` if you need
-`image_uuid` before running anything.
+::::
 
-## Keep a command's filesystem changes
+The image tag must already exist on your endpoint and provide `sleep` and `echo`.
+Replace `tag:alpine:latest` with an available tag or image UUID; the factory does
+not import it. See {doc}`images` if you need to prepare a base image.
 
-`run()` defaults to `disposable=True`. Use `disposable=False` when a command creates
-files or installs packages that the next command needs. Continue with {doc}`files`
-for a complete upload–run–download example, or {doc}`sessions` to resume work later.
+## Configuration
 
-## Use a saved profile instead
+Configure the endpoint, token, and **AI project** using the
+{ref}`connection guide <sandbox-connection>`. It lists the supported environment
+variables, Profile fields, INI format, and source precedence. A token and URL
+without the project are not a complete working configuration.
 
-If you already configured the ConTree CLI, replace client construction with
-`ContreeClient.from_profile()` or `ContreeAsyncClient.from_profile()`.
-An explicit profile name takes precedence over `CONTREE_PROFILE`, then the active
-profile in the configuration file. Setting `CONTREE_TOKEN` and `CONTREE_URL` alone
-does not select a saved profile.
+You can also pass credentials directly. These arguments create a regular
+`contree-client` Profile inside the factory:
 
-For environment-based profile loading, `contree_client.profiles.from_env()` returns
-a `Profile` when both a token and URL are present. Pass that object to
-`from_profile(profile)`. See {doc}`troubleshooting` if configuration fails.
+<!-- name: test_first_command_direct; fixtures: sandbox_api -->
+
+```python
+from contree_sdk import create_sync_sandbox_session
+
+
+with create_sync_sandbox_session(
+    image="tag:alpine:latest",
+    url="https://contree.example.com",
+    token="your-token",
+    project="your-ai-project",
+    auth_type="iam",
+) as session:
+    session.run("echo", args=["Hello from ConTree!"])
+```
+
+Use `auth_type="jwt"` for JWT credentials. To reuse an existing Profile object or
+name, pass `profile=profile` instead of the four credential arguments. An explicit
+INI file is selected with `config_path="config.ini"`; omitting it uses the client's
+standard paths. The factory rejects a profile combined with direct credentials.
+
+## Install the SDK
+
+These guides describe the breaking **0.5 development API** and require Python
+3.10–3.14. Run the installation command from this repository checkout; the
+published 0.4 package does not provide the new API.
+
+```bash
+pip install -e ".[async]"
+```
+
+For synchronous programs only, `pip install -e .` is sufficient.
+
+## Keep and reuse work
+
+The default session is `AsyncLazySession` or `LazySession`. The first command
+starts a VM; later commands reuse it until a snapshot. Normal context exit saves
+pending filesystem changes. An exception or cancellation discards changes since
+the last completed snapshot.
+
+The default policy snapshots after 60 idle seconds. Files survive a snapshot;
+processes and memory do not. Local history uses a memory store by default. Supply
+`storage` and `session_id` to resume a session later.
+
+Continue with {doc}`sandbox-factory` for all factory parameters, explicit session
+classes, cache/storage options, and ownership rules. See {doc}`lazy-session` for
+snapshot policies and live file limitations, or {doc}`sessions` and
+{doc}`branching` for persistent history and branches.
+
+For advanced use, {doc}`manual-sandbox` shows how to construct and own each
+component yourself. Start there before implementing a custom factory.
