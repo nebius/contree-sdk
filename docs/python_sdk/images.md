@@ -121,17 +121,54 @@ The import supplies a filesystem. It does not start the registry image's `CMD`
 or `ENTRYPOINT`, and it does not apply its `WORKDIR`. Select the command and
 working directory when running the sandbox.
 
+## Write a Docker URL
+
+Pass the registry source as the first argument to `sync_import_image` or
+`async_import_image`. A full URL has this form:
+
+```text
+docker://<registry>[:<port>]/<repository>:<tag>
+```
+
+Replace the angle-bracket placeholders; the port is optional. The repository
+includes its namespace, such as `library/alpine` or `my-team/my-app`.
+
+| Source URL | Meaning |
+| ---------- | ------- |
+| `docker://docker.io/library/alpine:latest` | Official Alpine image on Docker Hub. |
+| `docker://mirror.gcr.io/library/alpine:latest` | The mirror used in the example above. |
+| `docker://ghcr.io/my-team/my-app:v1` | An organization's image on GitHub Container Registry. |
+| `docker://registry.example.com:5000/my-team/my-app:v1` | A registry with an explicit port. Replace the host and repository. |
+
+For Docker Hub official images, use the `library/` namespace. Keep the
+`docker://` prefix when writing a full source URL; do not replace it with
+`https://` or a registry's web page URL.
+
+To select an exact registry manifest, replace `:<tag>` with
+`@sha256:<64-hex-digit-digest>`. Copy the complete digest from the registry.
+See the [Docker transport reference](https://github.com/containers/image/blob/main/docs/containers-transports.5.md#dockerdocker-reference)
+for the underlying syntax.
+
+String arguments also accept short names. The SDK expands `alpine` to
+`docker://docker.io/library/alpine:latest`, `alpine:3.22` to
+`docker://docker.io/library/alpine:3.22`, and `my-team/my-app:v1` to
+`docker://docker.io/my-team/my-app:v1`. A string that starts with `docker://`
+is passed through unchanged, so use the complete form shown above.
+
+The source tag selects the registry image to import. The helper's `tag=` argument
+assigns a separate ConTree tag to the result; these names can differ.
+For private registries, pass credentials through `ImageImportRegistry` as
+described under Configuration below.
+
 ## Reuse the imported image
+
+Pass either of these references to `create_sandbox_session(image=...)`:
 
 | Reference                                      | Use                                                            |
 | ---------------------------------------------- | -------------------------------------------------------------- |
-| `docker://mirror.gcr.io/library/alpine:latest` | Registry source passed to an import helper.                    |
 | `tag:alpine:latest`                            | ConTree tag passed to the sandbox factory.                     |
 | The returned image UUID                        | The specific imported filesystem, even if its tag later moves. |
 
-Registry sources such as `docker://mirror.gcr.io/library/alpine:latest` belong in
-an import helper. They cannot be used as ConTree image references in
-`create_sandbox_session(image=...)`. Pass the returned UUID or a ConTree tag instead.
 The factory does not import missing images; an unknown tag raises `NotFoundError`.
 
 Dockerfile `FROM` has separate behavior: the builder imports a missing base image
