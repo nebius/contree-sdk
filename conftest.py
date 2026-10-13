@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 
-pytest_plugins = ["tests.docs_fixtures"]
+pytest_plugins = ["tests.docs_fixtures", "tests.typing_plugin"]
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
