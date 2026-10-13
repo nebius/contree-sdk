@@ -5,8 +5,18 @@ icon: file-code
 # Build a Docker image
 
 Use `sync_build_image` or `async_build_image` when your setup lives in a Dockerfile.
-Each helper runs build steps on ConTree and returns an image UUID for a sandbox.
-You do not need a local Docker daemon.
+You need a Dockerfile, any local files referenced by `COPY` or `ADD`, and a
+configured ConTree connection. No Docker installation, Docker daemon, or Docker API
+access is required.
+
+The SDK translates supported Dockerfile instructions into ConTree image layers
+and executes build commands on ConTree. The result is a ConTree filesystem image
+UUID that you can pass to `create_sandbox_session`.
+
+Build caching is enabled by default. Later builds reuse layers whose instructions
+and inputs have not changed. If you change an instruction, a source file, or the
+base image, the SDK rebuilds the affected layers. You do not need to rebuild
+unchanged layers each time you start your application.
 
 ## Create a small build context
 
