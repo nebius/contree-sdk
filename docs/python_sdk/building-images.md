@@ -24,8 +24,11 @@ unchanged layers each time you start your application.
 
 ## Create a small build context
 
-Configure a connection as described in {ref}`sandbox-connection`. The builder
-resolves `alpine:latest` in ConTree, or imports it from Docker Hub if it is missing.
+Configure a connection as described in {ref}`sandbox-connection`. For
+`FROM alpine:latest`, the builder first resolves the image in ConTree. If it is
+missing, the builder imports it from Docker Hub. This fallback belongs to
+Dockerfile builds; `create_sandbox_session` requires an existing ConTree image.
+
 Create `build-context/Dockerfile`:
 
 ```dockerfile
@@ -153,6 +156,15 @@ runtime environment and working directory when executing the resulting image.
 
 ### Persistent cache
 
+`session_id` selects the build's cached layer history in the Store. Within that
+history, each layer is identified by a hash of its instruction, inputs, and
+preceding state. Reusing a session ID lets later builds find matching layers;
+changing it starts a separate build history.
+
+The default ID derives from the context path and connection scope. Supply a
+stable `session_id=` to keep the same build history after moving the context.
+Avoid concurrent builds that mutate the same build session.
+
 | Component  | What it records                                           |
 | ---------- | --------------------------------------------------------- |
 | `storage=` | History and branch pointers used to reuse built layers.   |
@@ -165,124 +177,8 @@ Keep referenced images and uploaded files
 available on the server. `no_cache=True` disables layer reuse; it does not force
 identical file content to be uploaded again.
 
-The default build session ID derives from the context path and connection scope. Supply `session_id=`
-when you need a stable identity after moving a context. Avoid concurrent builds
-that mutate the same build session.
-
-(shared-image-client)=
-
-### Share one client
-
-For a workflow with several operations, initialize a client once. Pass it through
-`client=` as a dependency to the import helper, build helper, and sandbox factory.
-This reuses the connection and gives your application one place to configure it.
-Each operation leaves this client open; the outer context closes it.
-
-The following programs import the base under the `alpine:latest` ConTree tag,
-build the context above, and read its result. The Dockerfile's `FROM alpine:latest`
-then resolves that imported image.
-
-::::{tab} Sync
-
-<!--
-name: test_shared_client_sync; fixtures: doc_api, doc_build_context, capsys
-```python
-doc_api.complete()
-doc_api.download(b"Hello from a built image!\n")
-for client in (doc_api.sync, doc_api.async_client):
-    client.mock("import_image", "operation-1")
-    client.mock("resolve_image", "image-1")
-```
--->
-
-```python
-"""Reuse one client for import, build, and sandbox operations."""
-
-from contree_client import profiles
-from contree_client.sync import ContreeClient
-
-from contree_sdk import create_sandbox_session, sync_build_image, sync_import_image
-
-
-def main() -> None:
-    profile = profiles.from_env() or profiles.resolve_profile()
-    with ContreeClient.from_profile(profile) as client:
-        sync_import_image(
-            "docker://mirror.gcr.io/library/alpine:latest",
-            tag="alpine:latest",
-            client=client,
-        )
-        image = sync_build_image("build-context", client=client)
-        with create_sandbox_session(image=image, client=client) as sandbox:
-            content = sandbox.read_file("/built.txt")
-            print(content.decode(), end="")
-
-
-main()
-```
-
-<!--
-name: test_shared_client_sync
-```python
-assert len(doc_api.sync.calls_for("import_image")) == 1
-assert len(doc_api.sync.calls_for("spawn_instance")) == 1
-assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
-```
--->
-
-::::
-
-::::{tab} Async
-
-<!--
-name: test_shared_client_async; fixtures: doc_api, doc_build_context, capsys
-```python
-doc_api.complete()
-doc_api.download(b"Hello from a built image!\n")
-for client in (doc_api.sync, doc_api.async_client):
-    client.mock("import_image", "operation-1")
-    client.mock("resolve_image", "image-1")
-```
--->
-
-```python
-import asyncio
-
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import create_sandbox_session, async_build_image, async_import_image
-
-
-async def main() -> None:
-    profile = profiles.from_env() or profiles.resolve_profile()
-    async with ContreeAsyncClient.from_profile(profile) as client:
-        await async_import_image(
-            "docker://mirror.gcr.io/library/alpine:latest",
-            tag="alpine:latest",
-            client=client,
-        )
-        image = await async_build_image("build-context", client=client)
-        async with create_sandbox_session(image=image, client=client) as sandbox:
-            content = await sandbox.read_file("/built.txt")
-            print(content.decode(), end="")
-
-
-asyncio.run(main())
-```
-
-<!--
-name: test_shared_client_async
-```python
-assert len(doc_api.async_client.calls_for("import_image")) == 1
-assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
-assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
-```
--->
-
-::::
+For a workflow that imports, builds, and runs with one connection, see
+{ref}`shared-image-client` in {doc}`advanced`.
 
 Continue with {doc}`advanced` to select components, manage them directly,
 or observe individual build steps.

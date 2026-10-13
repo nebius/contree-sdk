@@ -1,16 +1,9 @@
-# Advanced: adapt the SDK to your application
+# Customize the SDK
 
-For ordinary commands, start with {doc}`getting-started` and its sandbox factory.
-This guide exposes lower-level controls. See {doc}`manual-sandbox` for manual
-component assembly and resource ownership.
-
-Start with the smallest change your application needs. For example, add a default
-timeout in `prepare_request()` before replacing operation handling.
-Use a public contract when replacing a component. Subclass a built-in implementation
-when changing one policy or lifecycle step. All imports in the examples below are
-public SDK imports. HTTP transports remain a separate `contree-client` concern.
-See {doc}`architecture` for layer ownership and backend compatibility before
-replacing a component.
+Subclass a session to change command defaults, image resolution, or operation
+handling. To replace storage or file transfer, implement the matching sync or
+async interface and pass it to the sandbox factory. See {doc}`manual-sandbox`
+if you also need to manage component construction and cleanup.
 
 ## Customize command policy and operations
 
@@ -19,8 +12,7 @@ mapping are copied at construction. Files and stdin remain caller-owned resource
 Use `dataclasses.replace()` to apply policy without mutating the caller's request.
 
 This example rejects shell commands, applies a default timeout, and counts waits.
-It uses the connection described in {ref}`sandbox-connection`. The complete code
-includes both the session policy and its operation implementation.
+Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
 
@@ -34,11 +26,9 @@ doc_api.complete()
 ```python
 from dataclasses import replace
 
-from contree_client import profiles
 from contree_client.models import InstanceResult, InstanceSpawnResponse
-from contree_client.sync import ContreeClient
 
-from contree_sdk import ContreeSession, OperationContext, RunRequest
+from contree_sdk import ContreeSession, OperationContext, RunRequest, create_sandbox_session
 from contree_sdk.session import Operation, OperationContract
 
 
@@ -63,12 +53,12 @@ class PolicySession(ContreeSession):
         return AuditedOperation(self.client, response.uuid, timeout=context.request.timeout_seconds, context=context)
 
 
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    session = PolicySession(client, image="tag:alpine:latest")
-    operation = session.spawn("echo", args=["hello"])
-    result = operation.wait()
-    assert isinstance(operation, AuditedOperation)
-    print(operation.waits)
+with create_sandbox_session(session_type=PolicySession, image="tag:alpine:latest") as session:
+    with session.spawn("echo", args=["hello"]) as operation:
+        result = operation.wait()
+        session.commit_result(operation)
+        assert isinstance(operation, AuditedOperation)
+        print(operation.waits)
 ```
 
 <!--
@@ -101,11 +91,9 @@ doc_api.complete()
 ```python
 from dataclasses import replace
 
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
 from contree_client.models import InstanceResult, InstanceSpawnResponse
 
-from contree_sdk import ContreeAsyncSession, OperationContext, RunRequest
+from contree_sdk import ContreeAsyncSession, OperationContext, RunRequest, create_sandbox_session
 from contree_sdk.session import AsyncOperation, AsyncOperationContract
 
 
@@ -132,12 +120,12 @@ class PolicySession(ContreeAsyncSession):
         )
 
 
-async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    session = PolicySession(client, image="tag:alpine:latest")
-    operation = await session.spawn("echo", args=["hello"])
-    result = await operation.wait()
-    assert isinstance(operation, AuditedAsyncOperation)
-    print(operation.waits)
+async with create_sandbox_session(session_type=PolicySession, image="tag:alpine:latest") as session:
+    async with await session.spawn("echo", args=["hello"]) as operation:
+        result = await operation.wait()
+        await session.commit_result(operation)
+        assert isinstance(operation, AuditedAsyncOperation)
+        print(operation.waits)
 ```
 
 <!--
@@ -158,48 +146,38 @@ assert capsys.readouterr().out == "1\n"
 
 ::::
 
-The execution order is:
-
-1. Construct a `RunRequest` from `run()` or `spawn()` arguments, or pass it to `execute()` directly.
-2. Load session state. The synchronous session initializes in its constructor; the async session initializes on first use.
-3. Call `prepare_request()` before uploads or command submission.
-4. Capture the source image, history entry, and branch. Load pending attachments from that entry, then overlay explicit files and prepare stdin through the file-transfer component.
-5. Call `submit_request()` with the effective request and prepared inputs.
-6. Call `create_operation()`. Bind its `OperationContext` to the effective request and source history position.
-7. For `execute()` or an awaited `run()`, wait for completion and commit the effective request when `disposable=False`.
-
-A policy can change persistence, timeout, environment, or other request fields.
-History uses the effective request, not the original arguments. A custom operation
-factory must return the matching lifecycle contract. If that factory fails after
-submission, the session attempts remote cancellation and preserves the factory error.
+The session calls `prepare_request()` before uploading files or submitting work.
+It passes the prepared inputs to `submit_request()`, then constructs the handle
+through `create_operation()`. The `OperationContext` holds the effective request
+and the source image, history entry, and branch used for the eventual commit.
+If operation construction fails after submission, the session attempts remote
+cancellation and preserves the factory error.
 
 `create_store()` and `create_file_transfer()` supply defaults only when no component
 was passed explicitly. Constructor-time factories must not depend on attributes
 that a subclass initializes after `super().__init__()`.
 
-## Choose an extension boundary
+## Choose what to override
 
-| Requirement                                | Extension boundary                                             | Consumer                                                      |
-| ------------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------- |
-| Add command defaults or reject commands    | Override `prepare_request(RunRequest)`                         | Session `run`, `execute`, and `spawn`                         |
-| Resolve images from another naming scheme  | Override `resolve_image(image)`                                | Session initialization                                        |
-| Modify transport submission                | Override `submit_request(...)`                                 | Session `spawn_request`                                       |
-| Instrument or replace operation lifecycle  | Override `create_operation(response, context)`                 | Session `spawn_request`                                       |
-| Replace subprocess handles                 | Override `Operation.create_subprocess(spid, queue)`            | Operation `run`                                               |
-| Replace the event source                   | Override `Operation.open_event_stream()`                       | One source shared by events, waits, and subprocesses          |
-| Observe operation events                   | Register `add_observer()` before starting the reader           | Lifecycle notifications without a second stream               |
-| Upload from another storage service        | Implement `SyncFileTransfer` or `AsyncFileTransfer`            | Session `file_transfer=`                                      |
-| Store history remotely                     | Implement `SyncStore` or `AsyncStore`                          | Session and builder `store=`                                  |
-| Replace build caching                      | Implement `SyncCache` or `AsyncCache`                          | Builder `cache=`                                              |
-| Add or replace Dockerfile instructions     | Register a `DockerKeyword` with `DockerfileParser`             | Builder `parser=`                                             |
-| Use a session subclass inside builds       | Pass `session_factory=`                                        | Fresh builds and cache hits                                   |
-| Add per-build state                        | Set `context_class` or override `create_context(BuildRequest)` | Builder `build`                                               |
-| Audit or restrict build instructions       | Override `execute_directive(directive, context)`               | Parsed directives, stage sealing, and final pending-file step |
-| Use another execution engine in deepagents | Implement `SyncExecutor` or `AsyncExecutor`                    | Sandbox adapters                                              |
+| Requirement                                | Extension boundary                                             |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| Add command defaults or reject commands    | Override `prepare_request(RunRequest)`                         |
+| Resolve images from another naming scheme  | Override `resolve_image(image)`                                |
+| Modify transport submission                | Override `submit_request(...)`                                 |
+| Instrument or replace operation lifecycle  | Override `create_operation(response, context)`                 |
+| Replace subprocess handles                 | Override `Operation.create_subprocess(spid, queue)`            |
+| Replace the event source                   | Override `Operation.open_event_stream()`                       |
+| Observe operation events                   | Register `add_observer()` before starting the reader           |
+| Upload from another storage service        | Implement `SyncFileTransfer` or `AsyncFileTransfer`            |
+| Store history remotely                     | Implement `SyncStore` or `AsyncStore`                          |
+| Replace build caching                      | Implement `SyncCache` or `AsyncCache`                          |
+| Add or replace Dockerfile instructions     | Register a `DockerKeyword` with `DockerfileParser`             |
+| Use a session subclass inside builds       | Pass `session_factory=`                                        |
+| Add per-build state                        | Set `context_class` or override `create_context(BuildRequest)` |
+| Audit or restrict build instructions       | Override `execute_directive(directive, context)`               |
+| Use another execution engine in deepagents | Implement `SyncExecutor` or `AsyncExecutor`                    |
 
-Sync methods stay synchronous. Async methods perform native asynchronous I/O.
-There is no hidden event loop bridging between the contracts. Keep async overrides
-nonblocking, or explicitly offload local blocking work when necessary.
+Use native async I/O in async overrides; offload blocking work explicitly.
 
 ## Implement file transfer
 
@@ -252,6 +230,23 @@ track the committed entry, and completing a registered operation must update its
 record, history, and branch in one transaction. Repeated completion must reuse the
 first saved outcome. See {doc}`detached-operations` for custom-store requirements.
 
+### Persist staged attachments in a custom store
+
+`append()` must save `attachments` and `applied_files` in the same transaction as
+the history entry and branch pointer. `get_entry()` and `read_session()` must
+restore both fields. `HistoryEntry.files` remains an informational list of paths;
+it does not control staging consumption.
+
+The default `stage_files()` uses `read_session()` and a conditional `append()`.
+It creates a history entry with the same image as its parent. The default
+`pending_files()` walks the selected ancestry through `HistorySnapshot`.
+For each destination, the newest attachment replaces older versions. An applied
+path hides earlier attachments on that ancestry. Attachments added on the same
+entry as an applied path remain pending; consumption applies to its ancestors.
+
+Deleting a session must also remove its attachment and consumption records.
+See {doc}`files` for executable staging and rollback examples.
+
 ## Implement cache storage
 
 Cache implementations inherit `SyncCache` or `AsyncCache`. `get()` returns `None`
@@ -273,6 +268,7 @@ The framework adapters depend only on `SyncExecutor` or `AsyncExecutor`:
 
 - `session_id` identifies the execution context.
 - `execute(RunRequest)` returns `contree_client.models.InstanceResult`.
+- `write_file(path, content)` writes bytes and returns `None` after application.
 - `read_file(path)` returns bytes; use client `NotFoundError` or
   `UnprocessableEntityError` for missing or invalid paths.
 
@@ -286,13 +282,22 @@ The adapters never access a concrete session's client, store, or history interna
 They do not close the executor. The async adapter requires native async methods;
 its sync entry points raise `NotImplementedError`.
 
-The executor interface alone does not guarantee file-transfer compatibility.
-Uploads require `execute(RunRequest(files=...))`; LazySession
-rejects command-time attachments. Its `read_file` rejects active work: the caller
-must first snapshot and stop the VM. Use a regular Session for agent workflows
-that need both upload and download, or implement an executor with explicit live
-transfer semantics. The compatibility table in {doc}`architecture` lists these
-differences.
+`write_file()` has a default implementation using shell execution and binary
+`RunRequest.stdin`. Existing executors inherit it. Override this method to replace
+the transfer mechanism; adapters do not construct upload commands themselves.
+A failed write raises `FileWriteError(path, message)`. Transport errors, timeouts,
+and cancellation must propagate unchanged.
+
+A write must apply the content before returning. Uploading a blob or staging files
+for a later command is not sufficient. A native transfer implementation must also
+coordinate with VM startup, active commands, and snapshots. Keep the VM selected
+for the transfer until the backend confirms application.
+
+Blob upload and application to a VM are separate operations. A future backend
+implementation can reuse uploaded blobs here without changing framework calls.
+Archive extraction needs explicit extraction semantics; `write_file` always means
+writing the supplied bytes, even when those bytes contain an archive.
+See [File transfers and executor contracts](../integrations/langchain.md#advanced-file-transfers-and-executor-contracts).
 
 ## Extend Dockerfile builds
 
@@ -435,10 +440,6 @@ It delegates request policy and operation creation to the wrapped session. Overr
 `keepalive_request()` on the lazy wrapper to use another main process. See
 {doc}`reference/session` for the public snapshot-policy interface.
 
-The public factory hooks support independent contract implementations. The supplied subprocess event queue is part of that factory signature. Other
-internal queue management, worker threads, SQLite schemas, and helper module layouts
-are implementation details; override the documented methods instead of changing those details.
-
 ## Resolve application-specific image names
 
 A sync override runs during session construction. An async override runs during
@@ -502,24 +503,6 @@ assert session.client.calls_for("resolve_image") == []
 -->
 
 ::::
-
-### Persist staged attachments in a custom store
-
-`append()` must save `attachments` and `applied_files` in the same transaction as
-the history entry and branch pointer. `get_entry()` and `read_session()` must
-restore both fields. `HistoryEntry.files` remains an informational list of paths;
-it does not control staging consumption.
-
-The default `stage_files()` uses `read_session()` and a conditional `append()`.
-It creates a history entry with the same image as its parent. The default
-`pending_files()` walks the selected ancestry through `HistorySnapshot`.
-For each destination, the newest attachment replaces older versions. An applied
-path hides earlier attachments on that ancestry. Attachments added on the same
-entry as an applied path remain pending; consumption applies to its ancestors.
-
-Deleting a session must also remove its attachment and consumption records.
-Native SQLite stores use additional v1 tables and retain existing v1 history.
-See {doc}`files` for executable staging and rollback examples.
 
 ## Select a commit policy
 

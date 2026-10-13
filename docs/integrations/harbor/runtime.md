@@ -1,4 +1,4 @@
-# Advanced: experimental Harbor runtime
+# Harbor
 
 ```{warning}
 This module is an unfinished prototype, not a supported Harbor environment

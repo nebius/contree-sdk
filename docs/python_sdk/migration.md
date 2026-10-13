@@ -1,99 +1,71 @@
 # Upgrade to the 0.5 session API
 
-Version 0.5 replaces the previous SDK API. Existing applications must update their
-imports and execution flow. Compatibility aliases are not provided.
+Version 0.5 removes the previous SDK API without compatibility aliases.
+Update imports, execution, and result handling as follows.
 
-Update one workflow at a time:
+| Previous API                           | Replacement                                                                                                                                         |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Contree` / `ContreeSync`              | `create_sandbox_session` with `with` or `async with`.                                                                                               |
+| SDK image and file managers            | [Image import](images.md), [build helpers](building-images.md), and [session file operations](files.md). Use the client for image listing and tags. |
+| Image objects and `ContreeSessionSync` | An image UUID or tag passed to the factory; select a class with `session_type=` if needed.                                                          |
+| `.run(...).wait().result`              | `session.run(...)` returns `InstanceResult`; await it in async code.                                                                                |
+| SDK result wrappers                    | `result.state.exit_code`, `result.stdout.as_text()`, and `result.stderr.as_bytes()`. Optional API fields can be `Ellipsis`.                         |
+| `.popen()`                             | [Operation subprocesses](operation.md), created through `session.spawn()`.                                                                          |
+| SDK auth/configuration                 | `contree_client` profiles and transports; see {ref}`sandbox-connection`.                                                                            |
 
-1. Replace client construction using {doc}`getting-started`.
-2. Update result handling using {doc}`session-model`.
-3. Make persistence explicit using {doc}`sessions` and {doc}`files`.
-4. Replace process-control code using {doc}`operation`.
-5. Move custom behavior to the public hooks in {doc}`customization`.
+## Choose when to save
 
-Those pages contain the executable sync and async scenarios for the new API.
+The factory defaults to `LazySession` or `AsyncLazySession`. Commands share a VM.
+Normal context exit saves pending files; an exception discards changes since the
+last snapshot. `inspect()` and `read_file()` save active work automatically.
+Call `snapshot()` before switching branches or rolling back.
 
-| Previous API                           | Replacement                                                                                                                  |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Contree` / `ContreeSync`              | Use `create_sandbox_session` with `with` or `async with`.                                                                    |
-| SDK image and file managers            | Use the corresponding `contree_client` methods.                                                                              |
-| Image objects and `ContreeSessionSync` | Use the factory defaults, or select an explicit class with `session_type`.                                                   |
-| `.run(...).wait().result`              | `session.run(...)` returns `InstanceResult`; await it in async code.                                                         |
-| SDK result wrappers                    | Read `result.state.exit_code`, `result.stdout.as_text()`, and `result.stderr.as_bytes()`. Optional fields can be `Ellipsis`. |
-| `.popen()`                             | Use `session.spawn()` and an operation context manager for subprocesses.                                                     |
-| SDK auth/configuration                 | Use `contree_client` configuration, profiles, and transports.                                                                |
+Select `session_type=ContreeSession` or `ContreeAsyncSession` for a separate VM
+per command. `run()`, `spawn()`, `spawn_detached()`, and `RunRequest` now default
+to `disposable=False`. `run()` and `execute()` commit completed results; after
+`spawn()`, wait and call `commit_result()` explicitly. Pass `disposable=True`
+to leave history unchanged.
 
-## Client and store ownership
+Snapshots are lightweight and can run after every command. They stop the VM;
+processes and memory do not survive. Unchanged files can produce the same image
+UUID. See {doc}`session-model` for sync and async examples.
 
-The sandbox factory closes the client and memory store it creates. Components
-you supply remain yours: close them with `with` or `async with`. See
-{doc}`manual-sandbox` for explicit construction and cleanup.
+## Check command results
 
-Use `SyncMemoryStore` or `SyncSQLiteStore` with a synchronous session. Use
-`AsyncMemoryStore` or `AsyncSQLiteStore` with an asynchronous session. Install
-`contree-sdk[async]` for the async transport and SQLite dependencies.
+An API-successful operation can return a nonzero process exit code. The default
+`ApiSuccessCommitPolicy` still commits its image. Use `ZeroExitCommitPolicy`
+to save only results with exit code zero; see
+[Select a commit policy](customization.md#select-a-commit-policy).
 
-The default memory store lasts for one process. Pass the same `session_id` and a
-SQLite store to resume a saved session. Session history contains image references;
-removing a referenced server image can make an old entry unusable.
+Cancellation raises `InterruptedError`; operation failure raises
+`FailedOperationError`. Neither advances history. A `PendingRun` returned by
+async `run()` can be consumed once. See {doc}`troubleshooting` for handling errors.
 
-## Default sandbox execution
+## Preserve history and manage resources
 
-The factory selects `LazySession` or `AsyncLazySession`. Commands share a VM;
-normal context exit saves pending files. Use `snapshot()` before reading saved
-files or changing branches. Exceptions discard changes since the last snapshot.
-Snapshots are lightweight and can run after every command, but they stop the VM.
-Processes and memory do not survive. An unchanged filesystem can return the same
-image UUID. See {doc}`session-model`.
+The factory closes the client and memory store it creates. Close components you
+supply with `with` or `async with`; use matching sync or async implementations.
+Install `contree-sdk[async]` for async transport and SQLite dependencies.
 
-## Advanced: independent operations and history
+To resume after Python exits, supply a SQLite store and the same `session_id`.
+History stores image references; the images must remain available on the server.
+See {doc}`sessions` and {doc}`manual-sandbox`.
 
-Select `session_type=ContreeSession` or `ContreeAsyncSession` to retain the
-following per-operation behavior:
+Commits compare the branch with its position when the operation started.
+A concurrent change raises `SessionConflictError`; results are not merged.
+The completed server image remains available. See
+[Recover a completed result](troubleshooting.md#advanced-a-completed-result-conflicts-with-newer-history)
+for saving it on a new branch without rerunning the command.
 
-`run()`, `spawn()`, `spawn_detached()`, and `RunRequest` now default to
-`disposable=False`. Commands retain their result images. `run()` and `execute()`
-apply the session commit policy automatically, so the next command uses the saved
-image. Pass `disposable=True` for the previous behavior without saving changes.
-The default
-`ApiSuccessCommitPolicy` retains API-success results even when the process exits
-with a nonzero code. Select `ZeroExitCommitPolicy` to retain only exit code zero.
-After `spawn()`, wait
-for completion and call `session.commit_result(operation)` explicitly.
+## Update integrations and extensions
 
-An operation records its source entry and branch at spawn time. A commit raises
-`SessionConflictError` if that branch changed before the commit. Memory and SQLite
-stores compare and update the branch atomically. Refresh the session from the
-intended branch before starting another operation. The completed operation and its
-server image remain available after a history conflict.
+Use `ContreeSandbox` for sync executors and `ContreeAsyncSandbox` for async
+executors. See {doc}`../integrations/langchain`. The mini-swe-agent 2.4.6 adapter
+still uses the removed API; see {doc}`../integrations/mini-swe-agent`.
 
-Concurrent commands do not automatically combine filesystem changes. Use separate
-branches for independent experiments, or serialize commands that depend on previous
-results. A commit to the original branch does not switch a session that has since
-moved to another branch. An explicit `branch=` creates a new branch and selects it;
-use `switch_branch()` before running on an existing branch.
+For Dockerfile builds, use {doc}`building-images`. Direct builder classes and
+custom directives are covered in {doc}`advanced` and {doc}`customization`.
 
-A cancelled operation raises `InterruptedError`. An operation failure raises
-`FailedOperationError`. A successful operation with a nonzero process exit code
-returns its result; inspect the exit code. If waiting fails or is cancelled, the
-SDK attempts to cancel the remote operation and preserves the original exception.
-A `PendingRun` returned by async `run()` can be used once.
-
-## Integrations and Dockerfile builds
-
-Use `ContreeSandbox` for sync sessions and `ContreeAsyncSandbox` for native async
-sessions. The bundled mini-swe-agent adapter still uses the removed SDK API; see
-{doc}`../integrations/mini-swe-agent` for its compatibility limitation.
-
-`ContreeDockerBuilder` and `ContreeAsyncDockerBuilder` provide Dockerfile builds
-with branch-based layer reuse and memory or SQLite caches. This interpreter
-implements a subset of Dockerfile instructions; see {doc}`building-images`.
-
-## Public customization API
-
-Use `RunRequest` with `execute()` for framework-independent execution. Extend
-`prepare_request()`, `submit_request()`, or `create_operation()` instead of copying
-`spawn()` internals. File I/O is injected through `file_transfer=`. Operation history
-origin is available as `operation.context`.
-
-See {doc}`customization` for the public contracts, factory hooks, and tested examples.
+Move session overrides to `prepare_request()`, `submit_request()`, or
+`create_operation()`. Inject file I/O with `file_transfer=`. The operation's
+source history position is available through `operation.context`.

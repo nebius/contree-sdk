@@ -216,6 +216,6 @@ configures the selected class; `storage`, `file_transfer`, and `commit_policy`
 configure its underlying base session. To supply a custom base session inside a
 lazy wrapper, assemble them directly as above.
 
-Continue with {doc}`customization` for public hooks, {doc}`architecture` for
-component contracts, and {doc}`reference/session` for snapshot policies. Snapshots
+Continue with {doc}`customization` for public hooks and component contracts,
+and {doc}`reference/session` for snapshot policies. Snapshots
 preserve files, not processes, memory, or sockets.

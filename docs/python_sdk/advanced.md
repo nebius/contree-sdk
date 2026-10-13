@@ -20,7 +20,7 @@ save checkpoints, compare branches, roll back experiments, and resume saved work
 | **Store** (`storage=` in helpers)    | Keeps session history, branches, and references to saved images. Use it to resume work or return to an earlier state.                   | {doc}`sessions` and {doc}`reference/store`                        |
 | **Cache** (`cache=`)                 | Keeps reusable results, such as uploaded-file IDs and imported-image IDs, to avoid repeating work. It does not replace session history. | {doc}`caching`                                                    |
 | **Client** (`client=`)               | Sends requests to ConTree using your endpoint, credentials, and project. One client can serve import, build, and sandbox operations.    | {ref}`shared-image-client`                                        |
-| **Session**                          | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result.               | {doc}`architecture`                                               |
+| **Session**                          | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result.               | {doc}`session-model`                                              |
 | **LazySession**                      | Keeps commands in one running VM until a snapshot. This is the default session behind `create_sandbox_session`.                         | {doc}`session-model`                                              |
 | **Operation**                        | Gives access to one remote operation: wait for completion, run subprocesses, read output, or stop it.                                   | {doc}`operation`                                                  |
 | **FileTransfer** (`file_transfer=`)  | Prepares uploads and reads files from saved images. It does not access unsaved files inside a running VM.                               | {doc}`files` and {doc}`reference/files`                           |
@@ -33,9 +33,8 @@ it across Python restarts. The filesystem images themselves remain on the ConTre
 server. Clearing a Cache removes reusable records; it does not roll back a session.
 
 Sandbox history uses memory by default, and its upload cache is optional. The
-import and build helpers enable persistent caching by default. For the full
-component relationships and ownership rules, see {doc}`architecture` and
-{doc}`manual-sandbox`.
+import and build helpers enable persistent caching by default. See
+{doc}`manual-sandbox` for component construction and ownership.
 
 ### Bring your own storage
 
@@ -57,6 +56,131 @@ helpers. Direct session and builder constructors use `store=` instead of
 with async APIs. The SDK uses these interfaces, so changing the storage backend
 does not require changing its execution code. Your application owns and closes
 the supplied components.
+
+(shared-image-client)=
+
+## Share one client
+
+For a workflow with several operations, initialize a client once. Pass it through
+`client=` as a dependency to the import helper, build helper, and sandbox factory.
+This reuses the connection and gives your application one place to configure it.
+Each operation leaves this client open; the outer context closes it.
+
+Use the `build-context` directory from
+[Create a small build context](building-images.md#create-a-small-build-context).
+These programs import the base under the `alpine:latest` ConTree tag, build that
+context, and read its result. The Dockerfile's `FROM alpine:latest` resolves the
+imported image.
+
+::::{tab} Sync
+
+<!--
+name: test_shared_client_sync; fixtures: doc_api, doc_build_context, capsys
+```python
+doc_api.complete()
+doc_api.download(b"Hello from a built image!\n")
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("resolve_image", "image-1")
+```
+-->
+
+```python
+"""Reuse one client for import, build, and sandbox operations."""
+
+from contree_client import profiles
+from contree_client.sync import ContreeClient
+
+from contree_sdk import create_sandbox_session, sync_build_image, sync_import_image
+
+
+def main() -> None:
+    # Create one client for the full workflow.
+    profile = profiles.from_env() or profiles.resolve_profile()
+    with ContreeClient.from_profile(profile) as client:
+        # Import the base and give it the tag used by FROM.
+        sync_import_image(
+            "docker://mirror.gcr.io/library/alpine:latest",
+            tag="alpine:latest",
+            client=client,
+        )
+
+        # Build with the same client, then read the resulting filesystem.
+        image = sync_build_image("build-context", client=client)
+        with create_sandbox_session(image=image, client=client) as sandbox:
+            content = sandbox.read_file("/built.txt")
+            print(content.decode(), end="")
+
+
+main()
+```
+
+<!--
+name: test_shared_client_sync
+```python
+assert len(doc_api.sync.calls_for("import_image")) == 1
+assert len(doc_api.sync.calls_for("spawn_instance")) == 1
+assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
+assert capsys.readouterr().out == "Hello from a built image!\n"
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: test_shared_client_async; fixtures: doc_api, doc_build_context, capsys
+```python
+doc_api.complete()
+doc_api.download(b"Hello from a built image!\n")
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("resolve_image", "image-1")
+```
+-->
+
+```python
+import asyncio
+
+from contree_client import profiles
+from contree_client.asyncio import ContreeAsyncClient
+
+from contree_sdk import create_sandbox_session, async_build_image, async_import_image
+
+
+async def main() -> None:
+    # Create one client for the full workflow.
+    profile = profiles.from_env() or profiles.resolve_profile()
+    async with ContreeAsyncClient.from_profile(profile) as client:
+        # Import the base and give it the tag used by FROM.
+        await async_import_image(
+            "docker://mirror.gcr.io/library/alpine:latest",
+            tag="alpine:latest",
+            client=client,
+        )
+
+        # Build with the same client, then read the resulting filesystem.
+        image = await async_build_image("build-context", client=client)
+        async with create_sandbox_session(image=image, client=client) as sandbox:
+            content = await sandbox.read_file("/built.txt")
+            print(content.decode(), end="")
+
+
+asyncio.run(main())
+```
+
+<!--
+name: test_shared_client_async
+```python
+assert len(doc_api.async_client.calls_for("import_image")) == 1
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
+assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
+assert capsys.readouterr().out == "Hello from a built image!\n"
+```
+-->
+
+::::
 
 ## Select the session class and components
 

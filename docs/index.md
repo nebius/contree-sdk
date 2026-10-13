@@ -58,9 +58,7 @@ ConTree server. See {doc}`python_sdk/sessions`.
 
 Use {doc}`python_sdk/advanced` to select components, manage ownership,
 and follow build events. {doc}`python_sdk/manual-sandbox` shows explicit assembly.
-{doc}`python_sdk/architecture` explains the execution layers. Select an explicit
-`ContreeSession` when each command needs an independent operation, or use
-{doc}`python_sdk/operation` to manage a VM and its event stream directly.
+Use {doc}`python_sdk/operation` to manage subprocesses and their event stream.
 
 ```{toctree}
 :caption: Start here
@@ -88,12 +86,20 @@ python_sdk/caching
 ```
 
 ```{toctree}
-:caption: Integrations and advanced usage
+:caption: Integrations
 :maxdepth: 1
 :hidden:
 
-integrations/index
-python_sdk/architecture
+integrations/langchain
+integrations/harbor/runtime
+integrations/mini-swe-agent
+```
+
+```{toctree}
+:caption: Advanced Usage
+:maxdepth: 1
+:hidden:
+
 python_sdk/customization
 python_sdk/migration
 python_sdk/troubleshooting

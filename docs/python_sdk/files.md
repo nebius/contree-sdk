@@ -4,11 +4,10 @@ icon: file-arrow-up
 
 # Upload inputs and download results
 
-Send content through stdin to write a file in the running sandbox. Call
-`snapshot()` before `read_file()` to download the result from a saved image.
-Snapshots are lightweight, so saving after each command is supported. They stop
-the VM; unchanged files can produce the same `image_uuid`. For automatic saving,
-see [Save after every command](session-model.md#save-after-every-command).
+Use `write_file(path, content)` to write bytes into the sandbox. It creates parent
+directories and returns after the write completes. `read_file()` saves active
+lazy-session work automatically before reading the image. This snapshot stops the
+VM; the next command starts from the saved filesystem.
 
 This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
 and saves the result as `output.txt` in your local working directory.
@@ -34,9 +33,8 @@ from contree_sdk import create_sandbox_session
 
 def main() -> None:
     with create_sandbox_session(image="tag:alpine:latest") as session:
-        session.run(shell="cat > /input.txt", stdin=b"Hello from a file!\n")
+        session.write_file("/input.txt", b"Hello from a file!\n")
         session.run(shell="cat /input.txt > /output.txt")
-        session.snapshot()
         content = session.read_file("/output.txt")
         Path("output.txt").write_bytes(content)
         print(content.decode(), end="")
@@ -77,9 +75,8 @@ from contree_sdk import create_sandbox_session
 
 async def main() -> None:
     async with create_sandbox_session(image="tag:alpine:latest") as session:
-        await session.run(shell="cat > /input.txt", stdin=b"Hello from a file!\n")
+        await session.write_file("/input.txt", b"Hello from a file!\n")
         await session.run(shell="cat /input.txt > /output.txt")
-        await session.snapshot()
         content = await session.read_file("/output.txt")
         await asyncio.to_thread(Path("output.txt").write_bytes, content)
         print(content.decode(), end="")
@@ -102,7 +99,7 @@ assert capsys.readouterr().out == "Hello from a file!\n"
 ::::
 
 Both stdout and the local `output.txt` contain `Hello from a file!` followed by a newline.
-The explicit snapshot saves both commands, so `read_file()` sees their files.
+`read_file()` saves both writes before downloading the result.
 With `ContreeSession`, each command saves by default; `disposable=True` leaves
 the previous image selected.
 
@@ -112,8 +109,7 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-For a local file, pass `stdin=Path("local.txt")`. This streams its contents to
-the command. The default lazy sandbox does not support `run(files=...)` while a
+For a local file, use `run(shell="cat > /input.txt", stdin=Path("local.txt"))`. The default lazy sandbox does not support `run(files=...)` while a
 VM is active. The advanced examples below select `ContreeSession` or
 `ContreeAsyncSession` explicitly for startup attachments and per-command images.
 

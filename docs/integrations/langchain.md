@@ -2,7 +2,7 @@
 icon: robot
 ---
 
-# Give a deepagents agent a sandbox
+# LangChain DeepAgents
 
 The SDK provides deepagents `BaseSandbox` implementations for command execution
 and file transfer. Use `ContreeSandbox` with a sync executor, or
@@ -14,13 +14,10 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`../python_sdk/getting-started`.
 :::
 
-The examples use `create_sandbox_session` with an explicit `ContreeSession` or
-`ContreeAsyncSession`. Deepagents file tools upload startup attachments and read
-saved images, so they need independent operations rather than the default lazy
-session's live VM. Each command saves by default. Snapshots are lightweight,
-so saving after every tool command is supported. Each save stops that command's
-VM; unchanged files can produce the same image UUID. The factory handles
-connection setup and cleanup.
+The examples use the default sandbox from `create_sandbox_session`. Commands and
+uploads use the same VM. Downloads automatically save its current filesystem
+before reading; this stops the VM. The next command starts from the saved image.
+The factory handles connection setup and cleanup.
 
 ## Install and test the backend
 
@@ -44,18 +41,18 @@ This example exercises the backend directly, so no model credentials are needed.
 ::::{tab} Sync
 
 <!--
-name: test_sandbox; fixtures: deepagents_available, doc_api, capsys
+name: test_sandbox; fixtures: deepagents_available, sandbox_api, capsys
 ```python
-doc_api.complete(stdout="hello\n")
+sandbox_api.command(stdout="hello\n")
 ```
 -->
 
 ```python
-from contree_sdk import ContreeSession, create_sandbox_session
+from contree_sdk import create_sandbox_session
 from contree_sdk.langchain import ContreeSandbox
 
 
-with create_sandbox_session(session_type=ContreeSession, image="tag:python:3.12-alpine") as session:
+with create_sandbox_session(image="tag:python:3.12-alpine") as session:
     sandbox = ContreeSandbox(session)
     result = sandbox.execute("echo hello")
     print(result.output, end="")
@@ -65,7 +62,7 @@ with create_sandbox_session(session_type=ContreeSession, image="tag:python:3.12-
 <!--
 name: test_sandbox
 ```python
-assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
+assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 assert capsys.readouterr().out == "hello\nexit: 0\n"
 ```
 -->
@@ -75,18 +72,18 @@ assert capsys.readouterr().out == "hello\nexit: 0\n"
 ::::{tab} Async
 
 <!--
-name: async test_sandbox_async; fixtures: deepagents_available, doc_api, capsys
+name: async test_sandbox_async; fixtures: deepagents_available, sandbox_api, capsys
 ```python
-doc_api.complete(stdout="hello\n")
+sandbox_api.command(stdout="hello\n")
 ```
 -->
 
 ```python
-from contree_sdk import ContreeAsyncSession, create_sandbox_session
+from contree_sdk import create_sandbox_session
 from contree_sdk.langchain import ContreeAsyncSandbox
 
 
-async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:python:3.12-alpine") as session:
+async with create_sandbox_session(image="tag:python:3.12-alpine") as session:
     sandbox = ContreeAsyncSandbox(session)
     result = await sandbox.aexecute("echo hello")
     print(result.output, end="")
@@ -96,7 +93,7 @@ async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:p
 <!--
 name: test_sandbox_async
 ```python
-assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
+assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 assert capsys.readouterr().out == "hello\nexit: 0\n"
 ```
 -->
@@ -117,14 +114,12 @@ The following function accepts that model and uses the connection configured in
 ::::{tab} Sync
 
 <!--
-name: test_agent_wiring_sync; fixtures: deepagents_available, doc_api, agent_model_factory
+name: test_agent_wiring_sync; fixtures: deepagents_available, sandbox_api, agent_model_factory
 ```python
 from langchain_core.messages import AIMessage, ToolMessage
 
 
-doc_api.complete()  # write preflight
-doc_api.complete()  # upload and commit
-doc_api.complete(stdout="2\n")  # execute
+sandbox_api.command(stdout="2\n")
 model = agent_model_factory(
     responses=[
         AIMessage(
@@ -150,12 +145,12 @@ model = agent_model_factory(
 ```python
 from deepagents import create_deep_agent
 
-from contree_sdk import ContreeSession, create_sandbox_session
+from contree_sdk import create_sandbox_session
 from contree_sdk.langchain import ContreeSandbox
 
 
 def ask_agent(model):
-    with create_sandbox_session(session_type=ContreeSession, image="tag:python:3.12-alpine") as session:
+    with create_sandbox_session(image="tag:python:3.12-alpine") as session:
         agent = create_deep_agent(model=model, backend=ContreeSandbox(session))
         request = {"messages": [{"role": "user", "content": "Create a calculator script and run it."}]}
         return agent.invoke(request)
@@ -169,7 +164,8 @@ tool_results = [message for message in result["messages"] if isinstance(message,
 assert len(tool_results) == 2
 assert all(message.status == "success" for message in tool_results)
 assert "2" in str(tool_results[-1].content)
-assert len(doc_api.sync.calls_for("spawn_instance")) == 3
+assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
+assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 3
 ```
 -->
 
@@ -178,14 +174,12 @@ assert len(doc_api.sync.calls_for("spawn_instance")) == 3
 ::::{tab} Async
 
 <!--
-name: async test_agent_wiring; fixtures: deepagents_available, doc_api, agent_model_factory
+name: async test_agent_wiring; fixtures: deepagents_available, sandbox_api, agent_model_factory
 ```python
 from langchain_core.messages import AIMessage, ToolMessage
 
 
-doc_api.complete()  # write preflight
-doc_api.complete()  # upload and commit
-doc_api.complete(stdout="2\n")  # execute
+sandbox_api.command(stdout="2\n")
 model = agent_model_factory(
     responses=[
         AIMessage(
@@ -211,12 +205,12 @@ model = agent_model_factory(
 ```python
 from deepagents import create_deep_agent
 
-from contree_sdk import ContreeAsyncSession, create_sandbox_session
+from contree_sdk import create_sandbox_session
 from contree_sdk.langchain import ContreeAsyncSandbox
 
 
 async def ask_agent(model):
-    async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:python:3.12-alpine") as session:
+    async with create_sandbox_session(image="tag:python:3.12-alpine") as session:
         agent = create_deep_agent(model=model, backend=ContreeAsyncSandbox(session))
         request = {"messages": [{"role": "user", "content": "Create a calculator script and run it."}]}
         return await agent.ainvoke(request)
@@ -230,7 +224,8 @@ tool_results = [message for message in result["messages"] if isinstance(message,
 assert len(tool_results) == 2
 assert all(message.status == "success" for message in tool_results)
 assert "2" in str(tool_results[-1].content)
-assert len(doc_api.async_client.calls_for("spawn_instance")) == 3
+assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 3
 ```
 -->
 
@@ -240,6 +235,11 @@ Model-provider installation, credentials, and model selection belong to the agen
 application. The SDK does not choose a provider or supply a model key.
 
 ## Advanced: file transfers and executor contracts
+
+Uploads call `session.write_file(path, content)`. Its default implementation writes
+binary stdin with `cat`, creates parent directories, and requests no snapshot.
+Custom executors can override `write_file` without changing this adapter. Downloads call `session.read_file()`, which saves active lazy-session
+work before reading the resulting image.
 
 | Sync sandbox                    | Async sandbox                          |
 | ------------------------------- | -------------------------------------- |

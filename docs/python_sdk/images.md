@@ -123,27 +123,36 @@ working directory when running the sandbox.
 
 ## Reuse the imported image
 
-Use `image="tag:alpine:latest"` with `create_sandbox_session` in later programs,
-including {doc}`getting-started`. There is no need to import before every command.
-
 | Reference                                      | Use                                                            |
 | ---------------------------------------------- | -------------------------------------------------------------- |
 | `docker://mirror.gcr.io/library/alpine:latest` | Registry source passed to an import helper.                    |
 | `tag:alpine:latest`                            | ConTree tag passed to the sandbox factory.                     |
 | The returned image UUID                        | The specific imported filesystem, even if its tag later moves. |
 
-Registry tags and ConTree tags are separate names. `create_sandbox_session`
-resolves the supplied image during context entry; it does not import a missing
-image. An unknown tag raises the client's `NotFoundError`.
+Registry sources such as `docker://mirror.gcr.io/library/alpine:latest` belong in
+an import helper. They cannot be used as ConTree image references in
+`create_sandbox_session(image=...)`. Pass the returned UUID or a ConTree tag instead.
+The factory does not import missing images; an unknown tag raises `NotFoundError`.
+
+Dockerfile `FROM` has separate behavior: the builder imports a missing base image
+from its registry. See {doc}`building-images`.
 
 ## Configuration
 
-Import results are cached for one hour in `$XDG_CACHE_HOME/contree/images.sqlite3`,
-or `~/.cache/contree/images.sqlite3` when XDG is unset. Connections and registry
+The import cache maps a registry source to its imported ConTree image UUID.
+A repeated call with the same source, requested ConTree tag, and credentials
+returns that UUID without another registry import. If `tag=` is supplied, the
+helper reapplies it to the cached image. The image itself stays on the ConTree
+server; the local cache contains only its UUID.
+
+Records expire after one hour by default. Until then, a moved registry tag still
+returns the cached image. Pass `no_cache=True` to import it again and refresh the
+record. Keep cached images available on the server.
+
+Records are stored in `$XDG_CACHE_HOME/contree/images.sqlite3`, or
+`~/.cache/contree/images.sqlite3` when XDG is unset. Connections and registry
 credentials have separate cache keys. Credentials are hashed, not stored in plaintext.
-Pass `no_cache=True` to import a changed registry tag again and refresh the record.
 Use `cache_ttl=` to change the lifetime or `cache_dir=` to choose another directory.
-The cache stores references; keep the corresponding server images available.
 
 For several operations, initialize a client once and pass it through `client=`.
 The client is a shared dependency for import, build, and sandbox operations.

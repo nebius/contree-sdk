@@ -2,7 +2,7 @@
 icon: robot
 ---
 
-# mini-swe-agent compatibility
+# mini-swe-agent
 
 The `ContreeEnvironment` bundled with mini-swe-agent 2.4.6 uses the previous SDK
 API, including `ContreeSync` and SDK image objects. Those imports are removed in

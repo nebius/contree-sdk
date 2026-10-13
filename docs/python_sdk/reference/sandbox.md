@@ -12,7 +12,6 @@ All three factory functions accept the configuration parameters of `session_make
    :member-order: bysource
 ```
 
-
 ```{eval-rst}
 .. autofunction:: contree_sdk.connection.profile_from_args
 ```

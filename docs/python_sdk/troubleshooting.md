@@ -4,13 +4,9 @@ icon: triangle-exclamation
 
 # Handle failures and unexpected state
 
-Start with the symptom. The API client reports transport and server errors;
-the SDK reports execution, history, and build errors.
-
 | Symptom                                               | Check or action                                                                                                                                       |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Connection profile is missing or incomplete           | Configure URL, token, and AI project; see {ref}`sandbox-connection`.                                                                                  |
-| Authentication or profile error                       | Check the URL, token, and AI project in the selected Profile.                                                                                         |
+| Authentication or profile error                       | Check the URL, token, and AI project; see {ref}`sandbox-connection`.                                                                                  |
 | Unknown image tag                                     | Import the image on the selected endpoint; see {doc}`images`.                                                                                         |
 | A file from the previous command disappeared          | For explicit `ContreeSession`, check that `disposable=True` was not requested. For a lazy sandbox, check whether an exception discarded unsaved work. |
 | Work disappeared after Python restarted               | Resume the same `session_id` from the same SQLite database.                                                                                           |
@@ -96,9 +92,6 @@ assert not sandbox_api.async_client.calls_for("get_operation_status")
 
 ::::
 
-The examples below select an explicit Session class to show disposable operations,
-commit conflicts, and lower-level result handling.
-
 ## Advanced: a command returned a nonzero exit code
 
 This is a process result, so `run()` returns it without raising `FailedOperationError`.
@@ -114,16 +107,13 @@ doc_api.complete(stderr="failed\n", exit_code=7)
 -->
 
 ```python
-from contree_client.models import InstanceResultState, StreamRepr
-
 from contree_sdk import ContreeSession, create_sandbox_session
 
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     result = session.run(shell="echo failed >&2; exit 7", disposable=True)
-    if isinstance(result.state, InstanceResultState) and result.state.exit_code != 0:
-        if isinstance(result.stderr, StreamRepr):
-            print(result.stderr.as_text(), end="")
+    if result.state.exit_code != 0:
+        print(result.stderr.as_text(), end="")
         print("exit:", result.state.exit_code)
 ```
 
@@ -147,16 +137,13 @@ doc_api.complete(stderr="failed\n", exit_code=7)
 -->
 
 ```python
-from contree_client.models import InstanceResultState, StreamRepr
-
 from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     result = await session.run(shell="echo failed >&2; exit 7", disposable=True)
-    if isinstance(result.state, InstanceResultState) and result.state.exit_code != 0:
-        if isinstance(result.stderr, StreamRepr):
-            print(result.stderr.as_text(), end="")
+    if result.state.exit_code != 0:
+        print(result.stderr.as_text(), end="")
         print("exit:", result.state.exit_code)
 ```
 
@@ -269,9 +256,8 @@ See {doc}`operation` and {doc}`reference/exceptions`.
 
 ## Advanced: catch an operation failure
 
-Keep command exit-code handling separate from operation failure. If the server
-cannot complete the operation successfully, the SDK raises `FailedOperationError`.
-This example reports the operation UUID without advancing session history. Failed operations are never committed.
+If the server cannot complete the operation, the SDK raises `FailedOperationError`
+and leaves history unchanged. Keep the operation UUID to investigate the failure:
 
 ::::{tab} Sync
 
