@@ -20,6 +20,7 @@ from contree_client.types import ContreeSyncClient
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import OperationContext, RunRequest, SyncExecutor
 from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, SyncFileTransfer, UploadFileSpec
+from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_operation
 from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCommitPolicy
@@ -503,9 +504,30 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             cwd=request.cwd if request.cwd is not None else self.cwd,
         )
 
-    def read_file(self, path: str) -> bytes:
+    def create_inspector(self, image_uuid: str) -> ImageInspector:
+        """Create a view of one image. Override to customize inspection.
+
+        Returns:
+            An inspector borrowing the client's connection and file transfer.
+
+        """
+        return ImageInspector(self.client, image_uuid, self.file_transfer)
+
+    def inspect(self) -> ImageInspector:
+        """Pin the current saved image without starting a VM.
+
+        Pending staged attachments appear only after an operation applies them.
+
+        Returns:
+            A read-only view that borrows this session's client and file transfer.
+
+        """
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
-        return self.file_transfer.read_file(image_uuid, path)
+        return self.create_inspector(image_uuid)
+
+    def read_file(self, path: str) -> bytes:
+        view = self.inspect()
+        return view.read_file(path)
 
     def spawn_request(self, request: RunRequest) -> OperationContract:
         """Prepare and submit a command, then construct its operation through the factory.

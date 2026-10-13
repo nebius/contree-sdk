@@ -21,6 +21,7 @@ from contree_client.types import ContreeAsyncClient
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import AsyncExecutor, OperationContext, RunRequest
 from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, InputSource, RunFiles, UploadFileSpec
+from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_async_operation
 from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCommitPolicy
@@ -599,10 +600,31 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             cwd=request.cwd if request.cwd is not None else self.cwd,
         )
 
-    async def read_file(self, path: str) -> bytes:
+    def create_inspector(self, image_uuid: str) -> AsyncImageInspector:
+        """Create a view of one image. Override to customize inspection.
+
+        Returns:
+            An inspector borrowing the client's connection and file transfer.
+
+        """
+        return AsyncImageInspector(self.client, image_uuid, self.file_transfer)
+
+    async def inspect(self) -> AsyncImageInspector:
+        """Pin the current saved image without starting a VM.
+
+        Pending staged attachments appear only after an operation applies them.
+
+        Returns:
+            A read-only view that borrows this session's client and file transfer.
+
+        """
         await self.ensure_ready()
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
-        return await self.file_transfer.read_file(image_uuid, path)
+        return self.create_inspector(image_uuid)
+
+    async def read_file(self, path: str) -> bytes:
+        view = await self.inspect()
+        return await view.read_file(path)
 
     async def spawn_request(self, request: RunRequest) -> AsyncOperationContract:
         """Prepare and submit a command, then construct its operation through the factory.

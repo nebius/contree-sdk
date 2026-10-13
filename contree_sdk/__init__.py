@@ -1,6 +1,7 @@
 from contree_sdk.connection import profile_from_args
 from contree_sdk.execution import AsyncExecutor, OperationContext, RunRequest, SyncExecutor
 from contree_sdk.images import async_build_image, async_import_image, sync_build_image, sync_import_image
+from contree_sdk.inspection import AsyncImageInspector, ImageInspector
 from contree_sdk.sandbox import (
     SandboxSessionContext,
     create_async_sandbox_session,
@@ -13,9 +14,11 @@ from contree_sdk.session import AsyncLazySession, ContreeAsyncSession, ContreeSe
 
 __all__ = [
     "AsyncExecutor",
+    "AsyncImageInspector",
     "AsyncLazySession",
     "ContreeAsyncSession",
     "ContreeSession",
+    "ImageInspector",
     "LazySession",
     "OperationContext",
     "RunRequest",

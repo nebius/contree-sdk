@@ -11,6 +11,8 @@ from contree_client.models import InstanceResult, OperationEvent
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import RunRequest, SyncExecutor
+from contree_sdk.inspection import ImageInspector
+from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
@@ -287,32 +289,35 @@ class LazySession(SyncExecutor):
 
         timeout limits this wait; an already requested snapshot continues.
         Errors remain available as error and are raised on subsequent calls.
+        Saving failure or a closed wrapper raises RuntimeError. A wait that
+        expires raises TimeoutError; saving continues in the worker.
 
         Returns:
             The saved history entry, or None if no VM has run yet.
 
-        Raises:
-            RuntimeError: Saving failed or the wrapper is closed.
-            TimeoutError: The caller's wait expired; saving continues in the worker.
-
         """
         with self.condition:
-            self.state.check()
-            if self.state.phase == "cold":
-                return self.last_entry
-            generation = self.state.snapshots
-            if self.state.phase == "running":
-                self.state.phase = "draining"
-            self._notify()
-            completed = self.condition.wait_for(
-                lambda: self.state.snapshots != generation or self.state.error is not None,
-                timeout=timeout,
-            )
-            if not completed:
-                raise TimeoutError("LazySession snapshot is still pending")
-            if self.state.error is not None:
-                raise RuntimeError("LazySession snapshot failed") from self.state.error
+            return self._snapshot_locked(timeout=timeout)
+
+    def _snapshot_locked(self, *, timeout: float | None = None) -> HistoryEntry | None:
+        self.state.check()
+        if self.state.phase == "cold":
             return self.last_entry
+        generation = self.state.snapshots
+        if self.state.phase == "running":
+            self.state.phase = "draining"
+        self._notify()
+        completed = self.condition.wait_for(
+            lambda: self.state.snapshots != generation or self.state.error is not None or self.state.phase == "closed",
+            timeout=timeout,
+        )
+        if not completed:
+            raise TimeoutError("LazySession snapshot is still pending")
+        if self.state.error is not None:
+            raise RuntimeError("LazySession snapshot failed") from self.state.error
+        if self.state.snapshots == generation:
+            raise RuntimeError("LazySession closed before snapshot completed")
+        return self.last_entry
 
     def close(self, *, timeout: float | None = None) -> None:
         """Save pending work and close this wrapper, retaining caller-owned resources.
@@ -369,15 +374,43 @@ class LazySession(SyncExecutor):
             if self.worker is not None:
                 self.worker.join()
 
-    def read_file(self, path: str) -> bytes:
+    def inspect(self, *, timeout: float | None = None) -> ImageInspector:
+        """Save active work and pin the resulting image for inspection.
+
+        Waits for admitted commands and stops the VM even with a manual policy.
+        A cold session starts no VM. Later commands cannot change the pinned image.
+        timeout limits the snapshot wait; saving continues if the wait ends early.
+        A failed snapshot raises instead of returning the previous image.
+        Staged attachments appear only after a command applies them.
+
+        Returns:
+            An inspector borrowing the underlying client and file transfer.
+
+        """
         with self.condition:
-            self._boundary()
-            return self.session.read_file(path)
+            cold = self.state.phase == "cold"
+            entry = self._snapshot_locked(timeout=timeout)
+            image_uuid = (
+                entry.image_uuid
+                if not cold and entry is not None
+                else require_str(self.session.image_uuid, "session has no resolved image")
+            )
+            return self.session.create_inspector(image_uuid)
+
+    def read_file(self, path: str) -> bytes:
+        """Save active work, then read the file from the resulting image.
+
+        Returns:
+            The complete file as bytes.
+
+        """
+        view = self.inspect()
+        return view.read_file(path)
 
     def _boundary(self) -> None:
         self.state.check()
         if self.state.phase != "cold":
-            raise RuntimeError("snapshot pending work before reading files or changing history")
+            raise RuntimeError("snapshot pending work before changing history")
 
     def create_branch(self, name: str, *, from_branch: str | None = None) -> None:
         with self.condition:

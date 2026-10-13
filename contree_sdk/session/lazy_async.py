@@ -11,7 +11,9 @@ from contree_client.models import InstanceResult, OperationEvent
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import AsyncExecutor, RunRequest
+from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.asyncio import ContreeAsyncSession
+from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
@@ -292,33 +294,42 @@ class AsyncLazySession(AsyncExecutor):
 
         timeout limits this wait; an already requested snapshot continues.
         Errors remain available as error and are raised on subsequent calls.
+        Saving failure or a closed wrapper raises RuntimeError. A wait that
+        expires raises TimeoutError; saving continues in the worker.
 
         Returns:
             The saved history entry, or None if no VM has run yet.
 
-        Raises:
-            RuntimeError: Saving failed or the wrapper is closed.
-            TimeoutError: The caller's wait expired; saving continues in the worker.
-
         """
         async with self.condition:
-            self.state.check()
-            if self.state.phase == "cold":
-                return self.last_entry
-            generation = self.state.snapshots
-            if self.state.phase == "running":
-                self.state.phase = "draining"
-            self._notify()
-            try:
-                await asyncio.wait_for(
-                    self.condition.wait_for(lambda: self.state.snapshots != generation or self.state.error is not None),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                raise TimeoutError("LazySession snapshot is still pending") from None
-            if self.state.error is not None:
-                raise RuntimeError("LazySession snapshot failed") from self.state.error
+            return await self._snapshot_locked(timeout=timeout)
+
+    async def _snapshot_locked(self, *, timeout: float | None = None) -> HistoryEntry | None:
+        self.state.check()
+        if self.state.phase == "cold":
             return self.last_entry
+        generation = self.state.snapshots
+        if self.state.phase == "running":
+            self.state.phase = "draining"
+        self._notify()
+        try:
+            await asyncio.wait_for(
+                self.condition.wait_for(
+                    lambda: (
+                        self.state.snapshots != generation
+                        or self.state.error is not None
+                        or self.state.phase == "closed"
+                    )
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError("LazySession snapshot is still pending") from None
+        if self.state.error is not None:
+            raise RuntimeError("LazySession snapshot failed") from self.state.error
+        if self.state.snapshots == generation:
+            raise RuntimeError("LazySession closed before snapshot completed")
+        return self.last_entry
 
     async def close(self, *, timeout: float | None = None) -> None:
         """Save pending work and close this wrapper, retaining caller-owned resources.
@@ -375,15 +386,45 @@ class AsyncLazySession(AsyncExecutor):
             if self.worker is not None:
                 await asyncio.shield(self.worker)
 
-    async def read_file(self, path: str) -> bytes:
+    async def inspect(self, *, timeout: float | None = None) -> AsyncImageInspector:
+        """Save active work and pin the resulting image for inspection.
+
+        Waits for admitted commands and stops the VM even with a manual policy.
+        A cold session starts no VM. Later commands cannot change the pinned image.
+        timeout limits the snapshot wait; saving continues if the wait ends early.
+        A failed snapshot raises instead of returning the previous image.
+        Staged attachments appear only after a command applies them.
+
+        Returns:
+            An inspector borrowing the underlying client and file transfer.
+
+        """
         async with self.condition:
-            self._boundary()
-            return await self.session.read_file(path)
+            self.state.check()
+            await self.session.ensure_ready()
+            cold = self.state.phase == "cold"
+            entry = await self._snapshot_locked(timeout=timeout)
+            image_uuid = (
+                entry.image_uuid
+                if not cold and entry is not None
+                else require_str(self.session.image_uuid, "session has no resolved image")
+            )
+            return self.session.create_inspector(image_uuid)
+
+    async def read_file(self, path: str) -> bytes:
+        """Save active work, then read the file from the resulting image.
+
+        Returns:
+            The complete file as bytes.
+
+        """
+        view = await self.inspect()
+        return await view.read_file(path)
 
     def _boundary(self) -> None:
         self.state.check()
         if self.state.phase != "cold":
-            raise RuntimeError("snapshot pending work before reading files or changing history")
+            raise RuntimeError("snapshot pending work before changing history")
 
     async def create_branch(self, name: str, *, from_branch: str | None = None) -> None:
         async with self.condition:
