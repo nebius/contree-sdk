@@ -13,11 +13,17 @@ Use a SQLite store for persistence across processes. Memory stores implement the
 same API but retain records only while that store instance exists. Keep the same
 session ID, database, and endpoint when resuming.
 
-## Synchronous execution
+## Submit work
 
 The first block submits work and closes the local store and client. It leaves the
 remote operation running. Store the operation UUID in your application or retrieve
 it through `session.list_operations()` after restarting Python.
+
+The async variant uses native transport and storage. No event loop or background
+reader must remain running between submission and collection. Run async blocks
+inside an async function or a compatible notebook.
+
+::::{tab} Sync
 
 <!--
 name: test_detached_sync; fixtures: doc_api
@@ -43,6 +49,38 @@ with (
     operation_uuid = record.uuid
 ```
 
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_detached_async; fixtures: doc_api
+```python
+doc_api.complete(stdout="saved\n")
+```
+-->
+
+```python
+from contree_client import profiles
+from contree_client.asyncio import ContreeAsyncClient
+
+from contree_sdk import ContreeAsyncSession
+from contree_sdk.store import AsyncSQLiteStore
+
+
+async with (
+    ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
+    AsyncSQLiteStore("async.db") as store,
+):
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="background", store=store)
+    record = await session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
+    operation_uuid = record.uuid
+```
+
+::::
+
+## Collect the result
+
 Run the next block in the process that collects the result. `wait_operation()`
 uses the session's commit policy and records completion atomically with history.
 It returns the process result, including a nonzero exit code. The consumer needs
@@ -50,6 +88,8 @@ the same working directory and connection profile. It obtains the UUID from
 the store, so no Python variables from the submitting process are needed. This
 example has exactly one pending operation; applications with several operations
 must select the intended record or accept a UUID as an argument.
+
+::::{tab} Sync
 
 <!-- name: test_detached_sync -->
 
@@ -85,34 +125,9 @@ assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
 ```
 -->
 
-## Asynchronous execution
+::::
 
-`ContreeAsyncSession` uses native async transport and storage. No event loop or
-background reader must remain running between these blocks.
-
-<!--
-name: async test_detached_async; fixtures: doc_api
-```python
-doc_api.complete(stdout="saved\n")
-```
--->
-
-```python
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
-from contree_sdk.store import AsyncSQLiteStore
-
-
-async with (
-    ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
-    AsyncSQLiteStore("async.db") as store,
-):
-    session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="background", store=store)
-    record = await session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
-    operation_uuid = record.uuid
-```
+::::{tab} Async
 
 <!-- name: test_detached_async -->
 
@@ -129,13 +144,15 @@ async with (
     AsyncSQLiteStore("async.db") as store,
 ):
     session = ContreeAsyncSession(client, session_id="background", store=store)
-    (record,) = await session.list_operations()
+    pending = await session.list_operations()
+    (record,) = pending
     operation_uuid = record.uuid
     result = await session.wait_operation(operation_uuid)
     repeated_result = await session.wait_operation(operation_uuid)
     assert result == repeated_result
     assert await session.list_operations() == ()
     assert len((await session.history())[0]) == 2
+    assert (await session.list_operations(pending_only=False))[0].history_id is not None
 ```
 
 <!--
@@ -145,6 +162,8 @@ assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
 assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
 ```
 -->
+
+::::
 
 ## Branches and commit policy
 

@@ -24,6 +24,8 @@ sandbox_api.download(b"saved\n")
 -->
 
 ```python
+"""Save a session and reopen its filesystem state."""
+
 from contree_sdk import create_sandbox_session
 from contree_sdk.store import SyncSQLiteStore
 

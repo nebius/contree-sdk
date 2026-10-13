@@ -14,7 +14,7 @@ Each program has a synchronous version in `sync/` and an asynchronous version in
 ## Run a program
 
 Configure the endpoint, token, and AI project using the
-[connection guide](../docs/python_sdk/sandbox-factory.md#select-a-connection-source).
+[connection guide](../docs/python_sdk/getting-started.md#connection-sources).
 The sandbox examples use `image="tag:alpine:latest"`. Replace this tag with an
 image available on your endpoint.
 

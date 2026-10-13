@@ -217,6 +217,8 @@ contract. `get_entry()` distinguishes a missing entry from a stored JSON `null`.
 `entries()` returns live entries sorted by key. Prefixes are literal and case
 sensitive. Delete and invalidation counts include expired records still stored.
 
+::::{tab} Sync
+
 <!--
 name: test_cache_contract
 -->
@@ -238,6 +240,34 @@ assert cache.get_entry("images/base", namespace="completion") is None
 assert cache.get_entry("images/final", namespace="completion").value is None
 assert cache.invalidate(namespace="completion", prefix="images/") == 2
 ```
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_cache_contract_async
+-->
+
+```python
+from contree_sdk.cache import AsyncMemoryCache
+
+
+now = [100.0]
+cache = AsyncMemoryCache(clock=lambda: now[0])
+await cache.set("images/base", {"uuid": "base"}, namespace="completion", ttl=10)
+await cache.set("images/final", None, namespace="completion")
+assert [entry.key for entry in await cache.entries(namespace="completion", prefix="images/")] == [
+    "images/base",
+    "images/final",
+]
+now[0] = 110
+assert await cache.get_entry("images/base", namespace="completion") is None
+assert (await cache.get_entry("images/final", namespace="completion")).value is None
+assert await cache.invalidate(namespace="completion", prefix="images/") == 2
+```
+
+::::
 
 `ttl=None` retains an entry until deletion. `ttl=0` expires it immediately. Negative
 or nonfinite lifetimes raise `ValueError`. Setting a key replaces its value and

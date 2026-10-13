@@ -109,6 +109,7 @@ class DocumentationAPI:
 def doc_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> DocumentationAPI:
     api = DocumentationAPI()
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("CONTREE_TOKEN", "documentation-token")
     monkeypatch.setenv("CONTREE_URL", "https://contree.invalid")
     monkeypatch.setenv("CONTREE_IMAGE", "tag:tutorial-base")
@@ -146,17 +147,18 @@ def agent_model_factory() -> type:
 
 
 @pytest.fixture
-def doc_build_context(doc_api: DocumentationAPI, request: pytest.FixtureRequest, tmp_path: Path) -> None:
-    """Use the files shown on the build page instead of maintaining test copies."""
+def doc_build_context(doc_api: DocumentationAPI, tmp_path: Path) -> None:
+    """Use the build guide context for its own examples and advanced scenarios."""
     import re
 
-    source = request.path.read_text()
+    guide = Path(__file__).resolve().parents[1] / "docs/python_sdk/building-images.md"
+    source = guide.read_text()
     context = tmp_path / "build-context"
     context.mkdir()
     for language, filename in [("dockerfile", "Dockerfile"), ("text", "message.txt")]:
         match = re.search(rf"```{language}\n(.*?)\n```", source, re.DOTALL)
         if match is None:
-            raise ValueError(f"missing {language} block in {request.path}")
+            raise ValueError(f"missing {language} block in {guide}")
         (context / filename).write_text(match[1] + "\n")
 
 

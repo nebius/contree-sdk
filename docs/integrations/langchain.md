@@ -111,6 +111,69 @@ configured by your application. Keep the client open for the entire agent invoca
 The following function accepts that model and uses the connection configured in
 {ref}`sandbox-connection`:
 
+::::{tab} Sync
+
+<!--
+name: test_agent_wiring_sync; fixtures: deepagents_available, doc_api, agent_model_factory
+```python
+from langchain_core.messages import AIMessage, ToolMessage
+
+
+doc_api.complete()  # write preflight
+doc_api.complete()  # upload and commit
+doc_api.complete(stdout="2\n")  # execute
+model = agent_model_factory(
+    responses=[
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "write_file",
+                    "args": {"file_path": "/calculator.py", "content": "print(1 + 1)\n"},
+                    "id": "write-1",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "execute", "args": {"command": "python3 /calculator.py"}, "id": "execute-1"}],
+        ),
+        AIMessage(content="The result is 2."),
+    ]
+)
+```
+-->
+
+```python
+from deepagents import create_deep_agent
+
+from contree_sdk import ContreeSession, create_sandbox_session
+from contree_sdk.langchain import ContreeSandbox
+
+
+def ask_agent(model):
+    with create_sandbox_session(session_type=ContreeSession, image="tag:python:3.12-alpine") as session:
+        agent = create_deep_agent(model=model, backend=ContreeSandbox(session))
+        request = {"messages": [{"role": "user", "content": "Create a calculator script and run it."}]}
+        return agent.invoke(request)
+```
+
+<!--
+name: test_agent_wiring_sync
+```python
+result = ask_agent(model)
+tool_results = [message for message in result["messages"] if isinstance(message, ToolMessage)]
+assert len(tool_results) == 2
+assert all(message.status == "success" for message in tool_results)
+assert "2" in str(tool_results[-1].content)
+assert len(doc_api.sync.calls_for("spawn_instance")) == 3
+```
+-->
+
+::::
+
+::::{tab} Async
+
 <!--
 name: async test_agent_wiring; fixtures: deepagents_available, doc_api, agent_model_factory
 ```python
@@ -167,6 +230,8 @@ assert "2" in str(tool_results[-1].content)
 assert len(doc_api.async_client.calls_for("spawn_instance")) == 3
 ```
 -->
+
+::::
 
 Model-provider installation, credentials, and model selection belong to the agent
 application. The SDK does not choose a provider or supply a model key.

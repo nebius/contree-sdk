@@ -112,7 +112,7 @@ remain caller-owned; see {doc}`manual-sandbox` for explicit assembly.
 
 The same policy classes work with both wrappers. Each instance owns its state and
 timers: create a separate instance for each lazy session. The default is
-`IdleSnapshotPolicy(60)`.
+`IdleSnapshotPolicy(10)`.
 
 | Policy                               | When it requests a snapshot                                                  |
 | ------------------------------------ | ---------------------------------------------------------------------------- |
@@ -123,11 +123,15 @@ timers: create a separate instance for each lazy session. The default is
 This composition closes admission after ten commands or thirty idle seconds.
 Active commands finish before the VM stops.
 
+::::{tab} Sync
+
 <!--
 name: test_lazy_policies
 -->
 
 ```python
+"""Request a snapshot after ten commands or thirty idle seconds."""
+
 from contree_sdk.session import CommandCountSnapshotPolicy, CompositeSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 
 
@@ -145,6 +149,37 @@ assert count.should_snapshot().done()
 assert not idle.should_snapshot().done()
 policy.notify(SnapshotEvent.CLOSE)
 ```
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_lazy_policies_async
+-->
+
+```python
+import asyncio
+
+from contree_sdk.session import CommandCountSnapshotPolicy, CompositeSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
+
+
+idle = IdleSnapshotPolicy(30)
+count = CommandCountSnapshotPolicy(10)
+policy = CompositeSnapshotPolicy(idle, count)
+
+policy.notify(SnapshotEvent.RESET)
+ready = policy.should_snapshot()
+for _ in range(10):
+    policy.notify(SnapshotEvent.COMMAND_STARTED)
+
+assert await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(ready)), timeout=1) is None
+assert count.should_snapshot().done()
+assert not idle.should_snapshot().done()
+policy.notify(SnapshotEvent.CLOSE)
+```
+
+::::
 
 The counter includes reservations made before subprocess creation. Parallel callers
 cannot admit an extra command beyond the limit. Nonzero exits count as commands.
@@ -172,6 +207,8 @@ and does not poll policies.
 
 This custom policy requests a snapshot after two observed exits. It does not depend
 on the application calling each subprocess handle's `wait()`.
+
+::::{tab} Sync
 
 <!--
 name: test_custom_snapshot_policy; fixtures: lazy_api
@@ -214,6 +251,55 @@ assert lazy.phase == "closed"
 ```
 -->
 
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_custom_snapshot_policy_async; fixtures: lazy_api
+-->
+
+```python
+from contree_sdk import create_sandbox_session
+from contree_sdk.session import AbstractSnapshotPolicy, SnapshotEvent
+
+
+class AfterTwoExits(AbstractSnapshotPolicy):
+    def __init__(self) -> None:
+        super().__init__()
+        self.finished = 0
+
+    def notify(self, event: SnapshotEvent) -> None:
+        super().notify(event)
+        if event is SnapshotEvent.RESET:
+            self.finished = 0
+        elif event is SnapshotEvent.COMMAND_FINISHED:
+            self.finished += 1
+            if self.finished == 2 and not self.future.done():
+                self.future.set_result(None)
+
+
+async with create_sandbox_session(
+    image="tag:ubuntu:24.04", session_kwargs={"snapshot_policy": AfterTwoExits()}
+) as lazy:
+    await lazy.run("echo", args=["first"])
+    await lazy.run("echo", args=["second"])
+    saved = await lazy.snapshot()
+    assert saved is not None
+```
+
+<!--
+name: test_custom_snapshot_policy_async
+```python
+assert len(lazy_api.async_client.calls_for("spawn_instance")) == 1
+assert len(lazy_api.async_client.calls_for("operation_subprocess_create")) == 2
+assert len((await lazy.session.history())[0]) == 2
+assert lazy.phase == "closed"
+```
+-->
+
+::::
+
 `RESET` can occur after saving and before another VM starts. It must not create a VM
 or start an idle timer. `CLOSE` must be safe to repeat, including after failure.
 A command-creation failure closes the policy and cancels pending timers.
@@ -224,8 +310,32 @@ Sync code can wait on the policy future with `result()`. Async code can use
 `asyncio.wrap_future()` without a thread pool. Shield the wrapper so cancelling an
 individual waiter does not cancel the shared policy decision.
 
-This standalone example uses the same idle policy as an async lazy session. The
-policy creates an event-loop timer internally when the command finishes.
+These standalone examples wait for the same idle policy decision. The policy
+starts its timer when the last command finishes.
+
+::::{tab} Sync
+
+<!--
+name: test_async_policy_future_sync
+-->
+
+```python
+from contree_sdk.session import IdleSnapshotPolicy, SnapshotEvent
+
+
+policy = IdleSnapshotPolicy(0.01)
+policy.notify(SnapshotEvent.COMMAND_STARTED)
+policy.notify(SnapshotEvent.COMMAND_FINISHED)
+ready = policy.should_snapshot()
+try:
+    ready.result(timeout=1)
+finally:
+    policy.notify(SnapshotEvent.CLOSE)
+```
+
+::::
+
+::::{tab} Async
 
 <!--
 name: async test_async_policy_future
@@ -247,6 +357,8 @@ finally:
     policy.notify(SnapshotEvent.CLOSE)
 ```
 
+::::
+
 `IdleSnapshotPolicy` uses `loop.call_later()` in async code and `threading.Timer`
 in sync code. It cancels stale timers on admission, reset, and close. Supply
 `timer_factory=` when the policy needs a different scheduler. The factory receives
@@ -258,6 +370,42 @@ Sync callers can share a wrapper between threads. Async callers can use
 `asyncio.gather()`. Admission and VM shutdown are serialized; subprocesses can run
 concurrently. Commands submitted while a snapshot is in progress wait for the
 next VM. File writes and application locks remain the application's responsibility.
+
+::::{tab} Sync
+
+<!--
+name: test_lazy_parallel_sync; fixtures: lazy_api
+-->
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from contree_sdk import create_sandbox_session
+from contree_sdk.session import CommandCountSnapshotPolicy
+
+
+with create_sandbox_session(
+    image="tag:ubuntu:24.04", session_kwargs={"snapshot_policy": CommandCountSnapshotPolicy(2)}
+) as lazy:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(lazy.run, "echo", args=[message]) for message in ("first", "second", "third")]
+        results = [future.result() for future in futures]
+    lazy.snapshot()
+```
+
+<!--
+name: test_lazy_parallel_sync
+```python
+assert len(results) == 3
+assert len(lazy_api.sync.calls_for("spawn_instance")) == 2
+assert len(lazy_api.sync.calls_for("follow_operation_events")) == 2
+assert lazy.phase == "closed"
+```
+-->
+
+::::
+
+::::{tab} Async
 
 <!--
 name: async test_lazy_parallel; fixtures: lazy_api
@@ -290,6 +438,8 @@ assert len(lazy_api.async_client.calls_for("follow_operation_events")) == 2
 assert lazy.phase == "closed"
 ```
 -->
+
+::::
 
 `spawn()` returns a subprocess handle immediately. Exit events update the policy
 counters even if the application never calls the handle's `wait()` method.

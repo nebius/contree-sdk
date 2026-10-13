@@ -35,6 +35,8 @@ doc_api.subprocess()
 -->
 
 ```python
+"""Run a subprocess inside an operation."""
+
 import sys
 
 from contree_sdk import ContreeSession, create_sandbox_session
@@ -453,6 +455,8 @@ Save `operation.uuid` when another process must inspect or cancel work.
 Construct a handle with the same UUID and a client for the same server. This does
 not start a new operation or restore session history context.
 
+::::{tab} Sync
+
 <!--
 name: test_reattach; fixtures: doc_api, capsys
 ```python
@@ -486,4 +490,41 @@ assert capsys.readouterr().out == "operation-1\n"
 ```
 -->
 
-Use `AsyncOperation` and await its methods for an async client.
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_reattach_async; fixtures: doc_api, capsys
+```python
+doc_api.complete()
+```
+-->
+
+```python
+from contree_client import profiles
+from contree_client.asyncio import ContreeAsyncClient
+
+from contree_sdk import ContreeAsyncSession
+from contree_sdk.session import AsyncOperation
+
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = ContreeAsyncSession(client, image="tag:alpine:latest")
+    operation = await session.spawn("echo", args=["hello"])
+    saved_uuid = operation.uuid
+    reattached = AsyncOperation(client, saved_uuid)
+    result = await reattached.wait()
+    print(reattached.uuid)
+```
+
+<!--
+name: test_reattach_async
+```python
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
+assert reattached.context is None
+assert capsys.readouterr().out == "operation-1\n"
+```
+-->
+
+::::

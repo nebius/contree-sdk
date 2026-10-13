@@ -9,6 +9,7 @@ belong to the separate `contree-client` package.
 
 session
 sandbox
+images
 files
 store
 docker

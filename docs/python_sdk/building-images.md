@@ -2,27 +2,20 @@
 icon: file-code
 ---
 
-# Build an image from a Dockerfile
+# Build a Docker image
 
-Use a Docker builder when your setup already lives in a Dockerfile.
-It runs build steps on ConTree and returns an image UUID for new sessions.
+Use `sync_build_image` or `async_build_image` when your setup lives in a Dockerfile.
+Each helper runs build steps on ConTree and returns an image UUID for a sandbox.
 You do not need a local Docker daemon.
-
-:::{note}
-Async snippets with top-level `await` run inside an async function or a notebook
-that supports it. For a standalone script, use the `asyncio.run(main())` structure
-from {doc}`getting-started`.
-:::
 
 ## Create a small build context
 
-Configure a connection as described in {ref}`sandbox-connection`. Replace
-`tag:alpine:latest` below with an available image with a POSIX shell and `cat`.
+Configure a connection as described in {ref}`sandbox-connection`. The builder
+resolves `alpine:latest` in ConTree, or imports it from Docker Hub if it is missing.
 Create `build-context/Dockerfile`:
 
 ```dockerfile
-ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
+FROM alpine:latest
 COPY message.txt /message.txt
 RUN cat /message.txt > /built.txt
 ```
@@ -35,8 +28,8 @@ Hello from a built image!
 
 ## Build and read the result
 
-Run this code from the directory containing `build-context`. The builder uses
-in-memory history and caches by default. Open its result with the sandbox factory.
+Run this code from the directory containing `build-context`. Build history and
+file uploads are cached on disk by default.
 
 ::::{tab} Sync
 
@@ -51,21 +44,19 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-from contree_client import profiles
-from contree_client.sync import ContreeClient
+"""Build an image and read its output in a sandbox."""
 
-from contree_sdk import create_sandbox_session
-from contree_sdk.docker import ContreeDockerBuilder
+from contree_sdk import create_sandbox_session, sync_build_image
 
 
-profile = profiles.from_env() or profiles.resolve_profile()
-with ContreeClient.from_profile(profile) as client:
-    builder = ContreeDockerBuilder(client)
-    image_uuid = builder.build("build-context", build_args={"BASE_IMAGE": "tag:alpine:latest"})
+def main() -> None:
+    image = sync_build_image("build-context")
+    with create_sandbox_session(image=image) as sandbox:
+        content = sandbox.read_file("/built.txt")
+        print(content.decode(), end="")
 
-with create_sandbox_session(image=image_uuid, profile=profile) as sandbox:
-    content = sandbox.read_file("/built.txt")
-    print(content.decode(), end="")
+
+main()
 ```
 
 <!--
@@ -87,7 +78,7 @@ assert capsys.readouterr().out == "Hello from a built image!\n"
 ::::{tab} Async
 
 <!--
-name: async test_build_async; fixtures: doc_api, doc_build_context, capsys
+name: test_build_async; fixtures: doc_api, doc_build_context, capsys
 ```python
 doc_api.complete()
 doc_api.download(b"Hello from a built image!\n")
@@ -97,21 +88,19 @@ for client in (doc_api.sync, doc_api.async_client):
 -->
 
 ```python
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
+import asyncio
 
-from contree_sdk import create_sandbox_session
-from contree_sdk.docker import ContreeAsyncDockerBuilder
+from contree_sdk import create_sandbox_session, async_build_image
 
 
-profile = profiles.from_env() or profiles.resolve_profile()
-async with ContreeAsyncClient.from_profile(profile) as client:
-    builder = ContreeAsyncDockerBuilder(client)
-    image_uuid = await builder.build("build-context", build_args={"BASE_IMAGE": "tag:alpine:latest"})
+async def main() -> None:
+    image = await async_build_image("build-context")
+    async with create_sandbox_session(image=image) as sandbox:
+        content = await sandbox.read_file("/built.txt")
+        print(content.decode(), end="")
 
-async with create_sandbox_session(image=image_uuid, profile=profile) as sandbox:
-    content = await sandbox.read_file("/built.txt")
-    print(content.decode(), end="")
+
+asyncio.run(main())
 ```
 
 <!--
@@ -131,96 +120,6 @@ hash and invalidates the dependent layer. The build result is a ConTree filesyst
 image. Dockerfile support is a subset listed below; this does not create a local
 Docker image.
 
-## Advanced: understand the two caches
-
-| Component | What it records                                           |
-| --------- | --------------------------------------------------------- |
-| `store=`  | History and branch pointers used to reuse built layers.   |
-| `cache=`  | Uploaded-file and URL-download metadata used by COPY/ADD. |
-
-Memory implementations are the default. Use both SQLite components to retain
-these records between Python processes. Keep referenced images and uploaded files
-available on the server. `no_cache=True` disables layer reuse; it does not force
-identical file content to be uploaded again.
-
-The default build session ID derives from the context path. Supply `session_id=`
-when you need a stable identity after moving a context. Avoid concurrent builds
-that mutate the same build session.
-
-## Advanced: rebuild a multi-stage image after changing inputs
-
-This standalone example creates `multi-context` in the current directory. Its
-first stage builds an output file. The second stage copies only that output with
-`COPY --from`. Use a base image with `cat`, `tar`, and standard POSIX file utilities.
-
-Keep the same builder, store, and build session to observe layer reuse. Changing
-an ignored file leaves the build inputs unchanged. Changing `message.txt`
-invalidates the source RUN and the stage copy that depends on its output.
-
-<!--
-name: test_multistage_rebuild; fixtures: doc_api, doc_stage_archive
-```python
-for _ in range(4):
-    doc_api.complete()
-```
--->
-
-```python
-from pathlib import Path
-
-from contree_client import profiles
-from contree_client.sync import ContreeClient
-
-from contree_sdk.docker import ContreeDockerBuilder
-
-
-context = Path("multi-context")
-context.mkdir(exist_ok=True)
-(context / "Dockerfile").write_text(
-    "ARG BASE_IMAGE\n"
-    "FROM ${BASE_IMAGE} AS source\n"
-    "COPY . /src/\n"
-    "RUN cat /src/message.txt > /built.txt\n"
-    "FROM ${BASE_IMAGE}\n"
-    "COPY --from=source /built.txt /result.txt\n"
-)
-(context / ".dockerignore").write_text("ignored.txt\n")
-(context / "message.txt").write_text("one\n")
-(context / "ignored.txt").write_text("local notes\n")
-
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    builder = ContreeDockerBuilder(client)
-
-    def rebuild():
-        events = []
-        image = builder.build(
-            context,
-            build_args={"BASE_IMAGE": "tag:alpine:latest"},
-            session_id="multi-stage-demo",
-            on_event=events.append,
-        )
-        started = [event for event in events if event.type == "operation_started"]
-        return image, started
-
-    first_image, first_runs = rebuild()
-    repeated_image, repeated_runs = rebuild()
-    (context / "ignored.txt").write_text("changed local notes\n")
-    ignored_image, ignored_runs = rebuild()
-    (context / "message.txt").write_text("two\n")
-    changed_image, changed_runs = rebuild()
-
-assert len(first_runs) == 2  # Source RUN and COPY --from extraction.
-assert repeated_runs == ignored_runs == []
-assert first_image == repeated_image == ignored_image
-assert len(changed_runs) == 2
-```
-
-The cache comparison uses file content and execution inputs. It does not require
-the server to return a different image UUID for every submission. To retain this
-cache across Python restarts, supply SQLite store and cache components as above.
-Use the async builder with the same inputs and await each `build` call in async
-applications.
-
 ## Supported Dockerfile behavior
 
 `FROM`, `RUN`, `COPY`, `ADD`, `WORKDIR`, `ENV`, `ARG`, and `USER` are implemented.
@@ -236,191 +135,140 @@ are not reproduced. `ENV`, `WORKDIR`, and `USER` guide build steps; pass the des
 runtime environment and working directory when executing the resulting image.
 `WORKDIR` sets a command's directory; ensure the directory exists in the image.
 
-## Advanced: observe a live build
+## Configuration
 
-Pass `on_event=` to receive `BuildEvent` notifications while a build runs.
-Output events arrive before RUN completes and carry raw `bytes`. Decode or format
-them in your application. Each operation uses the same reader for output and its
-final result.
+### Persistent cache
 
-| `event.type`        | Meaning                                                           |
-| ------------------- | ----------------------------------------------------------------- |
-| `step_started`      | A parsed or synthetic directive is about to execute.              |
-| `operation_started` | RUN submitted an operation; `operation_uuid` is available.        |
-| `stdout`, `stderr`  | A chunk of live output is in `event.data`.                        |
-| `cache_hit`         | The directive reused an existing image without starting RUN.      |
-| `step_completed`    | The directive completed, including any required history commit.   |
-| `step_failed`       | The directive raised; `event.error` holds the original exception. |
 
-`event.step.id` is unique within one build. `event.step.index` is the zero-based
-parsed directive index, including ARG and metadata instructions. Synthetic steps
-have `index=None`. A nested step has `parent_id` set to its enclosing step's ID.
-A final COPY/ADD flush appears as a synthetic `RUN :`; a stage flush appears as a
-child of the next FROM. If a nested step fails, both it and its parent report the
-same exception.
+| Component | What it records                                           |
+| --------- | --------------------------------------------------------- |
+| `storage=` | History and branch pointers used to reuse built layers.   |
+| `cache=`  | Uploaded-file and URL-download metadata used by COPY/ADD. |
 
-Events include elapsed step time, image IDs, and the operation UUID when available.
-The terminal RUN event also contains its typed `InstanceResult`, including nonzero
-exit codes. A cache hit emits no output and no new operation UUID.
+The helpers use SQLite by default in `$XDG_CACHE_HOME/contree/`, with
+`~/.cache/contree/` as the fallback. Build history is stored in `builds.sqlite3`;
+upload metadata is stored in `images.sqlite3`. Set `cache_dir=` to change the directory.
+Keep referenced images and uploaded files
+available on the server. `no_cache=True` disables layer reuse; it does not force
+identical file content to be uploaded again.
+
+The default build session ID derives from the context path and connection scope. Supply `session_id=`
+when you need a stable identity after moving a context. Avoid concurrent builds
+that mutate the same build session.
+
+(shared-image-client)=
+### Share one client
+
+For a workflow with several operations, initialize a client once. Pass it through
+`client=` as a dependency to the import helper, build helper, and sandbox factory.
+This reuses the connection and gives your application one place to configure it.
+Each operation leaves this client open; the outer context closes it.
+
+The following programs import the base under the `alpine:latest` ConTree tag,
+build the context above, and read its result. The Dockerfile's `FROM alpine:latest`
+then resolves that imported image.
 
 ::::{tab} Sync
 
 <!--
-name: test_build_events; fixtures: doc_api, doc_build_context, capsys
+name: test_shared_client_sync; fixtures: doc_api, doc_build_context, capsys
 ```python
-from dataclasses import replace
-
-from contree_client.models import EventDataStream
-from tests.unit.session.lazy_clients import event
-
-
-doc_api.complete(stream=False)
-doc_api.sync.mock(
-    "follow_operation_events",
-    [
-        replace(event("stdout"), data=EventDataStream.from_text("building\n")),
-        event("completion"),
-    ],
-)
+doc_api.complete()
+doc_api.download(b"Hello from a built image!\n")
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("resolve_image", "image-1")
 ```
 -->
 
 ```python
-import sys
+"""Reuse one client for import, build, and sandbox operations."""
 
 from contree_client import profiles
 from contree_client.sync import ContreeClient
 
-from contree_sdk.docker import BuildEvent, ContreeDockerBuilder
+from contree_sdk import create_sandbox_session, sync_build_image, sync_import_image
 
 
-def report(event: BuildEvent) -> None:
-    if event.type == "stdout":
-        sys.stdout.buffer.write(event.data)
-        sys.stdout.buffer.flush()
-    elif event.type == "stderr":
-        sys.stderr.buffer.write(event.data)
-        sys.stderr.buffer.flush()
-    elif event.type == "step_started":
-        print(f"Step {event.step.id}: {event.step.keyword}", flush=True)
+def main() -> None:
+    profile = profiles.from_env() or profiles.resolve_profile()
+    with ContreeClient.from_profile(profile) as client:
+        sync_import_image(
+            "docker://mirror.gcr.io/library/alpine:latest",
+            tag="alpine:latest",
+            client=client,
+        )
+        image = sync_build_image("build-context", client=client)
+        with create_sandbox_session(image=image, client=client) as sandbox:
+            content = sandbox.read_file("/built.txt")
+            print(content.decode(), end="")
 
 
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    builder = ContreeDockerBuilder(client)
-    image_uuid = builder.build(
-        "build-context",
-        build_args={"BASE_IMAGE": "tag:alpine:latest"},
-        on_event=report,
-    )
+main()
 ```
 
 <!--
-name: test_build_events
+name: test_shared_client_sync
 ```python
-assert image_uuid == "image-1"
-assert "building\n" in capsys.readouterr().out
-assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
+assert len(doc_api.sync.calls_for("import_image")) == 1
+assert len(doc_api.sync.calls_for("spawn_instance")) == 1
+assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
+assert capsys.readouterr().out == "Hello from a built image!\n"
 ```
 -->
 
 ::::
+
 ::::{tab} Async
 
 <!--
-name: async test_build_events_async; fixtures: doc_api, doc_build_context, capsys
+name: test_shared_client_async; fixtures: doc_api, doc_build_context, capsys
 ```python
-from dataclasses import replace
-
-from contree_client.models import EventDataStream
-from tests.unit.session.lazy_clients import event
-
-
-doc_api.complete(stream=False)
-doc_api.async_client.mock(
-    "follow_operation_events",
-    [
-        replace(event("stdout"), data=EventDataStream.from_text("building\n")),
-        event("completion"),
-    ],
-)
+doc_api.complete()
+doc_api.download(b"Hello from a built image!\n")
+for client in (doc_api.sync, doc_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("resolve_image", "image-1")
 ```
 -->
 
 ```python
 import asyncio
-import sys
 
 from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
 
-from contree_sdk.docker import BuildEvent, ContreeAsyncDockerBuilder
+from contree_sdk import create_sandbox_session, async_build_image, async_import_image
 
 
-async def report(event: BuildEvent) -> None:
-    if event.type in {"stdout", "stderr"}:
-        stream = sys.stdout.buffer if event.type == "stdout" else sys.stderr.buffer
-        await asyncio.to_thread(stream.write, event.data)
-        await asyncio.to_thread(stream.flush)
-    elif event.type == "step_started":
-        await asyncio.to_thread(print, f"Step {event.step.id}: {event.step.keyword}", flush=True)
+async def main() -> None:
+    profile = profiles.from_env() or profiles.resolve_profile()
+    async with ContreeAsyncClient.from_profile(profile) as client:
+        await async_import_image(
+            "docker://mirror.gcr.io/library/alpine:latest",
+            tag="alpine:latest",
+            client=client,
+        )
+        image = await async_build_image("build-context", client=client)
+        async with create_sandbox_session(image=image, client=client) as sandbox:
+            content = await sandbox.read_file("/built.txt")
+            print(content.decode(), end="")
 
 
-async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    builder = ContreeAsyncDockerBuilder(client)
-    image_uuid = await builder.build(
-        "build-context",
-        build_args={"BASE_IMAGE": "tag:alpine:latest"},
-        on_event=report,
-    )
+asyncio.run(main())
 ```
 
 <!--
-name: test_build_events_async
+name: test_shared_client_async
 ```python
-assert image_uuid == "image-1"
-assert "building\n" in capsys.readouterr().out
-assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
+assert len(doc_api.async_client.calls_for("import_image")) == 1
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
+assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
+assert capsys.readouterr().out == "Hello from a built image!\n"
 ```
 -->
 
 ::::
 
-Callbacks run serially in the thread or task executing `build()`. The async builder
-accepts both synchronous and awaitable callbacks. Keep callbacks short. The async
-example offloads local output writes so they do not block the event loop. For a
-live UI, a callback can also feed a bounded queue that another task consumes.
-
-A callback error, including a closed output pipe, aborts the build and cancels its
-active RUN operation. Async task cancellation and sync interruption follow the
-same cleanup path. Error notifications cannot replace the original exception.
-Callbacks do not roll back completed layers. File, parse, and final tag errors
-raise directly; these do not create directive events outside a running step.
-
-## Customize a build
-
-Pass `on_step=` to receive a `BuildStepEvent` for each parsed directive. It includes
-duration, cache-hit status, image IDs, and any error. Keep callbacks short; a callback
-exception can stop the build. The async builder also accepts an awaitable callback.
-
-Use `parser=`, `session_factory=`, or `execute_directive()` for custom behavior.
-See {doc}`customization` and {doc}`reference/docker`.
-
-## Upload cache lifetime and scope
-
-COPY and ADD cache uploads separately from layer history. The cache namespaces
-and layer hashes include the endpoint, project, and credential scope. Shared
-cache files and build session IDs therefore do not reuse another server’s UUIDs.
-Local paths and source URLs are retained through the public file-source registry.
-See {doc}`caching` for enumeration and invalidation.
-
-The default upload lifetime is 90 days. Cache hits and URL responses with status
-304 do not extend it. Override `create_context()` and set
-`context.upload_cache_ttl` to choose a shorter lifetime for your server. Expiry
-causes a new upload when the directive runs; it does not invalidate an existing
-image layer. A 304 response without a live cached upload raises `DockerBuildError`.
-
-Local COPY uses a temporary snapshot for its content hash and upload. Async COPY
-limits concurrent snapshots and uploads through `context.upload_concurrency`
-(default four). URL ADD streams into a temporary file before upload and closes the
-response body, including conditional responses. These paths bound memory usage;
-temporary disk space must hold the files currently being prepared.
+Continue with {doc}`advanced` to select components, manage them directly,
+or observe individual build steps.

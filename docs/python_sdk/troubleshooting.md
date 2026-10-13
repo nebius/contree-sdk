@@ -10,7 +10,7 @@ the SDK reports execution, history, and build errors.
 | Symptom                                                      | Check or action                                                                                               |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | Connection profile is missing or incomplete | Configure URL, token, and AI project; see {ref}`sandbox-connection`.                                            |
-| Authentication or profile error                              | Check the URL, token, AI project, and IAM/JWT mode in the selected Profile. |
+| Authentication or profile error                              | Check the URL, token, and AI project in the selected Profile. |
 | Unknown image tag                                            | Import the image on the selected endpoint; see {doc}`images`.                                                 |
 | A file from the previous command disappeared                 | For explicit `ContreeSession`, use `disposable=False`. For a lazy sandbox, check whether an exception discarded unsaved work.                                                                    |
 | Work disappeared after Python restarted                      | Resume the same `session_id` from the same SQLite database.                                                   |
@@ -29,6 +29,8 @@ from {doc}`getting-started`.
 
 A nonzero command exit returns a result. Calling `run_workflow()` below raises
 inside the context, discards unsaved changes, and closes the VM.
+
+::::{tab} Sync
 
 <!--
 name: test_sandbox_nonzero; fixtures: sandbox_api
@@ -58,6 +60,41 @@ assert len(sandbox_api.sync.calls_for("cancel_operation")) == 1
 assert not sandbox_api.sync.calls_for("get_operation_status")
 ```
 -->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_sandbox_nonzero_async; fixtures: sandbox_api
+```python
+sandbox_api.command(exit_code=7)
+import pytest
+```
+-->
+
+```python
+from contree_sdk import create_sandbox_session
+
+
+async def run_workflow() -> None:
+    async with create_sandbox_session(image="tag:alpine:latest") as sandbox:
+        result = await sandbox.run(shell="exit 7")
+        if result.state.exit_code != 0:
+            raise RuntimeError(f"Command failed with exit code {result.state.exit_code}")
+```
+
+<!--
+name: test_sandbox_nonzero_async
+```python
+with pytest.raises(RuntimeError, match="exit code 7"):
+    await run_workflow()
+assert len(sandbox_api.async_client.calls_for("cancel_operation")) == 1
+assert not sandbox_api.async_client.calls_for("get_operation_status")
+```
+-->
+
+::::
 
 The examples below select an explicit Session class to show disposable operations,
 commit conflicts, and lower-level result handling.

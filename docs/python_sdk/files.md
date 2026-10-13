@@ -22,6 +22,8 @@ sandbox_api.download(b"Hello from a file!\n")
 -->
 
 ```python
+"""Write a file, save its state, and download the result."""
+
 from pathlib import Path
 
 from contree_sdk import create_sandbox_session

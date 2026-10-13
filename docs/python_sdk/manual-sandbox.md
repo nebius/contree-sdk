@@ -20,7 +20,7 @@ an available image with `sleep`, a POSIX shell, and `cat`.
 | Store | A memory store for session history. | Supply SQLite or your own Store implementation. |
 | File transfer | A client-backed transfer for uploads and saved-image reads. | Replace it or wrap it in a cached transfer. |
 | Base session | `ContreeSession` or `ContreeAsyncSession`. | Extend request preparation, commits, or operation creation. |
-| Lazy session | Reuse one VM; snapshot after 60 idle seconds. | Select a policy or subclass the lazy session. |
+| Lazy session | Reuse one VM; snapshot after 10 idle seconds. | Select a policy or subclass the lazy session. |
 | Cleanup | Finish the session, then close owned storage and the client. | Manage component lifetimes explicitly; borrowed objects remain yours. |
 
 The factory does not enable an upload cache by default. Pass `cache` and
@@ -37,6 +37,8 @@ inside the lazy context discards changes since its last completed snapshot.
 <!-- name: test_manual_sandbox; fixtures: sandbox_api, capsys -->
 
 ```python
+"""Assemble a sandbox and run two commands."""
+
 from contree_client import profiles
 from contree_client.httpx import ContreeClient
 
@@ -52,7 +54,7 @@ def main() -> None:
         with SyncMemoryStore() as storage:
             transfer = ClientFileTransfer(client)
             base = ContreeSession(client, image="tag:alpine:latest", store=storage, file_transfer=transfer)
-            policy = IdleSnapshotPolicy(60)
+            policy = IdleSnapshotPolicy(10)
             with LazySession(base, snapshot_policy=policy) as sandbox:
                 sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
                 result = sandbox.run("cat", args=["/message.txt"])
@@ -98,7 +100,7 @@ async def main() -> None:
             transfer = AsyncClientFileTransfer(client)
             base = ContreeAsyncSession(client, image="tag:alpine:latest", store=storage, file_transfer=transfer)
             await base.ensure_ready()
-            policy = IdleSnapshotPolicy(60)
+            policy = IdleSnapshotPolicy(10)
             async with AsyncLazySession(base, snapshot_policy=policy) as sandbox:
                 await sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
                 result = await sandbox.run("cat", args=["/message.txt"])
@@ -135,6 +137,8 @@ guarantees are needed in a custom factory; see {doc}`reference/sandbox`.
 The factory accepts the same extension points. This selects a custom base session
 that adds a default command timeout. Each command uses an independent operation.
 
+::::{tab} Sync
+
 <!--
 name: test_factory_custom_session; fixtures: doc_api
 ```python
@@ -165,6 +169,43 @@ assert isinstance(session, TimedSession)
 assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["timeout"] == 30
 ```
 -->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_factory_custom_session_async; fixtures: doc_api
+```python
+doc_api.complete()
+```
+-->
+
+```python
+from dataclasses import replace
+
+from contree_sdk import ContreeAsyncSession, RunRequest, create_async_sandbox_session
+
+
+class TimedAsyncSession(ContreeAsyncSession):
+    def prepare_request(self, request: RunRequest) -> RunRequest:
+        request = super().prepare_request(request)
+        return replace(request, timeout=30 if request.timeout is None else request.timeout)
+
+
+async with create_async_sandbox_session(image="tag:alpine:latest", session_type=TimedAsyncSession) as session:
+    await session.run("echo", args=["Custom request policy"])
+```
+
+<!--
+name: test_factory_custom_session_async
+```python
+assert isinstance(session, TimedAsyncSession)
+assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["timeout"] == 30
+```
+-->
+
+::::
 
 Selecting `ContreeSession` or a subclass changes execution semantics: commands
 are disposable by default, and `disposable=False` saves each result. Selecting a

@@ -27,6 +27,8 @@ sandbox_api.download(b"baseline\n")
 -->
 
 ```python
+"""Save a baseline and compare a separate branch."""
+
 from contree_sdk import create_sandbox_session
 
 

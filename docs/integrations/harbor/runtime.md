@@ -13,6 +13,7 @@ processes in one VM until explicit stop, a server lifetime limit, or a failure.
 The complete Harbor environment adapter, framework factory integration, and
 full-trial tests are not yet available. The examples below describe the existing
 prototype so that its current behavior can be inspected and tested.
+This runtime is async-only; it has no synchronous counterpart.
 
 `AsyncLazySession` can snapshot automatically between commands. A runtime uses a
 manual snapshot policy and never schedules an idle or command-count shutdown.

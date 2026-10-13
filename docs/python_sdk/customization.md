@@ -22,6 +22,8 @@ This example rejects shell commands, applies a default timeout, and counts waits
 It uses the connection described in {ref}`sandbox-connection`. The complete code
 includes both the session policy and its operation implementation.
 
+::::{tab} Sync
+
 <!--
 name: test_custom_policy; fixtures: doc_api, capsys
 ```python
@@ -84,6 +86,77 @@ assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["timeout"] == 30
 assert capsys.readouterr().out == "1\n"
 ```
 -->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_custom_policy_async; fixtures: doc_api, capsys
+```python
+doc_api.complete()
+```
+-->
+
+```python
+from dataclasses import replace
+
+from contree_client import profiles
+from contree_client.asyncio import ContreeAsyncClient
+from contree_client.models import InstanceResult, InstanceSpawnResponse
+
+from contree_sdk import ContreeAsyncSession, OperationContext, RunRequest
+from contree_sdk.session import AsyncOperation, AsyncOperationContract
+
+
+class AuditedAsyncOperation(AsyncOperation):
+    waits = 0
+
+    async def wait(self, *, timeout: float | None = None) -> InstanceResult:
+        self.waits += 1
+        return await super().wait(timeout=timeout)
+
+
+class PolicySession(ContreeAsyncSession):
+    def prepare_request(self, request: RunRequest) -> RunRequest:
+        request = super().prepare_request(request)
+        if request.shell is not None:
+            raise ValueError("this session only accepts commands with explicit arguments")
+        return replace(request, timeout=request.timeout or 30, env={**(request.env or {}), "APP_MODE": "test"})
+
+    def create_operation(self, response: InstanceSpawnResponse, context: OperationContext) -> AsyncOperationContract:
+        if not isinstance(response.uuid, str):
+            raise TypeError("missing operation UUID")
+        return AuditedAsyncOperation(
+            self.client, response.uuid, timeout=context.request.timeout_seconds, context=context
+        )
+
+
+async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
+    session = PolicySession(client, image="tag:alpine:latest")
+    operation = await session.spawn("echo", args=["hello"])
+    result = await operation.wait()
+    assert isinstance(operation, AuditedAsyncOperation)
+    print(operation.waits)
+```
+
+<!--
+name: test_custom_policy_async
+```python
+import pytest
+
+
+with pytest.raises(ValueError, match="explicit arguments"):
+    await session.run(shell="echo blocked")
+assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
+assert operation.waits == 1
+assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["env"] == {"APP_MODE": "test"}
+assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["timeout"] == 30
+assert capsys.readouterr().out == "1\n"
+```
+-->
+
+::::
 
 The execution order is:
 
@@ -223,7 +296,8 @@ differences.
 
 ## Extend Dockerfile builds
 
-Create a parser per dialect, then register your directive:
+The same directive class supports both builders through `execute()` and
+`execute_async()`. Create a parser per dialect, then register your directive:
 
 <!--
 name: async test_custom_directive; fixtures: doc_api, tmp_path, capsys
@@ -371,6 +445,8 @@ A sync override runs during session construction. An async override runs during
 `ensure_ready()` or the first operation. Return a valid UUID for the selected server;
 the example uses a mapping that your application supplies.
 
+::::{tab} Sync
+
 <!--
 name: test_resolve_policy; fixtures: doc_api
 -->
@@ -395,6 +471,37 @@ assert session.image_uuid == "8a0269a2-7720-4daa-aa96-dca93b20bb33"
 assert session.client.calls_for("resolve_image") == []
 ```
 -->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: async test_resolve_policy_async; fixtures: doc_api
+-->
+
+```python
+from contree_sdk import ContreeAsyncSession, create_sandbox_session
+
+
+class NamedAsyncImageSession(ContreeAsyncSession):
+    async def resolve_image(self, image: str) -> str:
+        return {"test-base": "8a0269a2-7720-4daa-aa96-dca93b20bb33"}[image]
+
+
+async with create_sandbox_session(session_type=NamedAsyncImageSession, image="test-base") as session:
+    print(session.image_uuid)
+```
+
+<!--
+name: test_resolve_policy_async
+```python
+assert session.image_uuid == "8a0269a2-7720-4daa-aa96-dca93b20bb33"
+assert session.client.calls_for("resolve_image") == []
+```
+-->
+
+::::
 
 ### Persist staged attachments in a custom store
 
@@ -428,9 +535,12 @@ the same policy after an explicit `spawn()` and `wait()`; it returns `None` when
 it skips the commit. Disposable requests cannot create history entries through
 `commit_result()`, even if the server returns an image.
 
+::::{tab} Sync
+
 <!--
 name: test_sync_commit_policy; fixtures: doc_api
 ```python
+doc_api.complete(exit_code=7)
 doc_api.complete(exit_code=7)
 ```
 -->
@@ -447,11 +557,21 @@ with create_sandbox_session(
     result = session.run(shell="exit 7", disposable=False)
     assert result.state.exit_code == 7
     assert session.image_uuid == original_image
+    operation = session.spawn(shell="exit 7", disposable=False)
+    result = operation.wait()
+    entry = session.commit_result(operation)
+    assert result.state.exit_code == 7
+    assert entry is None
 ```
+
+::::
+
+::::{tab} Async
 
 <!--
 name: async test_async_commit_policy; fixtures: doc_api
 ```python
+doc_api.complete(exit_code=7)
 doc_api.complete(exit_code=7)
 ```
 -->
@@ -464,12 +584,18 @@ from contree_sdk.session import ZeroExitCommitPolicy
 async with create_sandbox_session(
     session_type=ContreeAsyncSession, image="tag:alpine:latest", commit_policy=ZeroExitCommitPolicy()
 ) as session:
+    original_image = session.image_uuid
+    result = await session.run(shell="exit 7", disposable=False)
+    assert result.state.exit_code == 7
+    assert session.image_uuid == original_image
     operation = await session.spawn(shell="exit 7", disposable=False)
     result = await operation.wait()
     entry = await session.commit_result(operation)
     assert result.state.exit_code == 7
     assert entry is None
 ```
+
+::::
 
 For an application-specific rule, inherit `AbstractCommitPolicy` and implement
 `should_commit(context: OperationContext, result: InstanceResult) -> bool`. The

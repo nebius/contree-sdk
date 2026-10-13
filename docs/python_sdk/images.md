@@ -2,185 +2,153 @@
 icon: layer-group
 ---
 
-# Find, import, and name images
+# Import a Docker image
 
-A session starts from an image already available on its ConTree endpoint.
-`image=` accepts a UUID, `tag:NAME`, or a bare tag name. A registry URL is not a
-session image reference; import it first. Image-management methods belong to
-`contree-client`, which is installed with the SDK.
+Use `sync_import_image` or `async_import_image` to import a registry image.
+Each helper waits for completion and returns an image UUID for the sandbox factory.
 
-:::{note}
-Async snippets with top-level `await` run inside an async function or a notebook
-that supports it. For a standalone script, use the `asyncio.run(main())` structure
-from {doc}`getting-started`.
-:::
+Configure the endpoint, token, and AI project as described in
+{ref}`sandbox-connection`. The registry must be reachable from the ConTree server.
+The example imports Alpine through a Docker Hub mirror and assigns the ConTree
+tag `alpine:latest`. Replace the registry URL with one available to your server.
 
-## Import a base image
+## Import and run a command
 
-Configure the endpoint, token, and AI project as described in {ref}`sandbox-connection`.
-This example imports a BusyBox image through the Docker Hub mirror and assigns
-the ConTree tag `tutorial-base`. The registry must be reachable by the server.
+Save either program as `import_image.py` and run it with Python. Both programs
+wait for the import to finish, open a sandbox, and print `Hello from an imported image!`.
+The helpers use the same connection configuration as the sandbox factory.
 
 ::::{tab} Sync
 
 <!--
-name: test_import_image; fixtures: doc_api, capsys
+name: test_import_image; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-for client in (doc_api.sync, doc_api.async_client):
+from tests.unit.session.factories import operation_response
+sandbox_api.command("Hello from an imported image!\n")
+for client in (sandbox_api.sync, sandbox_api.async_client):
     client.mock("import_image", "operation-1")
+    client.mock("wait_operation", operation_response(result_image_uuid="image-1"))
+    client.mocks["resolve_image"].clear()
+    client.mock("resolve_image", "image-1")
 ```
 -->
 
 ```python
-from contree_client import profiles
-from contree_client.models import ImageImportRegistry, OperationStatus
-from contree_client.sync import ContreeClient
+"""Import a registry image and run a command in a sandbox."""
+
+from contree_sdk import create_sandbox_session, sync_import_image
 
 
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    operation_id = client.import_image(
-        ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
-        tag="tutorial-base",
+def main() -> None:
+    image = sync_import_image(
+        "docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest"
     )
-    response = client.wait_operation(operation_id)
-    if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
-        raise RuntimeError(f"Image import failed: {response.error}")
-    print(response.result_image_uuid)
+    with create_sandbox_session(image=image) as sandbox:
+        result = sandbox.run("echo", args=["Hello from an imported image!"])
+        print(result.stdout.as_text(), end="")
+
+
+main()
 ```
 
 <!--
 name: test_import_image
 ```python
-assert capsys.readouterr().out == "image-1\n"
+client = sandbox_api.sync
+assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
+assert client.calls_for("wait_operation")[0].args == ("operation-1",)
+assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
+assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
+assert capsys.readouterr().out == "Hello from an imported image!\n"
 ```
 -->
 
 ::::
+
 ::::{tab} Async
 
 <!--
-name: async test_import_image_async; fixtures: doc_api, capsys
+name: test_import_image_async; fixtures: sandbox_api, capsys
 ```python
-doc_api.complete()
-for client in (doc_api.sync, doc_api.async_client):
+from tests.unit.session.factories import operation_response
+sandbox_api.command("Hello from an imported image!\n")
+for client in (sandbox_api.sync, sandbox_api.async_client):
     client.mock("import_image", "operation-1")
+    client.mock("wait_operation", operation_response(result_image_uuid="image-1"))
+    client.mocks["resolve_image"].clear()
+    client.mock("resolve_image", "image-1")
 ```
 -->
 
 ```python
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
-from contree_client.models import ImageImportRegistry, OperationStatus
+import asyncio
+
+from contree_sdk import create_sandbox_session, async_import_image
 
 
-async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    operation_id = await client.import_image(
-        ImageImportRegistry(url="docker://mirror.gcr.io/library/busybox:1.37"),
-        tag="tutorial-base",
+async def main() -> None:
+    image = await async_import_image(
+        "docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest"
     )
-    response = await client.wait_operation(operation_id)
-    if response.status != OperationStatus.SUCCESS or not isinstance(response.result_image_uuid, str):
-        raise RuntimeError(f"Image import failed: {response.error}")
-    print(response.result_image_uuid)
+    async with create_sandbox_session(image=image) as sandbox:
+        result = await sandbox.run("echo", args=["Hello from an imported image!"])
+        print(result.stdout.as_text(), end="")
+
+
+asyncio.run(main())
 ```
 
 <!--
 name: test_import_image_async
 ```python
-assert capsys.readouterr().out == "image-1\n"
+client = sandbox_api.async_client
+assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
+assert client.calls_for("wait_operation")[0].args == ("operation-1",)
+assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
+assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
+assert capsys.readouterr().out == "Hello from an imported image!\n"
 ```
 -->
 
 ::::
 
-After a successful import, pass `image="tag:tutorial-base"` to
-`create_sandbox_session` in the other guides. Registry tags and ConTree tags are separate names. Importing the same
-registry reference later can produce a different image if the registry tag changed.
-Use an image UUID when you need to select a specific imported image.
+The helpers return only after a successful import. A failed import raises
+`FailedOperationError`. Assigning an existing ConTree tag moves it to the imported image.
 
-The sync session resolves a tag during construction. The async session resolves it
-on first use or `ensure_ready()`. Resolving an unknown tag raises the client's
-`NotFoundError`; session construction does not automatically import it.
+The import supplies a filesystem. It does not start the registry image's `CMD`
+or `ENTRYPOINT`, and it does not apply its `WORKDIR`. Select the command and
+working directory when running the sandbox.
 
-## Advanced: tag a saved result
+## Reuse the imported image
 
-A tag gives another workflow a name for an image. Assigning an existing tag moves
-it to the new image; it does not copy a session's history or defaults.
+Use `image="tag:alpine:latest"` with `create_sandbox_session` in later programs,
+including {doc}`getting-started`. There is no need to import before every command.
 
-::::{tab} Sync
+| Reference | Use |
+| --- | --- |
+| `docker://mirror.gcr.io/library/alpine:latest` | Registry source passed to an import helper. |
+| `tag:alpine:latest` | ConTree tag passed to the sandbox factory. |
+| The returned image UUID | The specific imported filesystem, even if its tag later moves. |
 
-<!--
-name: test_tag_image; fixtures: doc_api, capsys
-```python
-doc_api.complete()
-for client in (doc_api.sync, doc_api.async_client):
-    client.mock("update_image_tag", None)
-```
--->
+Registry tags and ConTree tags are separate names. `create_sandbox_session`
+resolves the supplied image during context entry; it does not import a missing
+image. An unknown tag raises the client's `NotFoundError`.
 
-```python
-from contree_client import profiles
-from contree_client.sync import ContreeClient
+## Configuration
 
-from contree_sdk import ContreeSession
+Import results are cached for one hour in `$XDG_CACHE_HOME/contree/images.sqlite3`,
+or `~/.cache/contree/images.sqlite3` when XDG is unset. Connections and registry
+credentials have separate cache keys. Credentials are hashed, not stored in plaintext.
+Pass `no_cache=True` to import a changed registry tag again and refresh the record.
+Use `cache_ttl=` to change the lifetime or `cache_dir=` to choose another directory.
+The cache stores references; keep the corresponding server images available.
 
+For several operations, initialize a client once and pass it through `client=`.
+The client is a shared dependency for import, build, and sandbox operations.
+See the complete Sync/Async example in {ref}`shared-image-client`.
+The caller closes a supplied client. Helpers close clients they create themselves.
 
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    session = ContreeSession(client, image="tag:alpine:latest")
-    session.run(shell="echo ready > /ready.txt", disposable=False)
-    client.update_image_tag(session.image_uuid, "prepared-base")
-    print(session.image_uuid)
-```
+Pass an `ImageImportRegistry` object instead of a string when the registry needs
+credentials. See {doc}`reference/images` for connection and cache parameters.
 
-<!--
-name: test_tag_image
-```python
-assert doc_api.sync.calls_for("update_image_tag")[0].args == ("image-1", "prepared-base")
-assert capsys.readouterr().out == "image-1\n"
-```
--->
-
-::::
-
-::::{tab} Async
-
-<!--
-name: async test_tag_image_async; fixtures: doc_api, capsys
-```python
-doc_api.complete()
-for client in (doc_api.sync, doc_api.async_client):
-    client.mock("update_image_tag", None)
-```
--->
-
-```python
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
-
-
-async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    session = ContreeAsyncSession(client, image="tag:alpine:latest")
-    await session.run(shell="echo ready > /ready.txt", disposable=False)
-    await client.update_image_tag(session.image_uuid, "prepared-base")
-    print(session.image_uuid)
-```
-
-<!--
-name: test_tag_image_async
-```python
-assert doc_api.async_client.calls_for("update_image_tag")[0].args == ("image-1", "prepared-base")
-assert capsys.readouterr().out == "image-1\n"
-```
--->
-
-::::
-
-Use `client.list_images(tagged=True)` to list tagged images. The response exposes
-an `images` collection. `client.delete_image_tag(image_uuid, tag="prepared-base")`
-removes that name. Await these methods when using `ContreeAsyncClient`.
-
-Deleting an image on the server can invalidate stored session history. Closing a
-session's client or local store does not itself delete the server image.
+Continue with {doc}`building-images` to build a Docker image from a Dockerfile.
