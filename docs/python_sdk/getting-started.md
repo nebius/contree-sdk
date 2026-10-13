@@ -97,12 +97,22 @@ starts a VM; later commands reuse it until a snapshot. Normal context exit saves
 pending filesystem changes. An exception or cancellation discards changes since
 the last completed snapshot.
 
-The default policy snapshots after 10 idle seconds. Files survive a snapshot;
-processes and memory do not. Local history uses a memory store by default. Supply
-`storage` and `session_id` to resume a session later.
+The default policy snapshots after 10 idle seconds. Snapshots are lightweight;
+you can take one after every command. Each snapshot stops the VM: files survive,
+but processes and memory do not. An unchanged filesystem can return the same
+`image_uuid`, which is normal.
 
-See {doc}`lazy-session` for snapshot policies and live file limitations, or
-{doc}`sessions` and {doc}`branching` for persistent history and branches.
+For automatic saving after each command, select `session_type=ContreeSession`
+or `ContreeAsyncSession`; see [Save after every command](session-model.md#save-after-every-command).
+These classes start a separate VM for each command and save by default.
+Use `disposable=True` to leave the session image unchanged.
+
+Local history uses a memory store by default. Supply `storage` and `session_id`
+to resume a session later.
+
+Save a checkpoint before an experiment, give it a branch, and return to the
+baseline without running setup again. {doc}`Work with a Session <session-model>`
+explains the model and leads through snapshots, branching, rollback, and resume.
 
 ## Configuration
 
@@ -182,23 +192,23 @@ Configure the endpoint URL, token, and AI project for your deployment. The
 project identifies where the sandbox runs; omitting it is not a complete working
 configuration.
 
-| Setting             | Environment                              | Profile / INI        | Direct factory argument      |
-| ------------------- | ---------------------------------------- | -------------------- | ---------------------------- |
-| Endpoint            | `CONTREE_URL`                            | `url`                | `url`                        |
-| Token               | `CONTREE_TOKEN` or `NEBIUS_API_KEY`      | `token`              | `token`                      |
-| AI project          | `CONTREE_PROJECT` or `NEBIUS_AI_PROJECT` | `project`            | `project`                    |
+| Setting    | Environment                              | Profile / INI | Direct factory argument |
+| ---------- | ---------------------------------------- | ------------- | ----------------------- |
+| Endpoint   | `CONTREE_URL`                            | `url`         | `url`                   |
+| Token      | `CONTREE_TOKEN` or `NEBIUS_API_KEY`      | `token`       | `token`                 |
+| AI project | `CONTREE_PROJECT` or `NEBIUS_AI_PROJECT` | `project`     | `project`               |
 
 The SDK delegates environment parsing to contree-client.
 
 Use exactly one explicit source:
 
-| Source             | Arguments                                | Behavior                                                                                                     |
-| ------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Direct credentials | `url`, `project`, `token`   | Build a regular client `Profile`. Token is required. An omitted URL uses the client's default endpoint. |
-| Profile object     | `profile=profile`                        | Use that exact profile. Do not combine it with direct credentials or `config_path`.                          |
-| Named profile      | `profile="work"`, optional `config_path` | Resolve that name through contree-client.                                                                    |
-| Explicit INI       | `config_path="config.ini"`               | Resolve the file's active profile, or the name selected by `CONTREE_PROFILE`.                                |
-| Automatic          | Omit all source arguments                | Use `contree_client.profiles.from_env()`, then the client's default profile resolution.                      |
+| Source             | Arguments                                | Behavior                                                                                                |
+| ------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Direct credentials | `url`, `project`, `token`                | Build a regular client `Profile`. Token is required. An omitted URL uses the client's default endpoint. |
+| Profile object     | `profile=profile`                        | Use that exact profile. Do not combine it with direct credentials or `config_path`.                     |
+| Named profile      | `profile="work"`, optional `config_path` | Resolve that name through contree-client.                                                               |
+| Explicit INI       | `config_path="config.ini"`               | Resolve the file's active profile, or the name selected by `CONTREE_PROFILE`.                           |
+| Automatic          | Omit all source arguments                | Use `contree_client.profiles.from_env()`, then the client's default profile resolution.                 |
 
 Direct credentials cannot be combined with `profile` or `config_path`.
 Incomplete explicit credentials raise an error rather than falling back to ENV.

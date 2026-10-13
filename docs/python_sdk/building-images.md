@@ -13,6 +13,10 @@ The SDK translates supported Dockerfile instructions into ConTree image layers
 and executes build commands on ConTree. The result is a ConTree filesystem image
 UUID that you can pass to `create_sandbox_session`.
 
+Use that image as a prepared baseline, then try changes on session branches.
+{doc}`Work with a Session <session-model>` explains snapshots, rollback, and
+resuming saved work without rebuilding the baseline.
+
 Build caching is enabled by default. Later builds reuse layers whose instructions
 and inputs have not changed. If you change an instruction, a source file, or the
 base image, the SDK rebuilds the affected layers. You do not need to rebuild
@@ -149,11 +153,10 @@ runtime environment and working directory when executing the resulting image.
 
 ### Persistent cache
 
-
-| Component | What it records                                           |
-| --------- | --------------------------------------------------------- |
+| Component  | What it records                                           |
+| ---------- | --------------------------------------------------------- |
 | `storage=` | History and branch pointers used to reuse built layers.   |
-| `cache=`  | Uploaded-file and URL-download metadata used by COPY/ADD. |
+| `cache=`   | Uploaded-file and URL-download metadata used by COPY/ADD. |
 
 The helpers use SQLite by default in `$XDG_CACHE_HOME/contree/`, with
 `~/.cache/contree/` as the fallback. Build history is stored in `builds.sqlite3`;
@@ -167,6 +170,7 @@ when you need a stable identity after moving a context. Avoid concurrent builds
 that mutate the same build session.
 
 (shared-image-client)=
+
 ### Share one client
 
 For a workflow with several operations, initialize a client once. Pass it through

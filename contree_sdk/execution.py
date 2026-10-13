@@ -20,7 +20,8 @@ class RunRequest:
 
     Use ``dataclasses.replace`` to change a request. Arguments and environment
     are copied at construction. File sources and stdin remain caller-owned.
-    Exactly one of ``command`` and ``shell`` must be supplied.
+    Exactly one of ``command`` and ``shell`` must be supplied. Results are saved
+    by default; use ``disposable=True`` to leave session history unchanged.
     """
 
     command: str | None = None
@@ -32,7 +33,7 @@ class RunRequest:
     stdin_open: bool = False
     files: RunFiles = None
     timeout: float | timedelta | None = None
-    disposable: bool = True
+    disposable: bool = False
     truncate_output_at: int | None = None
     preserve_env: bool = False
     hostname: str | None = None

@@ -7,17 +7,17 @@ icon: triangle-exclamation
 Start with the symptom. The API client reports transport and server errors;
 the SDK reports execution, history, and build errors.
 
-| Symptom                                                      | Check or action                                                                                               |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Connection profile is missing or incomplete | Configure URL, token, and AI project; see {ref}`sandbox-connection`.                                            |
-| Authentication or profile error                              | Check the URL, token, and AI project in the selected Profile. |
-| Unknown image tag                                            | Import the image on the selected endpoint; see {doc}`images`.                                                 |
-| A file from the previous command disappeared                 | For explicit `ContreeSession`, use `disposable=False`. For a lazy sandbox, check whether an exception discarded unsaved work.                                                                    |
-| Work disappeared after Python restarted                      | Resume the same `session_id` from the same SQLite database.                                                   |
-| Explicit async session has no `image_uuid` yet                                 | Await `ensure_ready()` or a session operation before reading it.                                              |
-| `ValueError` when resuming                                   | The store has no history for that session ID and no base image was supplied.                                  |
-| `SessionConflictError`                                       | Another operation advanced the source branch; see recovery below.                                             |
-| `NotImplementedError` from async sandbox sync methods        | Use `aexecute`, `aupload_files`, or `adownload_files`.                                                        |
+| Symptom                                               | Check or action                                                                                                                                       |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connection profile is missing or incomplete           | Configure URL, token, and AI project; see {ref}`sandbox-connection`.                                                                                  |
+| Authentication or profile error                       | Check the URL, token, and AI project in the selected Profile.                                                                                         |
+| Unknown image tag                                     | Import the image on the selected endpoint; see {doc}`images`.                                                                                         |
+| A file from the previous command disappeared          | For explicit `ContreeSession`, check that `disposable=True` was not requested. For a lazy sandbox, check whether an exception discarded unsaved work. |
+| Work disappeared after Python restarted               | Resume the same `session_id` from the same SQLite database.                                                                                           |
+| Explicit async session has no `image_uuid` yet        | Await `ensure_ready()` or a session operation before reading it.                                                                                      |
+| `ValueError` when resuming                            | The store has no history for that session ID and no base image was supplied.                                                                          |
+| `SessionConflictError`                                | Another operation advanced the source branch; see recovery below.                                                                                     |
+| `NotImplementedError` from async sandbox sync methods | Use `aexecute`, `aupload_files`, or `adownload_files`.                                                                                                |
 
 :::{note}
 Async snippets with top-level `await` run inside an async function or a notebook
@@ -120,7 +120,7 @@ from contree_sdk import ContreeSession, create_sandbox_session
 
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
-    result = session.run(shell="echo failed >&2; exit 7")
+    result = session.run(shell="echo failed >&2; exit 7", disposable=True)
     if isinstance(result.state, InstanceResultState) and result.state.exit_code != 0:
         if isinstance(result.stderr, StreamRepr):
             print(result.stderr.as_text(), end="")
@@ -153,7 +153,7 @@ from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
-    result = await session.run(shell="echo failed >&2; exit 7")
+    result = await session.run(shell="echo failed >&2; exit 7", disposable=True)
     if isinstance(result.state, InstanceResultState) and result.state.exit_code != 0:
         if isinstance(result.stderr, StreamRepr):
             print(result.stderr.as_text(), end="")
@@ -170,7 +170,7 @@ assert capsys.readouterr().out == "failed\nexit: 7\n"
 
 ::::
 
-With `disposable=False`, inspect the exit code before continuing. A saved command
+Commands save by default. Inspect the exit code before continuing. A saved command
 can have changed files even when its process exits nonzero. Roll back explicitly
 if those changes should not remain selected.
 
@@ -196,8 +196,8 @@ from contree_sdk.exceptions import SessionConflictError
 
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
-    operation = session.spawn(shell="echo candidate > /value.txt", disposable=False)
-    session.run(shell="echo newer > /value.txt", disposable=False)
+    operation = session.spawn(shell="echo candidate > /value.txt")
+    session.run(shell="echo newer > /value.txt")
     operation.wait()
     try:
         session.commit_result(operation)
@@ -232,8 +232,8 @@ from contree_sdk.exceptions import SessionConflictError
 
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
-    operation = await session.spawn(shell="echo candidate > /value.txt", disposable=False)
-    await session.run(shell="echo newer > /value.txt", disposable=False)
+    operation = await session.spawn(shell="echo candidate > /value.txt")
+    await session.run(shell="echo newer > /value.txt")
     await operation.wait()
     try:
         await session.commit_result(operation)
@@ -271,7 +271,7 @@ See {doc}`operation` and {doc}`reference/exceptions`.
 
 Keep command exit-code handling separate from operation failure. If the server
 cannot complete the operation successfully, the SDK raises `FailedOperationError`.
-This example reports the operation UUID without advancing disposable session state.
+This example reports the operation UUID without advancing session history. Failed operations are never committed.
 
 ::::{tab} Sync
 

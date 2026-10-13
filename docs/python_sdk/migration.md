@@ -6,7 +6,7 @@ imports and execution flow. Compatibility aliases are not provided.
 Update one workflow at a time:
 
 1. Replace client construction using {doc}`getting-started`.
-2. Update result handling using {doc}`running-commands`.
+2. Update result handling using {doc}`session-model`.
 3. Make persistence explicit using {doc}`sessions` and {doc}`files`.
 4. Replace process-control code using {doc}`operation`.
 5. Move custom behavior to the public hooks in {doc}`customization`.
@@ -15,9 +15,9 @@ Those pages contain the executable sync and async scenarios for the new API.
 
 | Previous API                           | Replacement                                                                                                                  |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Contree` / `ContreeSync`              | Use `create_sandbox_session` with `with` or `async with`.                                                                         |
+| `Contree` / `ContreeSync`              | Use `create_sandbox_session` with `with` or `async with`.                                                                    |
 | SDK image and file managers            | Use the corresponding `contree_client` methods.                                                                              |
-| Image objects and `ContreeSessionSync` | Use the factory defaults, or select an explicit class with `session_type`.                                                        |
+| Image objects and `ContreeSessionSync` | Use the factory defaults, or select an explicit class with `session_type`.                                                   |
 | `.run(...).wait().result`              | `session.run(...)` returns `InstanceResult`; await it in async code.                                                         |
 | SDK result wrappers                    | Read `result.state.exit_code`, `result.stdout.as_text()`, and `result.stderr.as_bytes()`. Optional fields can be `Ellipsis`. |
 | `.popen()`                             | Use `session.spawn()` and an operation context manager for subprocesses.                                                     |
@@ -42,15 +42,20 @@ removing a referenced server image can make an old entry unusable.
 The factory selects `LazySession` or `AsyncLazySession`. Commands share a VM;
 normal context exit saves pending files. Use `snapshot()` before reading saved
 files or changing branches. Exceptions discard changes since the last snapshot.
-Processes and memory do not survive snapshots. See {doc}`lazy-session`.
+Snapshots are lightweight and can run after every command, but they stop the VM.
+Processes and memory do not survive. An unchanged filesystem can return the same
+image UUID. See {doc}`session-model`.
 
 ## Advanced: independent operations and history
 
 Select `session_type=ContreeSession` or `ContreeAsyncSession` to retain the
 following per-operation behavior:
 
-`run()` and `spawn()` default to `disposable=True`. Pass `disposable=False` to retain
-the result image. `run()` applies the session commit policy automatically. The default
+`run()`, `spawn()`, `spawn_detached()`, and `RunRequest` now default to
+`disposable=False`. Commands retain their result images. `run()` and `execute()`
+apply the session commit policy automatically, so the next command uses the saved
+image. Pass `disposable=True` for the previous behavior without saving changes.
+The default
 `ApiSuccessCommitPolicy` retains API-success results even when the process exits
 with a nonzero code. Select `ZeroExitCommitPolicy` to retain only exit code zero.
 After `spawn()`, wait

@@ -5,6 +5,7 @@ from contree_client.models import InstanceResultState, OperationStatus, StreamRe
 
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
+from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveAsyncClient, event
 from tests.unit.session.timers import ManualTimers
 
@@ -33,6 +34,33 @@ async def test_shared_vm_snapshot_and_next_image():
     assert lazy.worker is not None
     assert lazy.worker.done()
     assert len((await base.history())[0]) == 3
+
+
+async def test_snapshot_with_unchanged_image_stops_vm_and_records_checkpoint(monkeypatch):
+    client = LiveAsyncClient()
+
+    async def unchanged_image(operation_id, **kwargs):
+        return operation_response(operation_uuid=operation_id, result_image_uuid="base")
+
+    monkeypatch.setattr(client, "get_operation_status", unchanged_image)
+    base = ContreeAsyncSession(client, image="base")
+    async with AsyncLazySession(base) as lazy:
+        await lazy.run("true")
+        first = await lazy.snapshot(timeout=2)
+        assert lazy.phase == "cold"
+
+        await lazy.run("true")
+        second = await lazy.snapshot(timeout=2)
+        assert lazy.phase == "cold"
+
+    assert first is not None
+    assert second is not None
+    assert first.image_uuid == second.image_uuid == "base"
+    assert second.parent_id == first.id
+    assert second.id != first.id
+    assert len((await base.history())[0]) == 3
+    assert [call.args[1] for call in client.calls_for("spawn_instance")] == ["base", "base"]
+    assert len(client.calls_for("operation_subprocess_kill")) == 2
 
 
 async def test_idle_timer_waits_for_exit_without_user_wait():

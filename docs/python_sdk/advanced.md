@@ -10,20 +10,23 @@ For basic workflows, start with {doc}`getting-started`, {doc}`images`, and
 {doc}`building-images`. Connection settings remain in {ref}`sandbox-connection`;
 {ref}`shared-image-client` shows one client shared across all three workflows.
 
+For the workflow itself, continue with {doc}`Work with a Session <session-model>`:
+save checkpoints, compare branches, roll back experiments, and resume saved work.
+
 ## What each component does
 
-| Component | Purpose | Read more |
-| --- | --- | --- |
-| **Store** (`storage=` in helpers) | Keeps session history, branches, and references to saved images. Use it to resume work or return to an earlier state. | {doc}`sessions` and {doc}`reference/store` |
-| **Cache** (`cache=`) | Keeps reusable results, such as uploaded-file IDs and imported-image IDs, to avoid repeating work. It does not replace session history. | {doc}`caching` |
-| **Client** (`client=`) | Sends requests to ConTree using your endpoint, credentials, and project. One client can serve import, build, and sandbox operations. | {ref}`shared-image-client` |
-| **Session** | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result. | {doc}`architecture` |
-| **LazySession** | Keeps commands in one running VM until a snapshot. This is the default session behind `create_sandbox_session`. | {doc}`lazy-session` |
-| **Operation** | Gives access to one remote operation: wait for completion, run subprocesses, read output, or stop it. | {doc}`operation` |
-| **FileTransfer** (`file_transfer=`) | Prepares uploads and reads files from saved images. It does not access unsaved files inside a running VM. | {doc}`files` and {doc}`reference/files` |
-| **Snapshot policy** | Decides when a lazy session saves filesystem changes and stops its VM. | [Choose a snapshot policy](lazy-session.md#choose-a-snapshot-policy) |
-| **Commit policy** (`commit_policy=`) | Decides whether a completed operation's result becomes part of session history. | [Select a commit policy](customization.md#select-a-commit-policy) |
-| **Docker builder** | Executes Dockerfile instructions and returns an image UUID. It uses a Store for layer history and a Cache for uploads. | {doc}`building-images` and {doc}`reference/docker` |
+| Component                            | Purpose                                                                                                                                 | Read more                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Store** (`storage=` in helpers)    | Keeps session history, branches, and references to saved images. Use it to resume work or return to an earlier state.                   | {doc}`sessions` and {doc}`reference/store`                        |
+| **Cache** (`cache=`)                 | Keeps reusable results, such as uploaded-file IDs and imported-image IDs, to avoid repeating work. It does not replace session history. | {doc}`caching`                                                    |
+| **Client** (`client=`)               | Sends requests to ConTree using your endpoint, credentials, and project. One client can serve import, build, and sandbox operations.    | {ref}`shared-image-client`                                        |
+| **Session**                          | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result.               | {doc}`architecture`                                               |
+| **LazySession**                      | Keeps commands in one running VM until a snapshot. This is the default session behind `create_sandbox_session`.                         | {doc}`session-model`                                              |
+| **Operation**                        | Gives access to one remote operation: wait for completion, run subprocesses, read output, or stop it.                                   | {doc}`operation`                                                  |
+| **FileTransfer** (`file_transfer=`)  | Prepares uploads and reads files from saved images. It does not access unsaved files inside a running VM.                               | {doc}`files` and {doc}`reference/files`                           |
+| **Snapshot policy**                  | Decides when a lazy session saves filesystem changes and stops its VM.                                                                  | {doc}`reference/session`                                          |
+| **Commit policy** (`commit_policy=`) | Decides whether a completed operation's result becomes part of session history.                                                         | [Select a commit policy](customization.md#select-a-commit-policy) |
+| **Docker builder**                   | Executes Dockerfile instructions and returns an image UUID. It uses a Store for layer history and a Cache for uploads.                  | {doc}`building-images` and {doc}`reference/docker`                |
 
 A memory Store keeps history only for that store instance. A SQLite Store keeps
 it across Python restarts. The filesystem images themselves remain on the ConTree
@@ -129,20 +132,23 @@ constructor arguments, plus `session_kwargs`. Subclass an existing session to
 retain its execution and lifecycle rules. The factory never substitutes a
 different class for an explicitly selected class.
 
-Selecting `ContreeSession` or `ContreeAsyncSession` retains that class's normal
-behavior: each command uses a separate operation and defaults to disposable.
-Pass `disposable=False` to keep results. See {doc}`sessions`.
+Selecting `ContreeSession` or `ContreeAsyncSession` saves each command by default
+and starts the next command in a separate VM. Use `disposable=True` to leave
+the session image unchanged. See [Save after every command](session-model.md#save-after-every-command).
 
-| Argument                      | Purpose                                                                                                                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `image`, `session_id`         | Initial image or stored session to resume. At least one is required.                                                                                                                                                      |
-| `storage`                     | Session history store; defaults to a new memory store of the selected mode.                                                                                                                                               |
-| `cache`, `cache_ttl`          | Optional upload reuse through `CachedFileTransfer`; local entries expire after 60 seconds by default. Choose a TTL no longer than your server's upload retention.                                                         |
-| `cwd`, `env`, `commit_policy` | Configuration of the underlying session.                                                                                                                                                                                  |
-| `file_transfer`               | Replace file I/O; when `cache` is supplied, the cache wraps this transfer.                                                                                                                                                |
-| `session_kwargs`              | Additional constructor arguments for the selected session class, including lazy snapshot options. Factory-managed arguments take priority over duplicates in this mapping.                                                                      |
-| `client`                      | Borrow an already configured client. Cannot be combined with connection settings or `client_type`.                                                                                                                        |
-| `client_type`                 | Select a contree-client class. Defaults are HTTPX for sync and aiohttp for async.                                                                                                                                         |
+Snapshots are lightweight; saving after every command is supported. A snapshot
+stops the VM and can return the same image UUID if files have not changed.
+
+| Argument                      | Purpose                                                                                                                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`, `session_id`         | Initial image or stored session to resume. At least one is required.                                                                                                                                                        |
+| `storage`                     | Session history store; defaults to a new memory store of the selected mode.                                                                                                                                                 |
+| `cache`, `cache_ttl`          | Optional upload reuse through `CachedFileTransfer`; local entries expire after 60 seconds by default. Choose a TTL no longer than your server's upload retention.                                                           |
+| `cwd`, `env`, `commit_policy` | Configuration of the underlying session.                                                                                                                                                                                    |
+| `file_transfer`               | Replace file I/O; when `cache` is supplied, the cache wraps this transfer.                                                                                                                                                  |
+| `session_kwargs`              | Additional constructor arguments for the selected session class, including lazy snapshot options. Factory-managed arguments take priority over duplicates in this mapping.                                                  |
+| `client`                      | Borrow an already configured client. Cannot be combined with connection settings or `client_type`.                                                                                                                          |
+| `client_type`                 | Select a contree-client class. Defaults are HTTPX for sync and aiohttp for async.                                                                                                                                           |
 | Other keyword arguments       | Forwarded unchanged to the client constructor through `from_profile`, including `timeout`, `retry`, `identity`, TLS and backend-specific settings. Credentials follow {ref}`sandbox-connection`; use `url`, not `base_url`. |
 
 Uploaded-file cache entries are separated by endpoint, project, and token. The
@@ -171,11 +177,10 @@ factory, see {doc}`manual-sandbox`.
 
 ## Tag a saved result
 
-
 Run a setup command, save its result, and give that image a reusable name. This
-example selects `ContreeSession` or `ContreeAsyncSession` so `disposable=False`
-saves the command as an independent operation. The default lazy sandbox instead
-saves at a snapshot boundary; see {doc}`lazy-session`.
+example selects `ContreeSession` or `ContreeAsyncSession`, which saves each command
+by default as an independent operation. The default lazy sandbox instead
+saves at a snapshot boundary; see {doc}`session-model`.
 
 ::::{tab} Sync
 
@@ -200,10 +205,8 @@ from contree_sdk import ContreeSession, create_sandbox_session
 def main() -> None:
     profile = profiles.from_env() or profiles.resolve_profile()
     with ContreeClient.from_profile(profile) as client:
-        with create_sandbox_session(
-            image="tag:alpine:latest", session_type=ContreeSession, client=client
-        ) as sandbox:
-            sandbox.run(shell="echo ready > /ready.txt", disposable=False)
+        with create_sandbox_session(image="tag:alpine:latest", session_type=ContreeSession, client=client) as sandbox:
+            sandbox.run(shell="echo ready > /ready.txt")
             client.update_image_tag(sandbox.image_uuid, "prepared-base")
             print(sandbox.image_uuid)
 
@@ -247,7 +250,7 @@ async def main() -> None:
         async with create_sandbox_session(
             image="tag:alpine:latest", session_type=ContreeAsyncSession, client=client
         ) as sandbox:
-            await sandbox.run(shell="echo ready > /ready.txt", disposable=False)
+            await sandbox.run(shell="echo ready > /ready.txt")
             await client.update_image_tag(sandbox.image_uuid, "prepared-base")
             print(sandbox.image_uuid)
 
@@ -274,7 +277,6 @@ Image listing and tag removal are available through `list_images()` and
 delete server images. Deleting a server image can invalidate saved session history.
 
 ## Assemble the builder yourself
-
 
 The helpers create a client, a SQLite store for layer history, and a SQLite cache
 for uploads. They scope the build session to the context path and connection,
@@ -425,11 +427,9 @@ The cache comparison uses file content and execution inputs. It does not require
 the server to return a different image UUID for every submission. To retain this
 cache across Python restarts, supply SQLite store and cache components as above.
 
-
 ## Observe a live build
 
 Use the `build-context` files from {doc}`building-images` for these examples.
-
 
 Pass `on_event=` to receive `BuildEvent` notifications while a build runs.
 Output events arrive before RUN completes and carry raw `bytes`. Decode or format
@@ -596,9 +596,7 @@ exception can stop the build. The async builder also accepts an awaitable callba
 Use `parser=`, `session_factory=`, or `execute_directive()` for custom behavior.
 See {doc}`customization` and {doc}`reference/docker`.
 
-
 ## Upload cache lifetime and scope
-
 
 COPY and ADD cache uploads separately from layer history. The cache namespaces
 and layer hashes include the endpoint, project, and credential scope. Shared
@@ -617,7 +615,6 @@ limits concurrent snapshots and uploads through `context.upload_concurrency`
 (default four). URL ADD streams into a temporary file before upload and closes the
 response body, including conditional responses. These paths bound memory usage;
 temporary disk space must hold the files currently being prepared.
-
 
 ## Assemble the sandbox yourself
 

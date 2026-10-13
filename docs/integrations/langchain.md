@@ -17,7 +17,10 @@ from {doc}`../python_sdk/getting-started`.
 The examples use `create_sandbox_session` with an explicit `ContreeSession` or
 `ContreeAsyncSession`. Deepagents file tools upload startup attachments and read
 saved images, so they need independent operations rather than the default lazy
-session's live VM. The factory still handles connection setup and cleanup.
+session's live VM. Each command saves by default. Snapshots are lightweight,
+so saving after every tool command is supported. Each save stops that command's
+VM; unchanged files can produce the same image UUID. The factory handles
+connection setup and cleanup.
 
 ## Install and test the backend
 

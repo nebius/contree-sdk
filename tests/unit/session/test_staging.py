@@ -81,7 +81,7 @@ async def test_explicit_files_override_staging_without_consuming_disposable_bran
     await call(session, "stage_files", {"/input": uploaded("staged"), "/other": uploaded("other")})
     before = await call(session, "pending_files")
     complete(session)
-    await call(session, "run", shell="cat /input", files={"/input": uploaded("explicit")})
+    await call(session, "run", shell="cat /input", files={"/input": uploaded("explicit")}, disposable=True)
     files = session.client.calls_for("spawn_instance")[0].kwargs["files"]
     assert files["/input"].uuid == "explicit"
     assert files["/other"].uuid == "other"

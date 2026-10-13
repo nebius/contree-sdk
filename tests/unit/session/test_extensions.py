@@ -87,7 +87,7 @@ def test_file_component_is_used_for_all_io():
     call = client.calls_for("spawn_instance")[0]
     assert call.kwargs["files"]["/data"].uuid == "custom-file"
     assert StreamRepr(value=call.kwargs["stdin"].value, encoding=call.kwargs["stdin"].encoding).as_bytes() == b"input"
-    assert session.read_file("/data") == b"base:/data"
+    assert session.read_file("/data") == b"img-uuid-1:/data"
     assert client.calls_for("ensure_file") == []
 
 
@@ -98,7 +98,7 @@ async def test_async_file_component_is_used_for_all_io():
     call = client.calls_for("spawn_instance")[0]
     assert call.kwargs["files"]["/data"].uuid == "custom-file"
     assert StreamRepr(value=call.kwargs["stdin"].value, encoding=call.kwargs["stdin"].encoding).as_bytes() == b"input"
-    assert await session.read_file("/data") == b"base:/data"
+    assert await session.read_file("/data") == b"img-uuid-1:/data"
     assert client.calls_for("ensure_file") == []
 
 

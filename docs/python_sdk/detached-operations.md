@@ -45,7 +45,7 @@ with (
     SyncSQLiteStore("session.db") as store,
 ):
     session = ContreeSession(client, image="tag:alpine:latest", session_id="background", store=store)
-    record = session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
+    record = session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt")
     operation_uuid = record.uuid
 ```
 
@@ -73,7 +73,7 @@ async with (
     AsyncSQLiteStore("async.db") as store,
 ):
     session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="background", store=store)
-    record = await session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt", disposable=False)
+    record = await session.spawn_detached(shell="printf saved > /result.txt; cat /result.txt")
     operation_uuid = record.uuid
 ```
 

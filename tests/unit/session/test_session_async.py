@@ -66,7 +66,7 @@ async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClien
     mock_completion(client, operation_response())
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
-    result = await session.run(shell="echo hi")
+    result = await session.run(shell="echo hi", disposable=True)
 
     assert result.stdout.as_text() == "hi\n"
     assert result.state.exit_code == 0
@@ -75,12 +75,12 @@ async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClien
     assert session.image_uuid == "img-uuid-0"
 
 
-async def test_run_non_disposable_advances_history_and_pointer(client: ContreeAsyncClient):
+async def test_run_default_advances_history_and_pointer(client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
-    result = await session.run(shell="echo hi", disposable=False)
+    result = await session.run(shell="echo hi")
 
     assert result.state.exit_code == 0
     assert session.image_uuid == "img-uuid-1"
@@ -182,11 +182,11 @@ async def test_run_as_async_context_manager_yields_operation_without_waiting(cli
     client.mock("cancel_operation", None)
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
-    async with session.run(shell="sleep 600") as operation:
+    async with session.run(shell="sleep 600", disposable=True) as operation:
         assert isinstance(operation, AsyncOperation)
         assert operation.uuid == "op-1"
 
-    # disposable (default) run: entering/exiting the context manager alone must not commit
+    # Explicit disposable run: entering/exiting the context manager alone must not commit
     entries, _ = await session.history()
     assert [entry.kind for entry in entries] == ["init"]
 
@@ -199,7 +199,7 @@ async def test_run_as_async_context_manager_commits_on_clean_success_exit(client
     client.mock("get_operation_status", operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=AsyncMemoryStore())
 
-    async with session.run(shell="echo hi", disposable=False):
+    async with session.run(shell="echo hi"):
         pass
 
     entries, _ = await session.history()

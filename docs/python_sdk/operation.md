@@ -232,8 +232,12 @@ Reuse the existing handle when consumers run in the same application.
 
 ## Keep the result image
 
-`spawn()` defaults to disposable execution, like `run()`. To retain an image, spawn
-with `disposable=False`, wait for completion, then call `commit_result(operation)`.
+`spawn()` retains the result image by default. Wait for completion, then call
+`commit_result(operation)` to advance session history. `run()` commits automatically.
+Use `disposable=True` to leave the session image unchanged.
+
+Saving an image is lightweight and can happen after every command. It stops the
+VM; if files have not changed, the result can have the same image UUID.
 ::::{tab} Sync
 
 <!--
@@ -248,7 +252,7 @@ from contree_sdk import ContreeSession, create_sandbox_session
 
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
-    operation = session.spawn(shell="echo saved > /saved.txt", disposable=False)
+    operation = session.spawn(shell="echo saved > /saved.txt")
     result = operation.wait()
     entry = session.commit_result(operation, title="Save output")
     print(entry.image_uuid)
@@ -280,7 +284,7 @@ from contree_sdk import ContreeAsyncSession, create_sandbox_session
 
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
-    operation = await session.spawn(shell="echo saved > /saved.txt", disposable=False)
+    operation = await session.spawn(shell="echo saved > /saved.txt")
     result = await operation.wait()
     entry = await session.commit_result(operation, title="Save output")
     print(entry.image_uuid)

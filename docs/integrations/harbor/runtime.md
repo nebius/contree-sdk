@@ -18,6 +18,9 @@ This runtime is async-only; it has no synchronous counterpart.
 `AsyncLazySession` can snapshot automatically between commands. A runtime uses a
 manual snapshot policy and never schedules an idle or command-count shutdown.
 After stop or failure, create a new runtime; the existing object does not restart.
+Snapshots are lightweight, but stop the VM. An unchanged filesystem can return
+the same image UUID. For saving after every command outside this prototype, see
+[Save after every command](../../python_sdk/session-model.md#save-after-every-command).
 
 ## Execute several commands in one VM
 
@@ -80,7 +83,8 @@ assert not doc_runtime_client.calls_for("cancel_operation")
 
 A command returns `InstanceResult`, including separate stdout, stderr, and its
 exit code. Nonzero process exits are results, not runtime failures. Use
-`RunRequest(disposable=False, ...)` with `execute()`; `run()` selects that default.
+`RunRequest(...)` with `execute()`; both requests and `run()` default to
+`disposable=False`.
 Command `uid` and `gid` are numeric identities, passed through to the subprocess API.
 
 VM options belong in `vm_request`. Commands cannot change networking, resource

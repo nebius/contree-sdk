@@ -56,7 +56,7 @@ async def reopen(session, tmp_path):
 
 
 async def test_reopen_finish_and_replay_without_transport(session, tmp_path):
-    record = await call(session, "spawn_detached", "false", disposable=False)
+    record = await call(session, "spawn_detached", "false")
     assert record.pending
     assert not session.client.calls_for("follow_operation_events")
     resumed = await reopen(session, tmp_path)
@@ -248,8 +248,8 @@ async def test_another_endpoint_cannot_restore_or_finish_record(session, complet
 
 async def test_multiple_operations_are_listed_and_completed_independently(session):
     session.client.mock("spawn_instance", spawn_response("op-2"))
-    first = await call(session, "spawn_detached", "one")
-    second = await call(session, "spawn_detached", "two")
+    first = await call(session, "spawn_detached", "one", disposable=True)
+    second = await call(session, "spawn_detached", "two", disposable=True)
     assert [item.uuid for item in await call(session, "list_operations")] == [first.uuid, second.uuid]
     mock_completion(session.client, operation_response(operation_uuid=second.uuid))
     await call(session, "wait_operation", second.uuid)

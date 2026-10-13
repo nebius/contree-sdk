@@ -43,7 +43,7 @@ def test_run_disposable_does_not_advance_history(client: ContreeClient):
     mock_completion(client, operation_response())
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
-    result = session.run(shell="echo hi")
+    result = session.run(shell="echo hi", disposable=True)
 
     assert isinstance(result.stdout, StreamRepr)
     assert result.stdout.as_text() == "hi\n"
@@ -54,12 +54,12 @@ def test_run_disposable_does_not_advance_history(client: ContreeClient):
     assert session.image_uuid == "img-uuid-0"
 
 
-def test_run_non_disposable_advances_history_and_pointer(client: ContreeClient):
+def test_run_default_advances_history_and_pointer(client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     session = ContreeSession(client, image="tag:python:3.11", store=SyncMemoryStore())
 
-    result = session.run(shell="echo hi", disposable=False)
+    result = session.run(shell="echo hi")
 
     assert isinstance(result.state, InstanceResultState)
     assert result.state.exit_code == 0

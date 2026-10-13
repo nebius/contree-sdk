@@ -18,11 +18,10 @@ async def main() -> None:
             await session.run(
                 shell="sort /input.txt > /result.txt",
                 files={"/input.txt": b"pear\napple\n"},
-                disposable=False,
             )
             await session.create_branch("reverse")
             await session.switch_branch("reverse")
-            await session.run(shell="sort -r /input.txt > /result.txt", disposable=False)
+            await session.run(shell="sort -r /input.txt > /result.txt")
             print("Reverse:")
             print((await session.read_file("/result.txt")).decode(), end="")
             await session.switch_branch("main")

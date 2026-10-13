@@ -2,18 +2,25 @@
 icon: code-branch
 ---
 
-# Try a change and return to a checkpoint
+# Branch, switch, and roll back
 
-A branch names a position in a session's image history. Use one branch for a known
-baseline and another for an experiment. Switching branches selects a saved image;
-it does not rerun earlier commands.
+With the default lazy session, call `snapshot()` before changing branches.
+Snapshots are lightweight, so you can create a checkpoint after every command.
+Each snapshot stops the VM; an unchanged filesystem can return the same
+`image_uuid`. Rollback follows history entries, not distinct image UUIDs.
 
-## Compare an experiment with its baseline
+For automatic saving after each command, see
+[Save after every command](session-model.md#save-after-every-command).
+Configure your connection as shown in {doc}`getting-started`.
 
-This program writes a baseline, changes it on `experiment`, then returns to `main`.
-Each `snapshot()` saves a checkpoint and stops the current VM. The example then
-rolls the experiment back by one checkpoint. Configure a connection as described
-in {ref}`sandbox-connection`.
+Branches share one session's history in its Store. To create an independent
+session from any saved image, see
+[Start a new session from a snapshot](session-model.md#start-a-new-session-from-a-snapshot).
+
+## Create a branch and switch back
+
+Save a baseline on `main`, change a file on `experiment`, then read the original
+file from `main`. Creating a branch does not select it: call `switch_branch()`.
 
 ::::{tab} Sync
 
@@ -22,31 +29,33 @@ name: test_branches; fixtures: sandbox_api, capsys
 ```python
 sandbox_api.download(b"candidate\n")
 sandbox_api.download(b"baseline\n")
-sandbox_api.download(b"baseline\n")
 ```
 -->
 
 ```python
-"""Save a baseline and compare a separate branch."""
+"""Compare a change with the saved baseline."""
 
 from contree_sdk import create_sandbox_session
 
 
 def main() -> None:
     with create_sandbox_session(image="tag:alpine:latest") as session:
+        # Save the baseline on main.
         session.run(shell="echo baseline > /choice.txt")
         session.snapshot()
-        session.create_branch("experiment")
+
+        # Create a branch at that checkpoint, then select it.
+        session.create_branch("experiment", from_branch="main")
         session.switch_branch("experiment")
+
+        # Change the file and save the result on experiment only.
         session.run(shell="echo candidate > /choice.txt")
         session.snapshot()
         print("experiment:", session.read_file("/choice.txt").decode().strip())
 
+        # Select main's saved image. Its file still contains baseline.
         session.switch_branch("main")
         print("main:", session.read_file("/choice.txt").decode().strip())
-        session.switch_branch("experiment")
-        session.rollback()
-        print("after rollback:", session.read_file("/choice.txt").decode().strip())
 
 
 main()
@@ -58,10 +67,9 @@ name: test_branches
 assert [call.args[0] for call in sandbox_api.sync.calls_for("inspect_image_download")] == [
     "image-op-2",
     "image-op-1",
-    "image-op-1",
 ]
 assert sandbox_api.sync.calls_for("spawn_instance")[1].args[1] == "image-op-1"
-assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\nafter rollback: baseline\n"
+assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\n"
 ```
 -->
 
@@ -74,7 +82,6 @@ name: test_branches_async; fixtures: sandbox_api, capsys
 ```python
 sandbox_api.download(b"candidate\n")
 sandbox_api.download(b"baseline\n")
-sandbox_api.download(b"baseline\n")
 ```
 -->
 
@@ -86,19 +93,22 @@ from contree_sdk import create_sandbox_session
 
 async def main() -> None:
     async with create_sandbox_session(image="tag:alpine:latest") as session:
+        # Save the baseline on main.
         await session.run(shell="echo baseline > /choice.txt")
         await session.snapshot()
-        await session.create_branch("experiment")
+
+        # Create a branch at that checkpoint, then select it.
+        await session.create_branch("experiment", from_branch="main")
         await session.switch_branch("experiment")
+
+        # Change the file and save the result on experiment only.
         await session.run(shell="echo candidate > /choice.txt")
         await session.snapshot()
         print("experiment:", (await session.read_file("/choice.txt")).decode().strip())
 
+        # Select main's saved image. Its file still contains baseline.
         await session.switch_branch("main")
         print("main:", (await session.read_file("/choice.txt")).decode().strip())
-        await session.switch_branch("experiment")
-        await session.rollback()
-        print("after rollback:", (await session.read_file("/choice.txt")).decode().strip())
 
 
 asyncio.run(main())
@@ -110,270 +120,159 @@ name: test_branches_async
 assert [call.args[0] for call in sandbox_api.async_client.calls_for("inspect_image_download")] == [
     "image-op-2",
     "image-op-1",
-    "image-op-1",
 ]
 assert sandbox_api.async_client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
-assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\nafter rollback: baseline\n"
+assert capsys.readouterr().out == "experiment: candidate\nmain: baseline\n"
 ```
 -->
 
 ::::
 
-Expected output:
+Output:
 
 ```text
 experiment: candidate
 main: baseline
+```
+
+Omit `from_branch` to branch from the current checkpoint. Switching branches
+selects saved files; it does not rerun commands or restore processes.
+
+## Roll back and keep a way back to the result
+
+`rollback()` moves the active branch back one saved entry. Keep the current
+result under another name before rolling back if you want to return to it later.
+
+::::{tab} Sync
+
+<!--
+name: test_rollback; fixtures: sandbox_api, capsys
+```python
+sandbox_api.download(b"baseline\n")
+sandbox_api.download(b"candidate\n")
+```
+-->
+
+```python
+"""Roll back one checkpoint and revisit the saved candidate."""
+
+from contree_sdk import create_sandbox_session
+
+
+def main() -> None:
+    with create_sandbox_session(image="tag:alpine:latest") as session:
+        # Save the first checkpoint on main.
+        session.run(shell="echo baseline > /choice.txt")
+        session.snapshot()
+
+        # Save a second checkpoint with the changed file.
+        session.run(shell="echo candidate > /choice.txt")
+        session.snapshot()
+
+        # Keep a name for the second checkpoint without switching branches.
+        session.create_branch("saved-candidate")
+
+        # Move main back one checkpoint and read the original file.
+        session.rollback()
+        print("after rollback:", session.read_file("/choice.txt").decode().strip())
+
+        # Return to the second checkpoint through its saved branch name.
+        session.switch_branch("saved-candidate")
+        print("saved candidate:", session.read_file("/choice.txt").decode().strip())
+
+
+main()
+```
+
+<!--
+name: test_rollback
+```python
+assert [call.args[0] for call in sandbox_api.sync.calls_for("inspect_image_download")] == [
+    "image-op-1",
+    "image-op-2",
+]
+assert len(sandbox_api.sync.calls_for("spawn_instance")) == 2
+assert capsys.readouterr().out == "after rollback: baseline\nsaved candidate: candidate\n"
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!--
+name: test_rollback_async; fixtures: sandbox_api, capsys
+```python
+sandbox_api.download(b"baseline\n")
+sandbox_api.download(b"candidate\n")
+```
+-->
+
+```python
+import asyncio
+
+from contree_sdk import create_sandbox_session
+
+
+async def main() -> None:
+    async with create_sandbox_session(image="tag:alpine:latest") as session:
+        # Save the first checkpoint on main.
+        await session.run(shell="echo baseline > /choice.txt")
+        await session.snapshot()
+
+        # Save a second checkpoint with the changed file.
+        await session.run(shell="echo candidate > /choice.txt")
+        await session.snapshot()
+
+        # Keep a name for the second checkpoint without switching branches.
+        await session.create_branch("saved-candidate")
+
+        # Move main back one checkpoint and read the original file.
+        await session.rollback()
+        print("after rollback:", (await session.read_file("/choice.txt")).decode().strip())
+
+        # Return to the second checkpoint through its saved branch name.
+        await session.switch_branch("saved-candidate")
+        print("saved candidate:", (await session.read_file("/choice.txt")).decode().strip())
+
+
+asyncio.run(main())
+```
+
+<!--
+name: test_rollback_async
+```python
+assert [call.args[0] for call in sandbox_api.async_client.calls_for("inspect_image_download")] == [
+    "image-op-1",
+    "image-op-2",
+]
+assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 2
+assert capsys.readouterr().out == "after rollback: baseline\nsaved candidate: candidate\n"
+```
+-->
+
+::::
+
+Output:
+
+```text
 after rollback: baseline
+saved candidate: candidate
 ```
 
-`create_branch()` creates a pointer without selecting it. `switch_branch()` selects
-that pointer and refreshes the session's current image. `rollback()` moves the
-active pointer back; it does not delete later history entries or undo external
-side effects. Snapshot before switching or rolling back: these operations select
-saved filesystem images and do not modify a running VM.
+Use `rollback(steps=2)` to move back two entries. A snapshot can contain several
+commands. Rollback keeps later history and other branches; new work starts from
+the selected image. It does not undo external side effects or session-wide
+`cwd` and `env` overrides.
 
-## Advanced: navigate recorded history
+Branch changes while a VM is active raise `RuntimeError`: snapshot first.
+Duplicate branch names, unknown branches, and rollback beyond the initial entry
+raise `ValueError`.
 
-The following examples select `ContreeSession` or `ContreeAsyncSession` explicitly.
-Each non-disposable command produces a separate history entry.
+## Concurrent callers
 
+Use {doc}`sessions` to keep branches across Python restarts.
 
-`history()` returns `(entries, branch_pointers)`. Each entry records its parent,
-image UUID, command title, and exit code. `branch_pointers` maps entry IDs to branch names.
-
-| Method               | Effect                                   |
-| -------------------- | ---------------------------------------- |
-| `rollback(steps=1)`  | Move back through parents.               |
-| `navigate(entry_id)` | Select an entry by its positive ID.      |
-| `navigate(-2)`       | Move back two entries.                   |
-| `navigate_forward()` | Choose the most recently recorded child. |
-| `list_branches()`    | Return `(name, is_active)` pairs.        |
-
-After a fork, `navigate_forward()` does not choose by branch name. Use
-`switch_branch(name)` when the destination branch matters.
-
-## Read history without moving a branch
-
-Use the store's `resolve_history(session_id, ...)` to inspect a recorded position.
-It does not change the active branch, tip, working directory, or environment.
-`read_session()` captures one `HistorySnapshot` when several queries must use
-exactly the same local state. Snapshots remain usable after the store closes.
-
-| Position                   | Query arguments                 |
-| -------------------------- | ------------------------------- |
-| Active branch head         | No selector                     |
-| Named branch head          | `branch="checkpoint"`           |
-| Absolute entry             | `history_id=entry_id`           |
-| Two ancestors              | `offset=-2`                     |
-| One descendant of an entry | `history_id=entry_id, offset=1` |
-
-Offsets can start at the active head, a named branch, or an absolute entry. Forward
-queries choose the child with the greatest entry ID, as `navigate_forward()` does.
-They can follow history beyond a rolled-back branch pointer. Use `branch=` when
-selecting a named head matters. Combining `branch` and `history_id`, crossing a
-history boundary, or selecting another session's entry raises `ValueError`.
-The SDK does not parse CLI strings such as `HEAD~2` or `@+1`.
-
-::::{tab} Sync
-
-<!--
-name: test_history_queries; fixtures: doc_api
-```python
-doc_api.complete()
-doc_api.complete()
-```
--->
-
-```python
-from contree_client import profiles
-from contree_client.sync import ContreeClient
-
-from contree_sdk import ContreeSession
-from contree_sdk.store import SyncSQLiteStore
-
-
-with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    with SyncSQLiteStore("history-queries.db") as store:
-        session = ContreeSession(client, image="tag:alpine:latest", session_id="demo", store=store)
-        session.run("touch", args=["/one"], disposable=False)
-        session.create_branch("checkpoint")
-        session.run("touch", args=["/two"], disposable=False)
-        snapshot = store.read_session("demo")
-        head = snapshot.resolve()
-        previous = snapshot.resolve(offset=-1)
-        saved = snapshot.resolve(branch="checkpoint")
-        operation_uuid = snapshot.resolve_operation()
-        summary = store.get_session_summary("demo")
-        sessions = store.list_session_summaries(prefix="de")
-```
-
-<!--
-name: test_history_queries
-```python
-assert previous == saved
-assert snapshot.resolve(history_id=previous.id, offset=1) == head
-assert operation_uuid == "operation-2"
-assert summary.entry_count == 3
-assert summary.active_branch == "main"
-assert [item.session_id for item in sessions] == ["demo"]
-assert session.image_uuid == head.image_uuid == "image-2"
-with SyncSQLiteStore("history-queries.db") as reopened:
-    assert reopened.read_session("demo") == snapshot
-```
--->
-
-::::
-
-::::{tab} Async
-
-<!--
-name: async test_history_queries_async; fixtures: doc_api
-```python
-doc_api.complete()
-doc_api.complete()
-```
--->
-
-```python
-from contree_client import profiles
-from contree_client.asyncio import ContreeAsyncClient
-
-from contree_sdk import ContreeAsyncSession
-from contree_sdk.store import AsyncSQLiteStore
-
-
-async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
-    async with AsyncSQLiteStore("history-queries_async.db") as store:
-        session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="demo", store=store)
-        await session.run("touch", args=["/one"], disposable=False)
-        await session.create_branch("checkpoint")
-        await session.run("touch", args=["/two"], disposable=False)
-        snapshot = await store.read_session("demo")
-        head = snapshot.resolve()
-        previous = snapshot.resolve(offset=-1)
-        saved = snapshot.resolve(branch="checkpoint")
-        operation_uuid = snapshot.resolve_operation()
-        summary = await store.get_session_summary("demo")
-        sessions = await store.list_session_summaries(prefix="de")
-```
-
-<!--
-name: test_history_queries_async
-```python
-assert previous == saved
-assert snapshot.resolve(history_id=previous.id, offset=1) == head
-assert operation_uuid == "operation-2"
-assert summary.entry_count == 3
-assert summary.active_branch == "main"
-assert [item.session_id for item in sessions] == ["demo"]
-assert session.image_uuid == head.image_uuid == "image-2"
-async with AsyncSQLiteStore("history-queries_async.db") as reopened:
-    assert await reopened.read_session("demo") == snapshot
-```
--->
-
-::::
-
-`resolve_operation()` returns the UUID of exactly the selected entry. It raises
-`ValueError` when that entry has no operation, including an initial image entry;
-it does not substitute an ancestor's operation. Pass the UUID to an `Operation`
-or `AsyncOperation` handle to inspect, wait for, or cancel it.
-
-Session IDs in these queries are exact. Use `find_session(name)` explicitly to
-resolve a short name first. Exact matches take precedence; an ambiguous suffix
-raises `ValueError`. Prefix filters on `list_session_summaries()` are literal.
-
-A `SessionSummary` includes the active head, all `BranchInfo` records, entry count,
-metadata, and append timestamps. `last_entry_at` records the latest history append,
-not a later checkout or metadata edit. Each summary is consistent; the complete
-list is not a cross-session transaction.
-
-## Remove service branch pointers
-
-Choose a nonempty literal prefix owned by your application. `prune_branches()`
-always keeps the active branch and the names in `keep`. It removes only branch
-pointers; history entries, images, files, and metadata remain available. `dry_run`
-returns the selected names without applying the deletion. A later deletion checks
-the current state again, so its returned names can differ from the preview.
-
-::::{tab} Sync
-
-Create a small session in a new `prune.db` database, then preview and remove its
-temporary branches:
-
-<!-- name: test_prune_branches; fixtures: doc_api -->
-
-```python
-from contree_sdk.store import SyncSQLiteStore
-
-
-with SyncSQLiteStore("prune.db") as initial:
-    root = initial.append("demo", image_uuid="base", parent_id=None)
-    initial.create_branch("demo", "temporary:old")
-    initial.create_branch("demo", "temporary:keep")
-with SyncSQLiteStore("prune.db") as store:
-    candidates = store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",), dry_run=True)
-    removed = store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",))
-    head = store.resolve_history("demo")
-```
-
-<!--
-name: test_prune_branches
-```python
-assert candidates == removed == ("temporary:old",)
-assert head == root
-with SyncSQLiteStore("prune.db") as reopened:
-    assert reopened.list_branches("demo") == [("main", True), ("temporary:keep", False)]
-```
--->
-
-::::
-
-::::{tab} Async
-
-Use a new `prune_async.db` database for this standalone example:
-
-<!-- name: async test_prune_branches_async; fixtures: doc_api -->
-
-```python
-from contree_sdk.store import AsyncSQLiteStore
-
-
-async with AsyncSQLiteStore("prune_async.db") as initial:
-    root = await initial.append("demo", image_uuid="base", parent_id=None)
-    await initial.create_branch("demo", "temporary:old")
-    await initial.create_branch("demo", "temporary:keep")
-async with AsyncSQLiteStore("prune_async.db") as store:
-    candidates = await store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",), dry_run=True)
-    removed = await store.prune_branches("demo", prefix="temporary:", keep=("temporary:keep",))
-    head = await store.resolve_history("demo")
-```
-
-<!--
-name: test_prune_branches_async
-```python
-assert candidates == removed == ("temporary:old",)
-assert head == root
-async with AsyncSQLiteStore("prune_async.db") as reopened:
-    assert await reopened.list_branches("demo") == [("main", True), ("temporary:keep", False)]
-```
--->
-
-::::
-
-## Coordinate concurrent work
-
-A saved run commits against the branch position captured when it starts.
-If another run advances that position first, `SessionConflictError` prevents a
-silent overwrite. Filesystem changes are not automatically merged.
-
-Serialize dependent commands. For independent work, create separate branches and
-coordinate access to the store's active branch. Two session objects sharing a
-`session_id` also share that active branch; they are not isolated workspaces.
-
-Use `switch_branch()` before running on an existing branch. The `branch=` option
-on a saved `run()` can create and select a new branch for its result. It cannot
-replace an existing different branch. See {doc}`troubleshooting` for conflict recovery.
-
-To keep branches across Python restarts, use {doc}`sessions`.
+Objects using the same Store and `session_id` share the active branch. Serialize
+branch changes and dependent commands. Conflicting saves raise
+`SessionConflictError`; the SDK does not merge files. See {doc}`troubleshooting`.

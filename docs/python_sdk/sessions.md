@@ -8,6 +8,10 @@ Use a SQLite store when a workflow must continue after Python exits.
 The database keeps session identifiers, history, branch names, and session defaults.
 The filesystem images stay on the ConTree server.
 
+The database also preserves the active branch and its position after rollback.
+Reopening a session continues from that saved position. Read {doc}`session-model`
+for the persistence model and {doc}`branching` for choosing that position.
+
 ## Save work, close the store, and reopen it
 
 This program writes `/saved.txt`, closes the database, then resumes the same session.
@@ -107,15 +111,20 @@ need the original `image=` argument. An unknown session ID without an image rais
 If a store already contains that session ID, its current image takes precedence
 over `image=`. Use a new session ID to start from a different base image.
 
+Snapshots are lightweight and can save work after every command, but each one
+stops the running VM. If files have not changed, the image UUID can stay the same.
+Store history still identifies each checkpoint. For automatic saving after each
+command, see [Save after every command](session-model.md#save-after-every-command).
+
 ## Choose what to retain
 
-| Resource                   | Default lifetime                       | How to retain it                                           |
-| -------------------------- | -------------------------------------- | ---------------------------------------------------------- |
-| Command filesystem changes | Saved on normal sandbox exit | Call `snapshot()` for an earlier checkpoint. |
-| Session history            | A memory-store instance                | Supply a SQLite store and keep its database.               |
-| Session identity           | A generated ID                         | Supply a stable `session_id` or save `session.session_id`. |
-| Running processes | Until the next snapshot or context exit | Choose a snapshot policy; see {doc}`lazy-session`. |
-| Server images              | Managed by the server                  | Keep required images available on that server.             |
+| Resource                   | Default lifetime                        | How to retain it                                           |
+| -------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Command filesystem changes | Saved on normal sandbox exit            | Call `snapshot()` for an earlier checkpoint.               |
+| Session history            | A memory-store instance                 | Supply a SQLite store and keep its database.               |
+| Session identity           | A generated ID                          | Supply a stable `session_id` or save `session.session_id`. |
+| Running processes          | Until the next snapshot or context exit | Choose a snapshot policy; see {doc}`reference/session`.    |
+| Server images              | Managed by the server                   | Keep required images available on that server.             |
 
 Reopening SQLite restores references to server images. It does not restore images
 that were deleted, nor restart processes from an earlier operation.
@@ -129,5 +138,5 @@ explicit construction and cleanup.
 Sharing a store is supported: each `session_id` has separate history.
 
 A command with a nonzero exit code can still produce a saved image. Inspect the
-result before deciding whether to continue or roll back. See {doc}`running-commands`
+result before deciding whether to continue or roll back. See {doc}`troubleshooting`
 and {doc}`branching`.

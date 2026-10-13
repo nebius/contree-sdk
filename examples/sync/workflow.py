@@ -17,11 +17,10 @@ def main() -> None:
             session.run(
                 shell="sort /input.txt > /result.txt",
                 files={"/input.txt": b"pear\napple\n"},
-                disposable=False,
             )
             session.create_branch("reverse")
             session.switch_branch("reverse")
-            session.run(shell="sort -r /input.txt > /result.txt", disposable=False)
+            session.run(shell="sort -r /input.txt > /result.txt")
             print("Reverse:")
             print((session.read_file("/result.txt")).decode(), end="")
             session.switch_branch("main")

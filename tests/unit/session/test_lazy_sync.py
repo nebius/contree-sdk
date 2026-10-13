@@ -6,6 +6,7 @@ from contree_client.models import InstanceResultState, OperationStatus, StreamRe
 
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
+from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveClient, event
 from tests.unit.session.timers import ManualTimers
 
@@ -35,6 +36,33 @@ def test_shared_vm_snapshot_and_next_image():
     assert lazy.worker is not None
     assert not lazy.worker.is_alive()
     assert len(base.history()[0]) == 3
+
+
+def test_snapshot_with_unchanged_image_stops_vm_and_records_checkpoint(monkeypatch):
+    client = LiveClient()
+    monkeypatch.setattr(
+        client,
+        "get_operation_status",
+        lambda operation_id, **kwargs: operation_response(operation_uuid=operation_id, result_image_uuid="base"),
+    )
+    base = ContreeSession(client, image="base")
+    with LazySession(base) as lazy:
+        lazy.run("true")
+        first = lazy.snapshot(timeout=2)
+        assert lazy.phase == "cold"
+
+        lazy.run("true")
+        second = lazy.snapshot(timeout=2)
+        assert lazy.phase == "cold"
+
+    assert first is not None
+    assert second is not None
+    assert first.image_uuid == second.image_uuid == "base"
+    assert second.parent_id == first.id
+    assert second.id != first.id
+    assert len(base.history()[0]) == 3
+    assert [call.args[1] for call in client.calls_for("spawn_instance")] == ["base", "base"]
+    assert len(client.calls_for("operation_subprocess_kill")) == 2
 
 
 def test_idle_timer_uses_exit_without_wait_and_does_not_stop_active_vm():

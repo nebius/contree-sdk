@@ -287,6 +287,8 @@ class LazySession(SyncExecutor):
     def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
         """Drain accepted commands, save their common image, and reopen admission.
 
+        Snapshots are lightweight and can run after every command. They stop
+        the VM. An unchanged filesystem can return the same image UUID.
         timeout limits this wait; an already requested snapshot continues.
         Errors remain available as error and are raised on subsequent calls.
         Saving failure or a closed wrapper raises RuntimeError. A wait that

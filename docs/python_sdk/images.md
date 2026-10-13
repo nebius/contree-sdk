@@ -7,6 +7,10 @@ icon: layer-group
 Use `sync_import_image` or `async_import_image` to import a registry image.
 Each helper waits for completion and returns an image UUID for the sandbox factory.
 
+An imported image can be the common starting point for several experiments.
+{doc}`Work with a Session <session-model>` explains how to save changes, branch
+from a checkpoint, and return to an earlier state.
+
 Configure the endpoint, token, and AI project as described in
 {ref}`sandbox-connection`. The registry must be reachable from the ConTree server.
 The example imports Alpine through a Docker Hub mirror and assigns the ConTree
@@ -24,6 +28,7 @@ The helpers use the same connection configuration as the sandbox factory.
 name: test_import_image; fixtures: sandbox_api, capsys
 ```python
 from tests.unit.session.factories import operation_response
+
 sandbox_api.command("Hello from an imported image!\n")
 for client in (sandbox_api.sync, sandbox_api.async_client):
     client.mock("import_image", "operation-1")
@@ -40,9 +45,7 @@ from contree_sdk import create_sandbox_session, sync_import_image
 
 
 def main() -> None:
-    image = sync_import_image(
-        "docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest"
-    )
+    image = sync_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
     with create_sandbox_session(image=image) as sandbox:
         result = sandbox.run("echo", args=["Hello from an imported image!"])
         print(result.stdout.as_text(), end="")
@@ -71,6 +74,7 @@ assert capsys.readouterr().out == "Hello from an imported image!\n"
 name: test_import_image_async; fixtures: sandbox_api, capsys
 ```python
 from tests.unit.session.factories import operation_response
+
 sandbox_api.command("Hello from an imported image!\n")
 for client in (sandbox_api.sync, sandbox_api.async_client):
     client.mock("import_image", "operation-1")
@@ -87,9 +91,7 @@ from contree_sdk import create_sandbox_session, async_import_image
 
 
 async def main() -> None:
-    image = await async_import_image(
-        "docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest"
-    )
+    image = await async_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
     async with create_sandbox_session(image=image) as sandbox:
         result = await sandbox.run("echo", args=["Hello from an imported image!"])
         print(result.stdout.as_text(), end="")
@@ -124,11 +126,11 @@ working directory when running the sandbox.
 Use `image="tag:alpine:latest"` with `create_sandbox_session` in later programs,
 including {doc}`getting-started`. There is no need to import before every command.
 
-| Reference | Use |
-| --- | --- |
-| `docker://mirror.gcr.io/library/alpine:latest` | Registry source passed to an import helper. |
-| `tag:alpine:latest` | ConTree tag passed to the sandbox factory. |
-| The returned image UUID | The specific imported filesystem, even if its tag later moves. |
+| Reference                                      | Use                                                            |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `docker://mirror.gcr.io/library/alpine:latest` | Registry source passed to an import helper.                    |
+| `tag:alpine:latest`                            | ConTree tag passed to the sandbox factory.                     |
+| The returned image UUID                        | The specific imported filesystem, even if its tag later moves. |
 
 Registry tags and ConTree tags are separate names. `create_sandbox_session`
 resolves the supplied image during context entry; it does not import a missing

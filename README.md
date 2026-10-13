@@ -78,25 +78,32 @@ assert len(sandbox_api.async_client.calls_for("operation_subprocess_kill")) == 1
 -->
 
 Commands share a VM until a snapshot. Normal context exit saves pending filesystem
-changes. Snapshots preserve files; running processes and memory do not survive.
+changes. Snapshots are lightweight; take them as often as needed, even after each
+command. A snapshot stops the VM and preserves files, but not processes or memory.
+If files have not changed, it can return the same `image_uuid`.
+
+To save after every command automatically, select `session_type=ContreeSession`
+or `ContreeAsyncSession`. Each command then uses a separate VM and saves its result
+by default. Set `disposable=True` to leave the session image unchanged. See
+[Work with a Session](docs/python_sdk/session-model.md#save-after-every-command).
 See [manual assembly](docs/python_sdk/manual-sandbox.md) when you need direct
 control over the components the factory supplies.
 
 ## Follow a workflow
 
-| Task                                             | Guide                                                   |
-| ------------------------------------------------ | ------------------------------------------------------- |
-| Configure credentials and use sync or async code | [Your first sandbox](docs/python_sdk/getting-started.md)     |
-| Import a Docker image                           | [Import a Docker image](docs/python_sdk/images.md)    |
+| Task                                             | Guide                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| Configure credentials and use sync or async code | [Your first sandbox](docs/python_sdk/getting-started.md)   |
+| Import a Docker image                            | [Import a Docker image](docs/python_sdk/images.md)         |
 | Build from a Dockerfile                          | [Build a Docker image](docs/python_sdk/building-images.md) |
-| Select components and control their behavior     | [Advanced usage](docs/python_sdk/advanced.md)          |
-| Upload inputs and download results               | [Files](docs/python_sdk/files.md)                       |
-| Continue after restarting Python                 | [Save and resume](docs/python_sdk/sessions.md)          |
-| Try alternatives from a checkpoint               | [Branches](docs/python_sdk/branching.md)                |
-| Control a running sandbox                        | [Operations](docs/python_sdk/operation.md)              |
-| Connect deepagents                               | [Agent integration](docs/integrations/langchain.md)     |
-| Override policy or replace components            | [Customization](docs/python_sdk/customization.md)       |
-| Upgrade from the old SDK                         | [Migration](docs/python_sdk/migration.md)               |
+| Select components and control their behavior     | [Advanced usage](docs/python_sdk/advanced.md)              |
+| Upload inputs and download results               | [Files](docs/python_sdk/files.md)                          |
+| Continue after restarting Python                 | [Save and resume](docs/python_sdk/sessions.md)             |
+| Try alternatives from a checkpoint               | [Branches](docs/python_sdk/branching.md)                   |
+| Control a running sandbox                        | [Operations](docs/python_sdk/operation.md)                 |
+| Connect deepagents                               | [Agent integration](docs/integrations/langchain.md)        |
+| Override policy or replace components            | [Customization](docs/python_sdk/customization.md)          |
+| Upgrade from the old SDK                         | [Migration](docs/python_sdk/migration.md)                  |
 
 The [documentation](https://docs.contree.dev/sdk/) includes API references and
 failure-handling examples. The mini-swe-agent 2.4.6 bundled adapter needs a port

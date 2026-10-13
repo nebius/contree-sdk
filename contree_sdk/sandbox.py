@@ -456,8 +456,8 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
 
     The default lazy policy snapshots after 10 idle seconds. Normal exit saves
     pending work; exceptional exit discards unsaved work. Snapshots retain files,
-    not running processes. Ordinary Session classes retain their existing commit
-    and disposable defaults.
+    not running processes. ContreeSession and ContreeAsyncSession save each command
+    by default in a separate VM. Pass disposable=True to leave their history unchanged.
 
     Returns:
         A single-use context owning its created client, memory store, and session.

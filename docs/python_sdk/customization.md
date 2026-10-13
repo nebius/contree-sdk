@@ -287,7 +287,7 @@ They do not close the executor. The async adapter requires native async methods;
 its sync entry points raise `NotImplementedError`.
 
 The executor interface alone does not guarantee file-transfer compatibility.
-Uploads require `execute(RunRequest(files=..., disposable=False))`; LazySession
+Uploads require `execute(RunRequest(files=...))`; LazySession
 rejects command-time attachments. Its `read_file` rejects active work: the caller
 must first snapshot and stop the VM. Use a regular Session for agent workflows
 that need both upload and download, or implement an executor with explicit live
@@ -433,7 +433,7 @@ do not wait for the operation from its own observer. Observer errors fail the re
 `LazySession` requires `add_observer()` support from a custom operation contract.
 It delegates request policy and operation creation to the wrapped session. Override
 `keepalive_request()` on the lazy wrapper to use another main process. See
-{doc}`lazy-session` for the public snapshot-policy interface.
+{doc}`reference/session` for the public snapshot-policy interface.
 
 The public factory hooks support independent contract implementations. The supplied subprocess event queue is part of that factory signature. Other
 internal queue management, worker threads, SQLite schemas, and helper module layouts
@@ -554,10 +554,10 @@ with create_sandbox_session(
     session_type=ContreeSession, image="tag:alpine:latest", commit_policy=ZeroExitCommitPolicy()
 ) as session:
     original_image = session.image_uuid
-    result = session.run(shell="exit 7", disposable=False)
+    result = session.run(shell="exit 7")
     assert result.state.exit_code == 7
     assert session.image_uuid == original_image
-    operation = session.spawn(shell="exit 7", disposable=False)
+    operation = session.spawn(shell="exit 7")
     result = operation.wait()
     entry = session.commit_result(operation)
     assert result.state.exit_code == 7
@@ -585,10 +585,10 @@ async with create_sandbox_session(
     session_type=ContreeAsyncSession, image="tag:alpine:latest", commit_policy=ZeroExitCommitPolicy()
 ) as session:
     original_image = session.image_uuid
-    result = await session.run(shell="exit 7", disposable=False)
+    result = await session.run(shell="exit 7")
     assert result.state.exit_code == 7
     assert session.image_uuid == original_image
-    operation = await session.spawn(shell="exit 7", disposable=False)
+    operation = await session.spawn(shell="exit 7")
     result = await operation.wait()
     entry = await session.commit_result(operation)
     assert result.state.exit_code == 7
@@ -603,6 +603,10 @@ session passes the effective request and its original history position. The
 method must not perform blocking I/O. The session validates API success before
 calling it and requires a result image before committing an accepted result.
 Policies are session components; pass the same policy when resuming a session.
+
+Session commands save by default; `disposable=True` opts out. Snapshots are
+lightweight and can run after every command, but stop the VM. An unchanged
+filesystem can return the same image UUID; policies must not require a new UUID.
 
 A `LazySession` snapshot also uses the underlying session's commit policy. If the
 policy rejects that snapshot, the lazy session fails and leaves history unchanged.

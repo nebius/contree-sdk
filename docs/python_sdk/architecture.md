@@ -8,6 +8,12 @@ Use `ContreeSession` for independent commands that share saved files.
 `LazySession` shares a running VM until a snapshot. `Operation` gives direct
 control over a single VM, its subprocesses, and its event stream.
 
+Snapshots are lightweight and can save after every command. They stop the VM;
+only files survive. If the filesystem is unchanged, the returned image UUID can
+match the previous one. `ContreeSession` and `ContreeAsyncSession` save command
+results by default; `disposable=True` leaves the session image unchanged. See
+[Save after every command](session-model.md#save-after-every-command).
+
 ## Execution and persistence
 
 | Component                                | When a VM starts                                                                                                         | When files are saved                                                                                                    | What happens to processes                                                                          | Who releases resources                                                                                                                     |
@@ -18,7 +24,7 @@ control over a single VM, its subprocesses, and its event stream.
 
 The default commit policy accepts API success even when a process returns a
 nonzero exit code. Disposable requests do not advance history. See
-{doc}`running-commands`, {doc}`operation`, and {doc}`lazy-session` for complete
+{doc}`session-model`, {doc}`operation`, and {doc}`reference/session` for complete
 examples and failure behavior.
 
 `SyncExecutor` and `AsyncExecutor` are interfaces for command execution and file

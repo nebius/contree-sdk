@@ -6,6 +6,9 @@ icon: file-arrow-up
 
 Send content through stdin to write a file in the running sandbox. Call
 `snapshot()` before `read_file()` to download the result from a saved image.
+Snapshots are lightweight, so saving after each command is supported. They stop
+the VM; unchanged files can produce the same `image_uuid`. For automatic saving,
+see [Save after every command](session-model.md#save-after-every-command).
 
 This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
 and saves the result as `output.txt` in your local working directory.
@@ -99,8 +102,9 @@ assert capsys.readouterr().out == "Hello from a file!\n"
 ::::
 
 Both stdout and the local `output.txt` contain `Hello from a file!` followed by a newline.
-The command uses `disposable=False`, so `read_file()` sees the image produced by that command.
-With a disposable run, it would still read the previous image.
+The explicit snapshot saves both commands, so `read_file()` sees their files.
+With `ContreeSession`, each command saves by default; `disposable=True` leaves
+the previous image selected.
 
 :::{note}
 Async snippets with top-level `await` run inside an async function or a notebook
@@ -128,7 +132,7 @@ machine. A duplicate destination in a list raises `ValueError` before execution.
 The standard transfer component uses the client's `ensure_file()` to reuse uploads
 by content. A saved upload does not by itself change a session image.
 
-See {doc}`running-commands` for stdin, and {doc}`customization` to replace file transfer.
+See {doc}`customization` to replace file transfer.
 
 ## Advanced: upload an executable script
 
@@ -154,7 +158,7 @@ from contree_sdk.files import UploadFileSpec
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
-    result = session.run("/tool.sh", files={"/tool.sh": script})
+    result = session.run("/tool.sh", files={"/tool.sh": script}, disposable=True)
     if isinstance(result.stdout, StreamRepr):
         print(result.stdout.as_text(), end="")
 ```
@@ -190,7 +194,7 @@ from contree_sdk.files import UploadFileSpec
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
-    result = await session.run("/tool.sh", files={"/tool.sh": script})
+    result = await session.run("/tool.sh", files={"/tool.sh": script}, disposable=True)
     if isinstance(result.stdout, StreamRepr):
         print(result.stdout.as_text(), end="")
 ```
@@ -243,16 +247,15 @@ from contree_sdk.store import SyncSQLiteStore
 with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     with SyncSQLiteStore("staging.db") as store:
         session = ContreeSession(client, image="tag:alpine:latest", session_id="edit-demo", store=store)
-        staged = session.stage_files({
-            "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
-        })
+        config_file = UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640)
+        staged = session.stage_files({"/work/config.ini": config_file})
         pending = session.pending_files()
         assert pending[0].mode == 0o640
 
     with SyncSQLiteStore("staging.db") as store:
         session = ContreeSession(client, session_id="edit-demo", store=store)
         assert session.pending_files() == pending
-        session.run(shell="cat /work/config.ini", disposable=False)
+        session.run(shell="cat /work/config.ini")
         assert session.pending_files() == ()
         session.rollback()
         assert session.tip_id == staged.id
@@ -294,16 +297,15 @@ from contree_sdk.store import AsyncSQLiteStore
 async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     async with AsyncSQLiteStore("staging-async.db") as store:
         session = ContreeAsyncSession(client, image="tag:alpine:latest", session_id="edit-demo", store=store)
-        staged = await session.stage_files({
-            "/work/config.ini": UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640),
-        })
+        config_file = UploadFileSpec(source=b"mode=test\n", uid=1000, gid=1000, mode=0o640)
+        staged = await session.stage_files({"/work/config.ini": config_file})
         pending = await session.pending_files()
         assert pending[0].mode == 0o640
 
     async with AsyncSQLiteStore("staging-async.db") as store:
         session = ContreeAsyncSession(client, session_id="edit-demo", store=store)
         assert await session.pending_files() == pending
-        await session.run(shell="cat /work/config.ini", disposable=False)
+        await session.run(shell="cat /work/config.ini")
         assert await session.pending_files() == ()
         await session.rollback()
         assert session.tip_id == staged.id
@@ -399,7 +401,7 @@ progress = []
 with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     transfer = ClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
     session = ContreeSession(client, image="tag:alpine:latest", file_transfer=transfer)
-    session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
+    session.run(shell="cat /app/input.txt > /result.txt", files=files)
     count = transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6
 assert Path("result.txt").read_bytes() == b"hello\n"
@@ -451,7 +453,7 @@ progress = []
 async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client:
     transfer = AsyncClientFileTransfer(client, max_concurrency=2, on_progress=progress.append)
     session = ContreeAsyncSession(client, image="tag:alpine:latest", file_transfer=transfer)
-    await session.run(shell="cat /app/input.txt > /result.txt", files=files, disposable=False)
+    await session.run(shell="cat /app/input.txt > /result.txt", files=files)
     count = await transfer.download_file(session.image_uuid, "/result.txt", "result.txt")
 assert count == 6
 assert await asyncio.to_thread(Path("result.txt").read_bytes) == b"hello\n"

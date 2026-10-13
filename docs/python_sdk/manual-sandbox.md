@@ -13,15 +13,15 @@ an available image with `sleep`, a POSIX shell, and `cat`.
 
 ## What the factory supplies
 
-| Component | Factory default | Your control |
-| --- | --- | --- |
-| Connection | Resolve a Profile from explicit arguments, ENV, or INI. | Supply a Profile or an already configured client. |
-| Client | HTTPX for sync; aiohttp for async. | Select a client class or manage the connection yourself. |
-| Store | A memory store for session history. | Supply SQLite or your own Store implementation. |
-| File transfer | A client-backed transfer for uploads and saved-image reads. | Replace it or wrap it in a cached transfer. |
-| Base session | `ContreeSession` or `ContreeAsyncSession`. | Extend request preparation, commits, or operation creation. |
-| Lazy session | Reuse one VM; snapshot after 10 idle seconds. | Select a policy or subclass the lazy session. |
-| Cleanup | Finish the session, then close owned storage and the client. | Manage component lifetimes explicitly; borrowed objects remain yours. |
+| Component     | Factory default                                              | Your control                                                          |
+| ------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Connection    | Resolve a Profile from explicit arguments, ENV, or INI.      | Supply a Profile or an already configured client.                     |
+| Client        | HTTPX for sync; aiohttp for async.                           | Select a client class or manage the connection yourself.              |
+| Store         | A memory store for session history.                          | Supply SQLite or your own Store implementation.                       |
+| File transfer | A client-backed transfer for uploads and saved-image reads.  | Replace it or wrap it in a cached transfer.                           |
+| Base session  | `ContreeSession` or `ContreeAsyncSession`.                   | Extend request preparation, commits, or operation creation.           |
+| Lazy session  | Reuse one VM; snapshot after 10 idle seconds.                | Select a policy or subclass the lazy session.                         |
+| Cleanup       | Finish the session, then close owned storage and the client. | Manage component lifetimes explicitly; borrowed objects remain yours. |
 
 The factory does not enable an upload cache by default. Pass `cache` and
 `cache_ttl` to enable it, or construct the transfer shown in {doc}`caching`.
@@ -207,13 +207,15 @@ assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["timeout"] == 
 
 ::::
 
-Selecting `ContreeSession` or a subclass changes execution semantics: commands
-are disposable by default, and `disposable=False` saves each result. Selecting a
-lazy subclass retains a shared VM and snapshot boundaries. `session_kwargs`
+Selecting `ContreeSession` or `ContreeAsyncSession` saves each command by default
+in a separate VM. Use `disposable=True` to leave the session image unchanged.
+Selecting a lazy subclass retains a shared VM until a snapshot. Snapshots are
+lightweight and can run after every command, but they stop the VM. An unchanged
+filesystem can produce the same image UUID. `session_kwargs`
 configures the selected class; `storage`, `file_transfer`, and `commit_policy`
 configure its underlying base session. To supply a custom base session inside a
 lazy wrapper, assemble them directly as above.
 
 Continue with {doc}`customization` for public hooks, {doc}`architecture` for
-component contracts, and {doc}`lazy-session` for snapshot policies. Snapshots
+component contracts, and {doc}`reference/session` for snapshot policies. Snapshots
 preserve files, not processes, memory, or sockets.
