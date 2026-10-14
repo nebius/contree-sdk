@@ -1,6 +1,0 @@
-[environment]
-python-version = "3.10"
-python-platform = "linux"
-
-[analysis]
-respect-type-ignore-comments = true

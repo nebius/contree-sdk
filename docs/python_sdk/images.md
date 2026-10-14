@@ -2,151 +2,201 @@
 icon: layer-group
 ---
 
-# Working with Images
+# Import a Docker image
 
-ConTree SDK provides several ways to reference and import container images. For full API documentation, see {class}`~contree_sdk.sdk.managers.images.ImagesManager` and {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync`.
+Use `sync_import_image` or `async_import_image` to import a registry image.
+Each helper waits for completion and returns an image UUID for the sandbox factory.
 
-## Using Images by Tag
+An imported image can be the common starting point for several experiments.
+{doc}`Work with a Session <session-model>` explains how to save changes, branch
+from a checkpoint, and return to an earlier state.
 
-The simplest way to get an image is `images.use(tag)`. This creates an image object immediately without any API call — the tag is resolved at execution time when you run a command:
+Configure the endpoint, token, and AI project as described in
+{ref}`sandbox-connection`. The registry must be reachable from the ConTree server.
+The example imports Alpine through a Docker Hub mirror and assigns the ConTree
+tag `alpine:latest`. Replace the registry URL with one available to your server.
 
-````{tab} Async
+## Import and run a command
+
+Save either program as `import_image.py` and run it with Python. Both programs
+wait for the import to finish, open a sandbox, and print `Hello from an imported image!`.
+The helpers use the same connection configuration as the sandbox factory.
+
+::::{tab} Sync
+
+<!--
+name: test_import_image; fixtures: sandbox_api, capsys
 ```python
-image = await contree.images.use("ubuntu:latest")
-result = await image.run(shell="echo hello")
-```
-````
+from tests.unit.session.factories import operation_response
 
-````{tab} Sync
+sandbox_api.command("Hello from an imported image!\n")
+for client in (sandbox_api.sync, sandbox_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("wait_operation", operation_response(result_image_uuid="image-1"))
+    client.mocks["resolve_image"].clear()
+    client.mock("resolve_image", "image-1")
+```
+-->
+
 ```python
-image = contree.images.use("ubuntu:latest")
-result = image.run(shell="echo hello").wait()
-```
-````
+"""Import a registry image and run a command in a sandbox."""
 
-## Pulling Images
+from contree_sdk import create_sandbox_session, sync_import_image
 
-For resolving a tag/UUID to an image upfront, use `images.use(strict=True)`. For importing images from external registries, use `images.oci()`:
 
-````{tab} Async
-```{literalinclude} ../../examples/images/pull_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+def main() -> None:
+    image = sync_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
+    with create_sandbox_session(image=image) as sandbox:
+        result = sandbox.run("echo", args=["Hello from an imported image!"])
+        print(result.stdout.as_text(), end="")
+
+
+main()
 ```
 
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci` for all parameters.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/images/pull_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use` and {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci` for all parameters.
-````
-
-### Methods
-
-````{tab} Async
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManager.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManager.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManager.import_from`(ref) — always imports from an external registry
-````
-
-````{tab} Sync
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref) — no API call; tag or UUID is resolved at execution time
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.use`(ref, strict=True) — verifies the image exists via an API call
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.oci`(ref) (aliases: {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.docker`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.podman`, {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.pull_by_oci`) — like `use(strict=True)`, but imports from the registry if not found locally
-- {meth}`~contree_sdk.sdk.managers.images.ImagesManagerSync.import_from`(ref) — always imports from an external registry
-````
-
-:::{danger}
-`import_from` always triggers a new import operation and should only be used when you explicitly need to re-import. In most cases, prefer `images.oci()`, which returns an existing image if already imported. If no import is needed at all, use `images.use()`.
-:::
-
-### What `ref` can be
-
-- UUID — reference an existing image by its UUID, e.g. `"550e8400-e29b-41d4-a716-446655440000"` or `UUID(...)`
-- OCI tag — reference by image tag, e.g. `"ubuntu:latest"`
-- OCI full URL — full reference including registry host, e.g. `"docker://ghcr.io/owner/image:tag"`
-- {class}`~contree_sdk.utils.oci.OCIReference` — programmatic OCI reference object
-
-## Tagging Images
-
-You can assign or remove a tag on any image using `tag_as()` and `untag()`. Tags are unique across all images — assigning an existing tag to a new image moves it automatically.
-
-````{tab} Async
-```{literalinclude} ../../examples/images/tag_image.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImage.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImage.untag` for details.
-````
-
-````{tab} Sync
-```{literalinclude} ../../examples/images/tag_image_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-
-See {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.tag_as` and {meth}`~contree_sdk.sdk.objects.image.ContreeImageSync.untag` for details.
-````
-
-You can also tag the result of a `run()` directly by passing `tag=` to the call — the resulting image will be tagged after execution completes:
-
-````{tab} Async
+<!--
+name: test_import_image
 ```python
-result = await image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False)
-print(result.tag)  # "myapp:ready"
+client = sandbox_api.sync
+assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
+assert client.calls_for("wait_operation")[0].args == ("operation-1",)
+assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
+assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
+assert capsys.readouterr().out == "Hello from an imported image!\n"
 ```
-````
+-->
 
-````{tab} Sync
+::::
+
+::::{tab} Async
+
+<!--
+name: test_import_image_async; fixtures: sandbox_api, capsys
 ```python
-result = image.run(shell="pip install mylib && python setup.py", tag="myapp:ready", disposable=False).wait()
-print(result.tag)  # "myapp:ready"
+from tests.unit.session.factories import operation_response
+
+sandbox_api.command("Hello from an imported image!\n")
+for client in (sandbox_api.sync, sandbox_api.async_client):
+    client.mock("import_image", "operation-1")
+    client.mock("wait_operation", operation_response(result_image_uuid="image-1"))
+    client.mocks["resolve_image"].clear()
+    client.mock("resolve_image", "image-1")
 ```
-````
+-->
 
-## Listing Images
+```python
+import asyncio
 
-View all available images in your ConTree instance:
+from contree_sdk import create_sandbox_session, async_import_image
 
-````{tab} Async
-```{literalinclude} ../../examples/images/list_images.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
 
-See {class}`~contree_sdk.sdk.managers.images.ImagesManager` for filtering and iteration options.
-````
+async def main() -> None:
+    image = await async_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
+    async with create_sandbox_session(image=image) as sandbox:
+        result = await sandbox.run("echo", args=["Hello from an imported image!"])
+        print(result.stdout.as_text(), end="")
 
-````{tab} Sync
-```{literalinclude} ../../examples/images/list_images_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
+
+asyncio.run(main())
 ```
 
-See {class}`~contree_sdk.sdk.managers.images.ImagesManagerSync` for filtering and iteration options.
-````
+<!--
+name: test_import_image_async
+```python
+client = sandbox_api.async_client
+assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
+assert client.calls_for("wait_operation")[0].args == ("operation-1",)
+assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
+assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
+assert capsys.readouterr().out == "Hello from an imported image!\n"
+```
+-->
+
+::::
+
+The helpers return only after a successful import. A failed import raises
+`FailedOperationError`. Assigning an existing ConTree tag moves it to the imported image.
+
+The import supplies a filesystem. It does not start the registry image's `CMD`
+or `ENTRYPOINT`, and it does not apply its `WORKDIR`. Select the command and
+working directory when running the sandbox.
+
+## Write a Docker URL
+
+Pass the registry source as the first argument to `sync_import_image` or
+`async_import_image`. A full URL has this form:
+
+```text
+docker://<registry>[:<port>]/<repository>:<tag>
+```
+
+Replace the angle-bracket placeholders; the port is optional. The repository
+includes its namespace, such as `library/alpine` or `my-team/my-app`.
+
+| Source URL | Meaning |
+| ---------- | ------- |
+| `docker://docker.io/library/alpine:latest` | Official Alpine image on Docker Hub. |
+| `docker://mirror.gcr.io/library/alpine:latest` | The mirror used in the example above. |
+| `docker://ghcr.io/my-team/my-app:v1` | An organization's image on GitHub Container Registry. |
+| `docker://registry.example.com:5000/my-team/my-app:v1` | A registry with an explicit port. Replace the host and repository. |
+
+For Docker Hub official images, use the `library/` namespace. Keep the
+`docker://` prefix when writing a full source URL; do not replace it with
+`https://` or a registry's web page URL.
+
+To select an exact registry manifest, replace `:<tag>` with
+`@sha256:<64-hex-digit-digest>`. Copy the complete digest from the registry.
+See the [Docker transport reference](https://github.com/containers/image/blob/main/docs/containers-transports.5.md#dockerdocker-reference)
+for the underlying syntax.
+
+String arguments also accept short names. The SDK expands `alpine` to
+`docker://docker.io/library/alpine:latest`, `alpine:3.22` to
+`docker://docker.io/library/alpine:3.22`, and `my-team/my-app:v1` to
+`docker://docker.io/my-team/my-app:v1`. A string that starts with `docker://`
+is passed through unchanged, so use the complete form shown above.
+
+The source tag selects the registry image to import. The helper's `tag=` argument
+assigns a separate ConTree tag to the result; these names can differ.
+For private registries, pass credentials through `ImageImportRegistry` as
+described under Configuration below.
+
+## Reuse the imported image
+
+Pass either of these references to `create_sandbox_session(image=...)`:
+
+| Reference                                      | Use                                                            |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `tag:alpine:latest`                            | ConTree tag passed to the sandbox factory.                     |
+| The returned image UUID                        | The specific imported filesystem, even if its tag later moves. |
+
+The factory does not import missing images; an unknown tag raises `NotFoundError`.
+
+Dockerfile `FROM` has separate behavior: the builder imports a missing base image
+from its registry. See {doc}`building-images`.
+
+## Configuration
+
+The import cache maps a registry source to its imported ConTree image UUID.
+A repeated call with the same source, requested ConTree tag, and credentials
+returns that UUID without another registry import. If `tag=` is supplied, the
+helper reapplies it to the cached image. The image itself stays on the ConTree
+server; the local cache contains only its UUID.
+
+Records expire after one hour by default. Until then, a moved registry tag still
+returns the cached image. Pass `no_cache=True` to import it again and refresh the
+record. Keep cached images available on the server.
+
+Records are stored in `$XDG_CACHE_HOME/contree/images.sqlite3`, or
+`~/.cache/contree/images.sqlite3` when XDG is unset. Connections and registry
+credentials have separate cache keys. Credentials are hashed, not stored in plaintext.
+Use `cache_ttl=` to change the lifetime or `cache_dir=` to choose another directory.
+
+For several operations, initialize a client once and pass it through `client=`.
+The client is a shared dependency for import, build, and sandbox operations.
+See the complete Sync/Async example in {ref}`shared-image-client`.
+The caller closes a supplied client. Helpers close clients they create themselves.
+
+Pass an `ImageImportRegistry` object instead of a string when the registry needs
+credentials. See {doc}`reference/images` for connection and cache parameters.
+
+Continue with {doc}`building-images` to build a Docker image from a Dockerfile.

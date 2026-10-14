@@ -2,92 +2,114 @@
 icon: book-open-lines
 ---
 
-# Overview
+# ConTree SDK
 
-[![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg?style=flat-square)](https://pypi.org/project/contree-sdk/)
-[![Python](https://img.shields.io/pypi/pyversions/contree-sdk?style=flat-square)](https://pypi.org/project/contree-sdk/)
+Run commands in remote sandboxes, keep their filesystem changes, and try different
+paths from the same saved state. Use Python for execution and session history;
+ConTree stores the filesystem images on the server.
 
-ConTree is a container runtime, providing **reproducible, versioned filesystem state** — like Git for container execution. The SDK makes this accessible from Python.
+Start with {doc}`python_sdk/getting-started`. It covers credentials, a base image,
+and a complete program that prints `Hello from ConTree!`. Then continue in order:
 
-## Quick Start
+1. {doc}`python_sdk/getting-started`
+2. {doc}`python_sdk/images`
+3. {doc}`python_sdk/building-images`
+4. {doc}`python_sdk/advanced`
 
-### Installation
+Your sandbox can keep more than its latest result. Save a checkpoint, try an
+experiment on another branch, and return to the baseline without repeating setup.
+Continue with {doc}`Work with a Session <python_sdk/session-model>` to learn how
+snapshots, branches, rollback, and persistent history fit together.
 
-Install the SDK from PyPi:
+## Choose your next task
 
-```bash
-pip install contree-sdk
-```
+| I want to…                                            | Read                              |
+| ----------------------------------------------------- | --------------------------------- |
+| Understand sessions, snapshots, and branches          | {doc}`python_sdk/session-model`   |
+| Select components and control their behavior          | {doc}`python_sdk/advanced`        |
+| Upload inputs and download an output                  | {doc}`python_sdk/files`           |
+| Continue work after restarting Python                 | {doc}`python_sdk/sessions`        |
+| Try a change and return to a checkpoint               | {doc}`python_sdk/branching`       |
+| Stream output or run several processes in one sandbox | {doc}`python_sdk/operation`       |
+| Import a Docker image                                 | {doc}`python_sdk/images`          |
+| Build a filesystem from a Dockerfile                  | {doc}`python_sdk/building-images` |
+| Give an agent access to a sandbox                     | {doc}`integrations/langchain`     |
+| Change SDK policy or replace a component              | {doc}`python_sdk/customization`   |
+| Upgrade an existing application                       | {doc}`python_sdk/migration`       |
 
-### Basic Usage
+## What persists?
 
-````{tab} Async
-```{literalinclude} ../examples/run/run_simple.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-````
+The default sandbox reuses one VM between commands. Normal context exit and
+explicit `snapshot()` save filesystem changes. An exception discards changes
+since the last completed snapshot. The default policy also snapshots after 10
+idle seconds. Snapshots are lightweight and can run after every command, but they
+stop the VM. Processes and memory do not survive. An unchanged filesystem can
+produce the same `image_uuid`; this is normal.
 
-````{tab} Sync
-```{literalinclude} ../examples/run/run_simple_sync.py
-:language: python
-:linenos:
-:pyobject: main
-:dedent: 4
-:start-after: def main(
-```
-````
+Select `session_type=ContreeSession` or `ContreeAsyncSession` to save each command
+automatically in a separate VM. `disposable=True` leaves the session image
+unchanged. See [Save after every command](python_sdk/session-model.md#save-after-every-command).
 
-## What's Next?
+History is in memory by default. Supply a SQLite store and a session ID to resume
+after Python exits. The store keeps references; filesystem images remain on the
+ConTree server. See {doc}`python_sdk/sessions`.
 
-Ready to explore more? Check out our guides:
+## Advanced control
 
-::::{grid} 1 1 2 2
-:gutter: 3
-
-:::{grid-item-card} Getting Started
-:link: python_sdk/getting-started
-:link-type: doc
-
-Detailed setup and basic operations.
-:::
-
-:::{grid-item-card} Working with Images
-:link: python_sdk/images
-:link-type: doc
-
-Pull and import container images.
-:::
-
-:::{grid-item-card} Running Commands
-:link: python_sdk/running-commands
-:link-type: doc
-
-Comprehensive guide to command execution.
-:::
-
-:::{grid-item-card} Branching Workflows
-:link: python_sdk/branching
-:link-type: doc
-
-Create reproducible execution branches.
-:::
-
-::::
+Use {doc}`python_sdk/advanced` to select components, manage ownership,
+and follow build events. {doc}`python_sdk/manual-sandbox` shows explicit assembly.
+Use {doc}`python_sdk/operation` to manage subprocesses and their event stream.
 
 ```{toctree}
+:caption: Start here
 :maxdepth: 1
 :hidden:
 
 python_sdk/getting-started
 python_sdk/images
-python_sdk/running-commands
+python_sdk/building-images
+python_sdk/advanced
+```
+
+```{toctree}
+:caption: Work with a Session
+:maxdepth: 1
+:hidden:
+
+python_sdk/session-model
 python_sdk/branching
+python_sdk/sessions
+python_sdk/files
+python_sdk/operation
+python_sdk/detached-operations
+python_sdk/caching
+```
+
+```{toctree}
+:caption: Integrations
+:maxdepth: 1
+:hidden:
+
+integrations/langchain
+integrations/harbor/runtime
+integrations/mini-swe-agent
+```
+
+```{toctree}
+:caption: Advanced Usage
+:maxdepth: 1
+:hidden:
+
+python_sdk/customization
+python_sdk/migration
+python_sdk/troubleshooting
+```
+
+```{toctree}
+:caption: Reference and development
+:maxdepth: 1
+:hidden:
 
 python_sdk/reference/index
-
-integrations/index
+contributing
 ```

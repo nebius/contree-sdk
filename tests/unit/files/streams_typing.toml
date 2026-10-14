@@ -1,0 +1,173 @@
+imports = '''
+from collections.abc import AsyncGenerator, AsyncIterable, Generator
+from io import BytesIO, StringIO
+from pathlib import Path
+from typing import IO
+from typing_extensions import assert_type
+from contree_client.models import FileSpec
+from contree_sdk.files import AsyncFileTransfer, AsyncReadable, Readable, RunFiles, SyncFileTransfer, UploadFileSpec
+from contree_sdk.execution import RunRequest
+from contree_sdk.file_io import download_target, run_file_io, write_download, write_download_async
+
+class AsyncBytes:
+    async def read(self, size: int = -1, /) -> bytes:
+        return b"data"
+
+class AsyncText:
+    async def read(self, size: int = -1, /) -> str:
+        return "data"
+'''
+
+[[cases]]
+name = "readable_protocol_result_types"
+code = '''
+def sync_use(text: Readable[str], binary: Readable[bytes]):
+    assert_type(text.read(), str)
+    assert_type(binary.read(1024), bytes)
+
+async def async_use(text: AsyncReadable[str], binary: AsyncReadable[bytes]):
+    assert_type(await text.read(), str)
+    assert_type(await binary.read(1024), bytes)
+
+sync_use(StringIO(), BytesIO())
+'''
+
+[[cases]]
+name = "stdin_sources"
+code = '''
+RunRequest(command="cat", stdin="text")
+RunRequest(command="cat", stdin=b"bytes")
+RunRequest(command="cat", stdin=Path("input"))
+RunRequest(command="cat", stdin=StringIO())
+RunRequest(command="cat", stdin=BytesIO())
+RunRequest(command="cat", stdin=AsyncBytes())
+RunRequest(command="cat", stdin=AsyncText())
+'''
+
+[[cases]]
+name = "reject_non_readable_stdin"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+RunRequest(command="cat", stdin=123)
+'''
+
+[[cases]]
+name = "reject_readable_with_wrong_result"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+class InvalidReader:
+    def read(self, size: int = -1, /) -> int:
+        return 1
+
+RunRequest(command="cat", stdin=InvalidReader())
+'''
+
+[[cases]]
+name = "reject_async_readable_with_wrong_result"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+class InvalidReader:
+    async def read(self, size: int = -1, /) -> int:
+        return 1
+
+RunRequest(command="cat", stdin=InvalidReader())
+'''
+
+[[cases]]
+name = "readable_text_and_bytes_are_distinct"
+errors = [{ line = 4, code = "invalid-argument-type" }]
+code = '''
+def consume(reader: Readable[bytes]) -> bytes:
+    return reader.read()
+
+consume(StringIO())
+'''
+
+[[cases]]
+name = "sync_reader_rejects_async_protocol"
+errors = [{ line = 4, code = "invalid-argument-type" }]
+code = '''
+def consume(reader: Readable[bytes]) -> bytes:
+    return reader.read()
+
+consume(AsyncBytes())
+'''
+
+[[cases]]
+name = "async_reader_rejects_sync_protocol"
+errors = [{ line = 5, code = "invalid-argument-type" }]
+code = '''
+async def consume(reader: AsyncReadable[bytes]) -> bytes:
+    return await reader.read()
+
+async def use(reader: Readable[bytes]):
+    await consume(reader)
+'''
+
+[[cases]]
+name = "transfer_streams_and_results"
+code = '''
+def sync_use(transfer: SyncFileTransfer, files: RunFiles, file: UploadFileSpec):
+    assert_type(transfer.upload(file), FileSpec)
+    assert_type(transfer.prepare_files(files), dict[str, FileSpec] | None)
+    assert_type(transfer.iter_file("image", "/file"), Generator[bytes, None, None])
+    assert_type(transfer.download_file("image", "/file", Path("local")), int)
+
+async def async_use(transfer: AsyncFileTransfer, files: RunFiles, file: UploadFileSpec):
+    assert_type(await transfer.upload(file), FileSpec)
+    assert_type(await transfer.prepare_files(files), dict[str, FileSpec] | None)
+    assert_type(transfer.iter_file("image", "/file"), AsyncGenerator[bytes, None])
+    assert_type(await transfer.download_file("image", "/file", "local"), int)
+'''
+
+[[cases]]
+name = "run_file_io_preserves_callable_result"
+code = '''
+class Payload:
+    pass
+
+def load() -> Payload:
+    return Payload()
+
+def optional() -> Payload | None:
+    return None
+
+def items() -> list[Payload]:
+    return []
+
+async def use():
+    assert_type(await run_file_io(load), Payload)
+    assert_type(await run_file_io(optional), Payload | None)
+    assert_type(await run_file_io(items), list[Payload])
+'''
+
+[[cases]]
+name = "download_target_is_binary"
+code = '''
+with download_target("output") as handle:
+    assert_type(handle, IO[bytes])
+    assert_type(handle.write(b"data"), int)
+'''
+
+[[cases]]
+name = "download_rejects_text_chunks"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+write_download(["text"], "output")
+'''
+
+[[cases]]
+name = "async_download_rejects_sync_chunks"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+async def use():
+    await write_download_async([b"data"], "output")
+'''
+
+[[cases]]
+name = "async_download_rejects_text_chunks"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+async def use(chunks: AsyncIterable[str]):
+    await write_download_async(chunks, "output")
+'''
