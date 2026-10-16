@@ -138,7 +138,7 @@ class ImagesManager(ImagesBaseManager[ContreeImage]):
 
         operation_id = await self.client.api.import_image(registry, tag=new_tag, timeout=round(timeout))
         try:
-            response = await self.client.api.wait_operation(operation_id, timeout=timeout)
+            response = await self.client.api.wait_operation(operation_id, timeout=timeout, follow_events=False)
         except TimeoutError as e:
             raise OperationTimedOutError(operation_uuid=UUID(operation_id)) from e
 
