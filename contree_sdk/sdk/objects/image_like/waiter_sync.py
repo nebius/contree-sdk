@@ -5,7 +5,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from contree_client.exceptions import ContreeAPIError
+from contree_client.exceptions import ContreeError
 from contree_client.models import EventDataExit, EventDataTruncated, OperationStatus, decode_chunk
 
 from contree_sdk.sdk.exceptions import CancelledOperationError, FailedOperationError, OperationTimedOutError
@@ -63,7 +63,7 @@ class OperationWaiter:
                 writer.finalize()
 
     def cancel(self) -> None:
-        with suppress(ContreeAPIError):
+        with suppress(ContreeError):
             self.api.cancel_operation(self.operation_id)
 
     def iter_events(self, timeout: float | None) -> Iterator[OperationEvent]:

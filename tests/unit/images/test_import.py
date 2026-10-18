@@ -17,10 +17,16 @@ async def test_import_public_image(fake_contree: Contree, fake_api: ContreeAsync
     queue_import(fake_api, result_image_uuid=result_image_uuid)
     await _test_import_public_image(fake_contree)
 
+    [call] = fake_api.calls_for("wait_operation")
+    assert call.kwargs["follow_events"] is False
+
 
 def test_import_public_image_s(fake_contree_s: ContreeSync, fake_api_s: ContreeClient, result_image_uuid: UUID):
     queue_import(fake_api_s, result_image_uuid=result_image_uuid)
     _test_import_public_image_s(fake_contree_s)
+
+    [call] = fake_api_s.calls_for("wait_operation")
+    assert call.kwargs["follow_events"] is False
 
 
 async def test_import_with_tag_override(fake_contree: Contree, fake_api: ContreeAsyncClient, result_image_uuid: UUID):
