@@ -1,8 +1,5 @@
 import asyncio
 import io
-import os
-import pwd
-import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -168,15 +165,15 @@ async def test_env_precedence_workdir_and_user(environment, fake_api):
 
 
 @pytest.mark.parametrize(
-    ("dockerfile", "workdir"),
+    "dockerfile",
     [
-        ("FROM ubuntu\nWORKDIR /app\n", "/app"),
-        ("FROM ubuntu\nWORKDIR /ignored\nFROM ubuntu\nWORKDIR /app\n", "/app"),
-        ("FROM ubuntu\nWORKDIR /workspace\nWORKDIR project\n", "/workspace/project"),
+        "FROM ubuntu\nWORKDIR /app\n",
+        "FROM ubuntu\nWORKDIR /ignored\nFROM ubuntu\nWORKDIR /app\n",
+        "FROM ubuntu\nWORKDIR /workspace\nWORKDIR project\n",
     ],
 )
-async def test_dockerfile_workdir_survives_setup_and_transfers(
-    env_kwargs, fake_contree, fake_image, fake_api, monkeypatch, file_uuid, file_sha256, dockerfile, workdir
+async def test_image_workdir_is_delegated_to_backend_across_transfers(
+    env_kwargs, fake_contree, fake_image, fake_api, monkeypatch, file_uuid, file_sha256, dockerfile
 ):
     (env_kwargs["environment_dir"] / "Dockerfile").write_text(dockerfile)
     monkeypatch.setattr(fake_contree.images, "pull_image_by_oci", AsyncMock(return_value=fake_image))
@@ -184,7 +181,6 @@ async def test_dockerfile_workdir_survives_setup_and_transfers(
         queue_run(fake_api, result_image_uuid=str(uuid4()))
     env = ConTreeEnvironment(**env_kwargs)
     await env.start(force_build=False)
-    assert workdir in fake_api.calls_for("spawn_instance")[-1].kwargs["args"][1]
     source = env_kwargs["environment_dir"] / "input.txt"
     source.write_text("input")
     queue_upload(fake_api, file_uuid, file_sha256)
@@ -197,35 +193,26 @@ async def test_dockerfile_workdir_survives_setup_and_transfers(
     env.task_env_config.workdir = "/configured"
     await env.exec("pwd")
     calls = fake_api.calls_for("spawn_instance")[-5:]
-    assert [call.kwargs["cwd"] for call in calls] == [workdir, "/", workdir, "/override", "/configured"]
+    assert [call.kwargs["cwd"] for call in calls] == ["", "/", "", "/override", "/configured"]
     await env.stop(delete=True)
 
 
 @pytest.mark.parametrize(
-    ("image_env", "command_env", "expected"),
+    "command_env",
     [
-        ({}, {}, None),
-        ({}, {"SHELL": "/nonexistent-shell"}, None),
-        ({"HOME": "/image home"}, {}, "/image home"),
-        ({"HOME": "/image home"}, {"HOME": "/command home"}, "/command home"),
-        ({}, {"HOME": ""}, ""),
+        {},
+        {"SHELL": "/nonexistent-shell"},
+        {"HOME": "/command home"},
+        {"HOME": ""},
     ],
 )
-async def test_home_fallback(environment, fake_api, image_env, command_env, expected):
+async def test_home_is_delegated_to_backend(environment, fake_api, command_env):
     queue_run(fake_api, result_image_uuid=str(uuid4()))
     await environment.exec("printenv HOME", env=command_env)
     call = fake_api.calls_for("spawn_instance")[-1]
-    # Execute the actual executable and arguments sent to ConTree.
-    # The fallback must also export HOME to the command's child processes.
-    result = await asyncio.to_thread(
-        subprocess.run,
-        [call.args[0], *call.kwargs["args"]],
-        env={**image_env, **call.kwargs["env"]},
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stdout == (pwd.getpwuid(os.getuid()).pw_dir if expected is None else expected) + "\n"
+    assert call.args[0] == "/bin/bash"
+    assert call.kwargs["args"] == ["-c", "printenv HOME"]
+    assert call.kwargs["env"] == command_env
 
 
 async def test_output_callback(environment, fake_api):
@@ -354,7 +341,7 @@ async def test_startup_uploads_environment_to_image_workdir(
     env = ConTreeEnvironment(**env_kwargs)
     await env.start(force_build=False)
     calls = fake_api.calls_for("spawn_instance")
-    assert calls[-2].kwargs["args"][1].endswith("\npwd")
+    assert calls[-2].kwargs["args"] == ["-c", "pwd"]
     assert "-C /workspace" in calls[-1].kwargs["args"][1]
     assert len(calls[-1].kwargs["files"]) == 1
     await env.stop(delete=True)
