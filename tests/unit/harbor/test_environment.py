@@ -1,18 +1,19 @@
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
-from contree_client.models import InstanceResult, InstanceResultState, StreamRepr
+from contree_client.models import FileResponse
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
 
 from contree_sdk.harbor import ConTreeEnvironment
-from tests.unit.session.lazy_clients import LiveAsyncClient, event
+from tests.unit.session.lazy_clients import LiveAsyncClient
 
 
 @pytest.fixture
 def backend(tmp_path):
     client = LiveAsyncClient()
-    client.mock("operation_subprocess_stdin", None)
+    client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=4))
+    client.mock("apply_instance_file", None)
     client.mock("update_image_tag", None)
     environment_dir = tmp_path / "environment"
     environment_dir.mkdir()
@@ -53,29 +54,12 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path):
     assert len(client.calls_for("spawn_instance")) == 1
     source = tmp_path / "source.txt"
     source.write_text("hello")
-    client.auto_exit = False
-    create = client.operation_subprocess_create
-
-    async def spawn_with_event(operation_id, command, **kwargs):
-        spid = await create(operation_id, command, **kwargs)
-        await client.streams[operation_id].put(event("spawn", spid))
-        return spid
-
-    client.operation_subprocess_create = spawn_with_event
-
-    async def acknowledge_stdin(operation_id, spid, value, **kwargs):
-        client.record_call("operation_subprocess_stdin", (operation_id, spid, value), kwargs)
-        if kwargs.get("close"):
-            await client.streams[operation_id].put(event("exit", spid))
-
-    client.operation_subprocess_stdin = acknowledge_stdin
     await env.upload_file(source, "/app/source.txt")
     await env.upload_dir(env.environment_dir, "/work")
     assert len(client.calls_for("spawn_instance")) == 1
-    assert client.calls_for("operation_subprocess_stdin")
-    commands = client.calls_for("operation_subprocess_create")
-    assert any(getattr(call.kwargs.get("stdin"), "close", True) is False for call in commands)
-    assert all(call.kwargs.get("close") for call in client.calls_for("operation_subprocess_stdin") if not call.args[2])
+    assert len(client.calls_for("apply_instance_file")) == 2
+    assert all(call.kwargs["merge"] for call in client.calls_for("apply_instance_file"))
+    assert not client.calls_for("operation_subprocess_stdin")
     await env.stop(delete=True)
     assert len(client.calls_for("cancel_operation")) == 1
     assert not client.calls_for("get_operation_status")
@@ -209,19 +193,16 @@ async def test_download_file_streams_binary_chunks_without_snapshot(backend, tmp
     await env.start(force_build=False)
     payload = b"\x00" + b"x" * (256 * 1024 + 17)
 
-    async def downloaded_chunk(operation_id, spid):
-        client.record_call("operation_subprocess", (operation_id, spid), {})
-        request = client.calls_for("operation_subprocess_create")[-1]
-        command = request.kwargs["args"][1]
-        offset = int(command.split(" skip=")[1].split()[0]) * 256 * 1024
-        return InstanceResult(
-            state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_bytes(payload[offset : offset + 256 * 1024])
-        )
+    async def downloaded_chunks(operation_id, path):
+        client.record_call("inspect_instance_download_stream", (operation_id, path), {})
+        yield payload[: 256 * 1024]
+        yield payload[256 * 1024 :]
 
-    monkeypatch.setattr(client, "operation_subprocess", downloaded_chunk)
+    monkeypatch.setattr(client, "inspect_instance_download_stream", downloaded_chunks)
     target = tmp_path / "download.bin"
     await env.download_file("/remote/data.bin", target)
     assert target.read_bytes() == payload
     assert len(client.calls_for("spawn_instance")) == 1
-    assert len(client.calls_for("operation_subprocess")) == 4  # startup checks plus two data chunks
+    assert len(client.calls_for("operation_subprocess")) == 2  # startup checks only
+    assert client.calls_for("inspect_instance_download_stream")[0].args == ("op-1", "/remote/data.bin")
     await env.stop(delete=True)

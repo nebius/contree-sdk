@@ -20,8 +20,8 @@ from contree_sdk.session.snapshot_policy import (
     ManualSnapshotPolicy,
     SnapshotEvent,
 )
-from contree_sdk.session.stdin import StdinResult
 from contree_sdk.session.sync import ContreeSession
+from contree_sdk.stdin import StdinResult
 
 
 __all__ = [

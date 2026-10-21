@@ -15,13 +15,13 @@ name = "sessions_return_matching_inspectors"
 code = '''
 def sync_use(base: ContreeSession, lazy: LazySession):
     assert_type(base.inspect(), ImageInspector)
-    assert_type(lazy.inspect(timeout=1), ImageInspector)
+    assert_type(lazy.inspect(), ImageInspector)
     with create_sandbox_session(image="base") as session:
         assert_type(session.inspect(), ImageInspector)
 
 async def async_use(base: ContreeAsyncSession, lazy: AsyncLazySession):
     assert_type(await base.inspect(), AsyncImageInspector)
-    assert_type(await lazy.inspect(timeout=1), AsyncImageInspector)
+    assert_type(await lazy.inspect(), AsyncImageInspector)
     async with create_sandbox_session(image="base") as session:
         assert_type(await session.inspect(), AsyncImageInspector)
 '''

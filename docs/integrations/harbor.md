@@ -21,18 +21,21 @@ backend. Authentication remains in the host's ConTree profile. Python callers ma
 pass `client=ContreeAsyncClient(...)`; injected clients remain caller-owned.
 
 Tasks need a prebuilt OCI image in `[environment].docker_image`. UUID and `tag:`
-references are also accepted. The image must run as root and provide Bash, tar,
-`dd`, and `sleep`. Dockerfile builds, Compose, GPUs, custom mounts, non-root users,
+references are also accepted. The image must run as root and provide Bash and
+`sleep`. Dockerfile builds, Compose, GPUs, custom mounts, non-root users,
 and restricted networking are not supported. Harbor's standard log mount paths are
 replaced by file transfers. Commands inherit the image's `WORKDIR` and `HOME`
 unless Harbor supplies overrides. Task/trial/command environment precedence is
 resolved by Harbor and forwarded to each subprocess. The adapter does not parse
 Dockerfiles or add shell fallbacks.
 
-Directory transfers use tar over the live subprocess stdin/stdout path. They do
-not require a snapshot, which matters when the task has open sockets or services.
-The adapter serializes Harbor calls on one environment. Output capture is capped
-at 10 MiB per stream; downloads use 256 KiB chunks to avoid that cap.
+File transfers use the shared lazy session's native live upload/download APIs.
+Directory uploads merge tar archives through the backend file API; downloads
+stream files or archives directly. File contents never enter command stdin/stdout
+or operation events, and transfers do not require a snapshot. The adapter serializes
+Harbor calls on one environment. Command output capture remains capped at 10 MiB
+per stream. This requires the backend live-file feature and its corresponding
+client build; the current development client is supplied as a wheel.
 
 `--ek operation_timeout=1800` changes the default command timeout (1000 seconds).
 Harbor's task command timeout overrides it. `snapshot_timeout` defaults to 120
@@ -60,6 +63,15 @@ stage run rejected requested operation timeouts above 3,600 seconds.
 
 The same VM behavior is available through the public sandbox factory:
 
+<!--
+name: async test_harbor_sandbox; fixtures: sandbox_api, monkeypatch
+```python
+from contree_client.profiles import Profile
+monkeypatch.setattr("contree_sdk.connection.ConnectionConfig.resolve_profile", lambda self: Profile(
+    name="stage", url="https://contree.invalid", token="documentation-token", auth_type="iam"))
+```
+-->
+
 ```python
 from contree_sdk import RunRequest, create_async_sandbox_session
 from contree_sdk.session import ManualSnapshotPolicy
@@ -76,6 +88,14 @@ async with create_async_sandbox_session(
     await sandbox.run(shell="start-my-service &")
     await sandbox.run(shell="check-my-service")
 ```
+
+<!--
+name: async test_harbor_sandbox
+```python
+assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
+```
+-->
 
 `vm_request` configures the parent VM; each command has its own timeout. Ordinary
 context exit saves a snapshot, while exceptional exit discards unsaved work.

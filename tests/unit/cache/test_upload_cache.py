@@ -80,7 +80,6 @@ async def test_bytes_uploaded_references_and_reads(cache_case):
     assert len(client.calls_for("ensure_file")) == 1
     assert await call(transfer.sources, "sources") == ()
     assert await call(transfer, "read_file", "image", "/data") == b"download"
-    assert await call(transfer, "read_stdin", b"stdin") == b"stdin"
 
 
 async def test_snapshot_is_stable_and_removed_on_success_or_failure(cache_case, tmp_path, monkeypatch):

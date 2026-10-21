@@ -74,6 +74,7 @@ class DocumentationAPI:
     def download(self, data: bytes) -> None:
         for client in (self.sync, self.async_client):
             client.mock("inspect_image_download", data)
+            client.mock("inspect_instance_download", data)
 
     def command(self, stdout: str = "", exit_code: int = 0) -> None:
         """Set the response returned for commands in a shared sandbox."""
@@ -185,6 +186,7 @@ def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Docu
     for client in (doc_api.sync, doc_api.async_client):
         client.mock("ensure_file", FileResponse(uuid="uploaded-file", sha256="a" * 64, size=4))
         client.mock("operation_subprocess_stdin", None)
+        client.mock("apply_instance_file", None)
     for path, client in [
         ("contree_client.sync.ContreeClient", doc_api.sync),
         ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),

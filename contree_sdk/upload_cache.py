@@ -17,7 +17,7 @@ from contree_client.models import FileSpec
 from contree_sdk.cache import AsyncCache, CacheScope, ScopedAsyncCache, ScopedSyncCache, SyncCache
 from contree_sdk.cache.models import expiration
 from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
-from contree_sdk.files import AsyncFileTransfer, InputSource, SyncFileTransfer, UploadedFile, UploadFileSpec
+from contree_sdk.files import AsyncFileTransfer, SyncFileTransfer, UploadedFile, UploadFileSpec
 
 
 UPLOAD_NAMESPACE = "uploads"
@@ -147,9 +147,6 @@ class CachedFileTransfer(SyncFileTransfer):
     def iter_file(self, image_uuid: str, path: str) -> Generator[bytes, None, None]:
         return self.transfer.iter_file(image_uuid, path)
 
-    def read_stdin(self, source: InputSource) -> str | bytes:
-        return self.transfer.read_stdin(source)
-
 
 class AsyncCachedFileTransfer(AsyncFileTransfer):
     """Cache content uploads; apply permissions from each current request.
@@ -195,6 +192,3 @@ class AsyncCachedFileTransfer(AsyncFileTransfer):
 
     def iter_file(self, image_uuid: str, path: str) -> AsyncGenerator[bytes, None]:
         return self.transfer.iter_file(image_uuid, path)
-
-    async def read_stdin(self, source: InputSource) -> str | bytes:
-        return await self.transfer.read_stdin(source)

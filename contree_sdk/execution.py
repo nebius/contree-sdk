@@ -19,7 +19,8 @@ from contree_client.models import (
 )
 
 from contree_sdk.exceptions import FileWriteError
-from contree_sdk.files import InputSource, RunFiles
+from contree_sdk.files import RunFiles
+from contree_sdk.stdin import InputSource
 from contree_sdk.store.models import StagedFile
 
 

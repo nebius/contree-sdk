@@ -24,6 +24,8 @@ class SnapshotEvent(Enum):
     RESET = "reset"
     COMMAND_STARTED = "command_started"
     COMMAND_FINISHED = "command_finished"
+    TRANSFER_STARTED = "transfer_started"
+    TRANSFER_FINISHED = "transfer_finished"
     CLOSE = "close"
 
 
@@ -134,10 +136,10 @@ class IdleSnapshotPolicy(AbstractSnapshotPolicy):
             if event in {SnapshotEvent.RESET, SnapshotEvent.CLOSE}:
                 self._cancel_timer()
                 self._active = 0
-            elif event is SnapshotEvent.COMMAND_STARTED:
+            elif event in {SnapshotEvent.COMMAND_STARTED, SnapshotEvent.TRANSFER_STARTED}:
                 self._cancel_timer()
                 self._active += 1
-            elif event is SnapshotEvent.COMMAND_FINISHED:
+            elif event in {SnapshotEvent.COMMAND_FINISHED, SnapshotEvent.TRANSFER_FINISHED}:
                 if self._active <= 0:
                     raise ValueError("command finish has no matching admission")
                 self._active -= 1

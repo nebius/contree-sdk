@@ -19,7 +19,7 @@ from contree_client.types import ContreeSyncClient
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import OperationContext, RunRequest, SyncExecutor
-from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, SyncFileTransfer, UploadFileSpec
+from contree_sdk.files import ClientFileTransfer, RunFiles, SyncFileTransfer, UploadFileSpec
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_operation
@@ -27,6 +27,7 @@ from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCo
 from contree_sdk.session.contracts import OperationContract
 from contree_sdk.session.detached import decode_response, encode_response, operation_context, operation_record
 from contree_sdk.session.operation_sync import Operation
+from contree_sdk.stdin import InputSource, read_stdin
 from contree_sdk.store import HistoryEntry, StagedFile, SyncMemoryStore, SyncStore
 from contree_sdk.store.operations import OperationRecord
 
@@ -545,7 +546,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         files.update(self.build_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
-            data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
+            data = read_stdin(request.stdin) if request.stdin is not None else b""
             stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(
             request,

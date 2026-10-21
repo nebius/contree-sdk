@@ -17,7 +17,10 @@ Update imports, execution, and result handling as follows.
 
 The factory defaults to `LazySession` or `AsyncLazySession`. Commands share a VM.
 Normal context exit saves pending files; an exception discards changes since the
-last snapshot. `inspect()` and `read_file()` save active work automatically.
+last snapshot. `inspect()` never stops the VM; it requires a stopped session and
+raises while the VM is active. Call `snapshot()` explicitly before inspection.
+`read_file()` reads the running VM directly, or
+the selected saved image when no VM is running; it does not request a snapshot.
 Call `snapshot()` before switching branches or rolling back.
 
 Select `session_type=ContreeSession` or `ContreeAsyncSession` for a separate VM
