@@ -18,16 +18,14 @@ class SnapshotEvent(Enum):
 
     RESET starts a new VM cycle. COMMAND_STARTED reserves an accepted command
     before its subprocess is created. COMMAND_FINISHED confirms its exit event,
-    including nonzero exits. INSPECTION_STARTED/FINISHED bracket a live filesystem
-    request, including its stream. They affect idle time, not command counts.
-    CLOSE releases resources after completion or failure.
+    including nonzero exits. CLOSE releases resources after completion or failure.
     """
 
     RESET = "reset"
     COMMAND_STARTED = "command_started"
     COMMAND_FINISHED = "command_finished"
-    INSPECTION_STARTED = "inspection_started"
-    INSPECTION_FINISHED = "inspection_finished"
+    TRANSFER_STARTED = "transfer_started"
+    TRANSFER_FINISHED = "transfer_finished"
     CLOSE = "close"
 
 
@@ -66,7 +64,7 @@ class AbstractSnapshotPolicy(ABC):
     Use one policy instance per lazy session. Subclasses call super().__init__()
     and super().notify(event) to reset or cancel the cycle future. Resolve the
     future to request a snapshot, or fail it to report a policy error. The session
-    still waits for all accepted commands and inspections before stopping its VM.
+    still waits for all accepted commands before stopping its VM.
     """
 
     def __init__(self) -> None:
@@ -102,10 +100,10 @@ class ManualSnapshotPolicy(AbstractSnapshotPolicy):
 
 
 class IdleSnapshotPolicy(AbstractSnapshotPolicy):
-    """Request a snapshot after commands and inspections have been idle for seconds.
+    """Request a snapshot after all commands have been idle for seconds.
 
-    Timers start when the last command or inspection finishes. Admission,
-    reset, or close cancels the timer. Async callers use their event loop's timer; sync callers
+    Timers start on the last command's exit and are cancelled on admission,
+    reset, or close. Async callers use their event loop's timer; sync callers
     use a daemon threading.Timer. Inject timer_factory for a custom scheduler.
     """
 
@@ -138,12 +136,12 @@ class IdleSnapshotPolicy(AbstractSnapshotPolicy):
             if event in {SnapshotEvent.RESET, SnapshotEvent.CLOSE}:
                 self._cancel_timer()
                 self._active = 0
-            elif event in {SnapshotEvent.COMMAND_STARTED, SnapshotEvent.INSPECTION_STARTED}:
+            elif event in {SnapshotEvent.COMMAND_STARTED, SnapshotEvent.TRANSFER_STARTED}:
                 self._cancel_timer()
                 self._active += 1
-            elif event in {SnapshotEvent.COMMAND_FINISHED, SnapshotEvent.INSPECTION_FINISHED}:
+            elif event in {SnapshotEvent.COMMAND_FINISHED, SnapshotEvent.TRANSFER_FINISHED}:
                 if self._active <= 0:
-                    raise ValueError("activity finish has no matching admission")
+                    raise ValueError("command finish has no matching admission")
                 self._active -= 1
                 if self._active == 0 and not self.future.done():
                     generation = self._generation

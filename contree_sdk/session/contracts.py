@@ -10,7 +10,7 @@ from contree_client.models import InstanceResult, OperationEvent, OperationRespo
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
-from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult
+from contree_sdk.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult
 
 
 OperationObserver = Callable[[OperationEvent | None, Exception | None], None]

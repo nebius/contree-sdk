@@ -191,13 +191,16 @@ its reader when the generator closes. Its default implementation buffers through
 `read_file()`. The inherited `download_file()` writes those chunks atomically.
 See {doc}`files` for tree preparation, callbacks, cancellation, and ownership.
 The async implementation cancels and joins sibling uploads if one fails. Override
-this method for batching or bounded concurrency. Override `read_stdin()` to support
-additional input handling. Never close a caller-owned input stream.
+this method for batching or bounded concurrency.
 
 Inject a component with `file_transfer=`. `ClientFileTransfer` and
 `AsyncClientFileTransfer` provide the standard implementations and can also be
-subclassed. Import `UploadFileSpec`, `UploadedFile`, `InputSource`, and the readable
-protocols from `contree_sdk.files`.
+subclassed. Import `UploadFileSpec` and `UploadedFile` from `contree_sdk.files`.
+
+Stdin is prepared independently of file transfer. `InputSource`, `Readable`, and
+`AsyncReadable` live in `contree_sdk.stdin`. Strings and bytes pass through; paths
+and streams are read locally without closing caller-owned streams. Async sessions
+await async readers and offload blocking reads to a thread.
 
 ## Implement history storage
 

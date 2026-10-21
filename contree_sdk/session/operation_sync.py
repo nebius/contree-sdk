@@ -24,7 +24,7 @@ from contree_sdk.session.base import (
     write_stream_chunk,
 )
 from contree_sdk.session.contracts import OperationContract, OperationObserver, SubprocessContract
-from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
+from contree_sdk.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"

@@ -6,12 +6,8 @@ import asyncio
 import codecs
 import inspect
 import math
-import shlex
-import stat
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import aclosing, suppress
+from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from tempfile import TemporaryDirectory
 from typing import Literal
 from uuid import uuid4
 
@@ -22,7 +18,6 @@ from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
-from harbor.environments.tar_transfer import extract_dir_from_file, pack_dir_to_file
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import (
@@ -32,7 +27,6 @@ from contree_sdk import (
     async_import_image,
     create_async_sandbox_session,
 )
-from contree_sdk.file_io import run_file_io, write_download_async
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.contracts import AsyncOperationContract
@@ -41,7 +35,6 @@ from contree_sdk.session.snapshot_policy import IdleSnapshotPolicy, ManualSnapsh
 
 _OUTPUT_LIMIT = 10 * 1024 * 1024
 _TRANSFER_TIMEOUT = 600
-_TRANSFER_CHUNK = 256 * 1024
 
 
 class ConTreeEnvironment(BaseEnvironment):
@@ -206,10 +199,8 @@ class ConTreeEnvironment(BaseEnvironment):
         self._lazy = await self._sandbox.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop
         self._session = self._lazy.session
         self._client = self._session.client
-        check = await self._execute(
-            'test "$(id -u)" = 0 && command -v bash && command -v tar && command -v dd', cwd="/"
-        )
-        self._check_result(check, "ConTree requires an image running as root with Bash, tar, dd and sleep")
+        check = await self._execute('test "$(id -u)" = 0 && command -v bash && command -v sleep', cwd="/")
+        self._check_result(check, "ConTree requires an image running as root with Bash and sleep")
         paths = EnvironmentPaths()
         dirs = [str(paths.agent_dir), str(paths.verifier_dir), str(paths.artifacts_dir)]
         if self.task_env_config.workdir:
@@ -318,11 +309,10 @@ class ConTreeEnvironment(BaseEnvironment):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout_sec: float | None = None,
-        stdin_path: Path | None = None,
         output_callback: bool = False,
     ) -> ExecResult:
         result = await self._request(
-            command, cwd=cwd, env=env, timeout_sec=timeout_sec, stdin_path=stdin_path, output_callback=output_callback
+            command, cwd=cwd, env=env, timeout_sec=timeout_sec, output_callback=output_callback
         )
         if not isinstance(result.state, InstanceResultState) or not isinstance(result.state.exit_code, int):
             raise TypeError("ConTree subprocess returned no exit code")
@@ -341,7 +331,6 @@ class ConTreeEnvironment(BaseEnvironment):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout_sec: float | None = None,
-        stdin_path: Path | None = None,
         output_callback: bool = False,
     ) -> InstanceResult:
         lazy = self._require_lazy()
@@ -353,7 +342,6 @@ class ConTreeEnvironment(BaseEnvironment):
             args=("-c", command),
             env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
-            stdin_open=stdin_path is not None,
             truncate_output_at=_OUTPUT_LIMIT,
         )
         handle = None
@@ -365,11 +353,6 @@ class ConTreeEnvironment(BaseEnvironment):
             operation = lazy.operation
             if operation is None:
                 raise RuntimeError("ConTree subprocess has no active operation")
-            if stdin_path is not None:
-                async with aclosing(self._input_chunks(stdin_path)) as chunks:
-                    transfer = await operation.pipe_stdin(chunks, spid=handle.spid)
-                if not transfer.eof_sent:
-                    raise RuntimeError("ConTree upload subprocess exited before the complete input was acknowledged")
             if output_callback:
                 await self._stream_output(operation, handle.spid)
             result = await handle.wait()
@@ -436,15 +419,6 @@ class ConTreeEnvironment(BaseEnvironment):
         await asyncio.wait_for(kill_and_confirm(), timeout=self._terminate_timeout)
 
     @staticmethod
-    async def _input_chunks(path: Path) -> AsyncGenerator[bytes, None]:
-        source = path.open("rb")
-        try:
-            while chunk := await run_file_io(source.read, _TRANSFER_CHUNK):
-                yield chunk
-        finally:
-            await run_file_io(source.close)
-
-    @staticmethod
     def _check_result(result: ExecResult, action: str) -> None:
         if result.return_code:
             raise RuntimeError(f"{action} failed (exit {result.return_code}): {result.stderr or result.stdout}")
@@ -457,18 +431,10 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         target_path = self._remote_path(target_path)
-        source = Path(source_path)
-        mode = stat.S_IMODE((await run_file_io(source.stat)).st_mode)
         async with self._lock:
-            parent = shlex.quote(str(PurePosixPath(target_path).parent))
-            target = shlex.quote(target_path)
-            result = await self._execute(
-                f"mkdir -p -- {parent} && cat > {target} && chmod {mode:o} -- {target}",
-                cwd="/",
-                stdin_path=source,
-                timeout_sec=_TRANSFER_TIMEOUT,
+            await asyncio.wait_for(
+                self._require_lazy().upload_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT
             )
-            self._check_result(result, "Uploading file")
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         async with self._lock:
@@ -476,66 +442,16 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def _upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         target_dir = self._remote_path(target_dir)
-        with TemporaryDirectory() as tmp:
-            source = Path(tmp) / "upload.tar.gz"
-            await run_file_io(pack_dir_to_file, source_dir, source)
-            target = shlex.quote(target_dir)
-            result = await self._execute(
-                f"mkdir -p -- {target} && tar -xzf - -C {target}",
-                cwd="/",
-                stdin_path=source,
-                timeout_sec=_TRANSFER_TIMEOUT,
-            )
-            self._check_result(result, "Uploading directory")
-
-    async def _download(self, source_path: str, target_path: Path | str) -> None:
-        target = Path(target_path)
-        await run_file_io(lambda: target.parent.mkdir(parents=True, exist_ok=True))
-
-        async def chunks() -> AsyncIterator[bytes]:
-            offset = 0
-            while True:
-                # Read bounded chunks through the live subprocess API, never
-                # inspect() (which would snapshot and terminate services).
-                result = await self._request(
-                    f"dd if={shlex.quote(source_path)} bs={_TRANSFER_CHUNK} skip={offset} count=1 status=none",
-                    cwd="/",
-                    timeout_sec=_TRANSFER_TIMEOUT,
-                )
-                if not isinstance(result.state, InstanceResultState) or result.state.exit_code:
-                    raise RuntimeError(f"Downloading {source_path}: {self._text(result.stderr)}")
-                if not isinstance(result.stdout, StreamRepr):
-                    raise RuntimeError("ConTree download returned no stdout")  # noqa: TRY004
-                if result.stdout.truncated is True:
-                    raise RuntimeError("ConTree download chunk was truncated")
-                data = result.stdout.as_bytes()
-                if data:
-                    yield data
-                if len(data) < _TRANSFER_CHUNK:
-                    return
-                offset += 1
-
-        await write_download_async(chunks(), target, path=source_path)
+        await asyncio.wait_for(self._require_lazy().upload_dir(source_dir, target_dir), timeout=_TRANSFER_TIMEOUT)
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         source_path = self._remote_path(source_path)
         async with self._lock:
-            await self._download(source_path, target_path)
+            await asyncio.wait_for(
+                self._require_lazy().download_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT
+            )
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
         source_dir = self._remote_path(source_dir)
         async with self._lock:
-            archive = f"/tmp/.harbor-{uuid4().hex}.tar.gz"  # noqa: S108 - unique remote trial path
-            quoted = shlex.quote(archive)
-            try:
-                result = await self._execute(
-                    f"tar -czf {quoted} -C {shlex.quote(source_dir)} .", cwd="/", timeout_sec=_TRANSFER_TIMEOUT
-                )
-                self._check_result(result, "Packing directory")
-                with TemporaryDirectory() as tmp:
-                    local = Path(tmp) / "download.tar.gz"
-                    await self._download(archive, local)
-                    await run_file_io(extract_dir_from_file, local, target_dir)
-            finally:
-                with suppress(Exception):
-                    await self._execute(f"rm -f -- {quoted}", cwd="/")
+            await asyncio.wait_for(self._require_lazy().download_dir(source_dir, target_dir), timeout=_TRANSFER_TIMEOUT)

@@ -39,7 +39,8 @@ from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.operation_async import AsyncOperation
 from contree_sdk.session.records import OperationRecord
 from contree_sdk.session.tree import entry_from_node, entry_node, order_entries
-from contree_sdk.store import AsyncMemoryStore, AsyncStore, JSONValue, Node, NodeConflictError
+from contree_sdk.files import InputSource, read_stdin_async
+from contree_sdk.store import AsyncMemoryStore, AsyncStore, HistoryEntry, JSONValue, Node, NodeConflictError, StagedFile
 from contree_sdk.store.tree import DEFAULT_PAGE_SIZE, MAX_NODE_BATCH_SIZE
 
 
@@ -747,7 +748,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         files.update(await self.build_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
-            data = await self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
+            data = await read_stdin_async(request.stdin) if request.stdin is not None else b""
             stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(
             request,

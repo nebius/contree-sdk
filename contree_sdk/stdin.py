@@ -1,10 +1,25 @@
-"""Values shared by synchronous and asynchronous stdin forwarding."""
+"""Input sources, local readers, and values shared by stdin forwarding."""
 
+from __future__ import annotations
+
+from asyncio import to_thread
 from collections.abc import Iterator
 from dataclasses import dataclass
+from inspect import iscoroutinefunction
+from pathlib import Path
+from typing import Protocol, TypeAlias, TypeVar, cast
 
 
 DEFAULT_STDIN_CHUNK_SIZE = 64 * 1024
+DataT_co = TypeVar("DataT_co", str, bytes, covariant=True)
+
+
+class Readable(Protocol[DataT_co]):
+    def read(self, size: int = -1, /) -> DataT_co: ...
+
+
+class AsyncReadable(Protocol[DataT_co]):
+    async def read(self, size: int = -1, /) -> DataT_co: ...
 
 
 @dataclass(frozen=True)
