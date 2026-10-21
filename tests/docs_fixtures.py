@@ -136,7 +136,7 @@ def agent_model_factory() -> type:
     pytest.importorskip("deepagents")
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
-    from contree_sdk.compat import Self
+    from contree_sdk.utils.compat import Self
 
     class ScriptedModel(FakeMessagesListChatModel):
         def bind_tools(self, tools: object, **kwargs: object) -> Self:

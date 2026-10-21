@@ -21,7 +21,7 @@ from http import HTTPStatus
 from typing import IO, Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
-from contree_sdk.file_io import run_file_io
+from contree_sdk.utils.file_io import run_file_io
 
 from .context import AsyncBuildContext, BuildContext, PendingFile
 from .keyword import DockerKeyword

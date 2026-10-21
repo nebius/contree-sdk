@@ -13,12 +13,9 @@ from tempfile import TemporaryDirectory
 from contree_client.exceptions import UnprocessableEntityError
 from contree_client.models import InstanceResult, OperationEvent
 
-from contree_sdk.compat import Self
 from contree_sdk.exceptions import FileWriteError
 from contree_sdk.execution import RunRequest, SyncExecutor
-from contree_sdk.file_io import write_download
 from contree_sdk.inspection import ImageInspector
-from contree_sdk.live_files import extract_download, pack_upload, ready_call, ready_stream, validate_remote_path
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
 from contree_sdk.session.defaults import (
@@ -31,6 +28,9 @@ from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnap
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.stdin import read_stdin
 from contree_sdk.store import HistoryEntry
+from contree_sdk.utils.compat import Self
+from contree_sdk.utils.file_io import write_download
+from contree_sdk.utils.live_files import extract_download, pack_upload, ready_call, ready_stream, validate_remote_path
 from contree_sdk.utils.models.file import UploadFileSpec
 
 

@@ -14,7 +14,6 @@ from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeSyncClient
 
-from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import (
     encode_stdin_chunk,
@@ -26,6 +25,7 @@ from contree_sdk.session.base import (
 from contree_sdk.session.contracts import OperationContract, OperationObserver, SubprocessContract
 from contree_sdk.session.defaults import DEFAULT_READINESS_TIMEOUT, DEFAULT_SHUTDOWN_TIMEOUT, READINESS_RETRY_INTERVAL
 from contree_sdk.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
+from contree_sdk.utils.compat import Self
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"

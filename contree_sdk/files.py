@@ -13,7 +13,7 @@ from typing import TypeAlias
 from contree_client.models import FileSpec
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
-from contree_sdk.file_io import (
+from contree_sdk.utils.file_io import (
     ProgressCallback,
     TransferProgress,
     hash_upload,

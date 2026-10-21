@@ -4,10 +4,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from types import EllipsisType
 
-from contree_sdk.compat import Self
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.store.models import HistoryEntry, HistorySnapshot, SessionMetadata, SessionSummary, StagedFile
 from contree_sdk.store.operations import OperationRecord
+from contree_sdk.utils.compat import Self
 
 
 class SyncStore(ABC):  # noqa: PLR0904 - public extension contract
