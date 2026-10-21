@@ -30,6 +30,7 @@ from contree_sdk import (
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.contracts import AsyncOperationContract
+from contree_sdk.session.defaults import KEEPALIVE_SLEEP_SECONDS
 from contree_sdk.session.snapshot_policy import IdleSnapshotPolicy, ManualSnapshotPolicy
 
 
@@ -191,7 +192,9 @@ class ConTreeEnvironment(BaseEnvironment):
             profile=self._profile if client is None else None,
             client_type=HttpxAsyncClient if client is None else None,
             session_kwargs={
-                "vm_request": RunRequest(command="sleep", args=("2147483647",), timeout=self._vm_timeout),
+                "vm_request": RunRequest(
+                    command="sleep", args=(str(KEEPALIVE_SLEEP_SECONDS),), timeout=self._vm_timeout
+                ),
                 "snapshot_policy": policy,
                 "snapshot_timeout": self._snapshot_timeout,
             },
