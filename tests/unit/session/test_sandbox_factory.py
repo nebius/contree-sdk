@@ -14,13 +14,14 @@ from contree_sdk import (
     ContreeAsyncSession,
     ContreeSession,
     LazySession,
+    RunRequest,
     create_async_sandbox_session,
     create_sandbox_session,
     create_sync_sandbox_session,
     profile_from_args,
 )
 from contree_sdk.files import AsyncClientFileTransfer, ClientFileTransfer, UploadFileSpec
-from contree_sdk.session import IdleSnapshotPolicy, ZeroExitCommitPolicy
+from contree_sdk.session import IdleSnapshotPolicy, ManualSnapshotPolicy, ZeroExitCommitPolicy
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
 from contree_sdk.upload_cache import AsyncCachedFileTransfer, CachedFileTransfer
 from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient
@@ -136,6 +137,49 @@ async def test_default_async_is_lazy_and_commits_once(profile):
     with pytest.raises(RuntimeError, match="only be entered once"):
         async with context:
             pass
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_factory_configures_vm_without_a_custom_session(profile, asynchronous):
+    api = FactoryAsyncClient if asynchronous else FactoryClient
+    factory = create_async_sandbox_session if asynchronous else create_sync_sandbox_session
+    vm = RunRequest(command="sleep", args=("7200",), timeout=3600, hostname="sandbox")
+    context = factory(
+        image="base",
+        profile=profile,
+        client_type=api,
+        session_kwargs={"snapshot_policy": ManualSnapshotPolicy(), "vm_request": vm},
+    )
+
+    async def commands(session):
+        assert type(session) is (AsyncLazySession if asynchronous else LazySession)
+        for command in ("first", "second"):
+            result = session.run(command)
+            if asynchronous:
+                await result
+        client = api.instances[-1]
+        starts = client.calls_for("spawn_instance")
+        assert len(starts) == 1
+        assert starts[0].args[0] == "sleep"
+        assert starts[0].kwargs["timeout"] == 3600
+        assert starts[0].kwargs["hostname"] == "sandbox"
+        assert not session.snapshot_policy.should_snapshot().done()
+        checkpoint = session.snapshot()
+        if asynchronous:
+            checkpoint = await checkpoint
+        assert checkpoint.image_uuid == "image-op-1"
+        result = session.run("third")
+        if asynchronous:
+            await result
+        assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
+
+    if asynchronous:
+        async with context as session:
+            await commands(session)
+    else:
+        with context as session:
+            await commands(session)
+    assert api.instances[-1].closed == 1
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])

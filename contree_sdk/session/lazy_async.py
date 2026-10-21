@@ -38,6 +38,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         *,
         snapshot_policy: AbstractSnapshotPolicy | None = None,
         snapshot_timeout: float = 30,
+        vm_request: RunRequest | None = None,
     ) -> None:
         if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
@@ -45,6 +46,9 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         self.session_id = session.session_id
         self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
         self.snapshot_timeout = snapshot_timeout
+        if vm_request is not None and vm_request.disposable:
+            raise ValueError("the VM request must be non-disposable")
+        self.vm_request = vm_request
         self.state = LazyState()
         self.condition = asyncio.Condition()
         self.operation: AsyncOperationContract | None = None
@@ -87,14 +91,14 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             )
         return request
 
-    def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
+    def keepalive_request(self) -> RunRequest:
         """Supply a long-running main process available in the base image.
 
         Returns:
             The non-disposable request used to start each VM.
 
         """
-        return RunRequest(command="sleep", args=("2147483647",), disposable=False)
+        return self.vm_request or RunRequest(command="sleep", args=("2147483647",), disposable=False)
 
     async def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
         """Observe the operation's sole reader without depending on handle.wait()."""

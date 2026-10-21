@@ -94,6 +94,13 @@ class AbstractSnapshotPolicy(ABC):
         return self.future
 
 
+class ManualSnapshotPolicy(AbstractSnapshotPolicy):
+    """Keep the VM running until an explicit snapshot, close, or abort."""
+
+    def notify(self, event: SnapshotEvent) -> None:
+        super().notify(event)
+
+
 class IdleSnapshotPolicy(AbstractSnapshotPolicy):
     """Request a snapshot after commands and inspections have been idle for seconds.
 

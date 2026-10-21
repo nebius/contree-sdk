@@ -2,7 +2,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from contree_client.models import InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import InstanceNetworking, InstanceResultState, OperationStatus, StreamRepr
 
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
@@ -352,3 +352,24 @@ def test_rejected_snapshot_does_not_restart_from_stale_image():
         assert len(client.calls_for("spawn_instance")) == 1
     finally:
         lazy.abort()
+
+
+def test_sync_session_and_lazy_process_identity_are_consistent():
+    from contree_sdk import ContreeSession, LazySession
+    from contree_sdk.session import Operation
+    from tests.unit.session.lazy_clients import LiveClient
+
+    client = LiveClient()
+    session = ContreeSession(client, image="base")
+    operation = session.spawn("true", uid=12, gid=34, networking=InstanceNetworking(enabled=False))
+    assert client.calls_for("spawn_instance")[0].kwargs["uid"] == 12
+    assert client.calls_for("spawn_instance")[0].kwargs["gid"] == 34
+    assert client.calls_for("spawn_instance")[0].kwargs["networking"].enabled is False
+    assert isinstance(operation, Operation)
+    operation.shutdown_timeout = 0.01
+    operation.cancel()
+    operation.shutdown()
+    with LazySession(session) as lazy:
+        lazy.run("id", uid=56, gid=78)
+        call = client.calls_for("operation_subprocess_create")[0]
+        assert (call.kwargs["uid"], call.kwargs["gid"]) == (56, 78)

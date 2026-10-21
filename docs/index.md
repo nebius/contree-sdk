@@ -91,6 +91,7 @@ python_sdk/caching
 :hidden:
 
 integrations/langchain
+integrations/harbor
 integrations/mini-swe-agent
 ```
 
