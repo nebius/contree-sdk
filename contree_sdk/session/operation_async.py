@@ -28,6 +28,7 @@ from contree_sdk.session.base import (
     write_stream_chunk,
 )
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
+from contree_sdk.session.defaults import DEFAULT_READINESS_TIMEOUT, DEFAULT_SHUTDOWN_TIMEOUT, READINESS_RETRY_INTERVAL
 from contree_sdk.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
@@ -48,8 +49,8 @@ class AsyncOperation(AsyncOperationContract):
         operation_uuid: str,
         *,
         timeout: float | None = None,
-        shutdown_timeout: float = 10.0,
-        readiness_timeout: float = 30.0,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
+        readiness_timeout: float = DEFAULT_READINESS_TIMEOUT,
         files: tuple[str, ...] = (),
         context: OperationContext | None = None,
     ) -> None:
@@ -393,7 +394,7 @@ class AsyncOperation(AsyncOperationContract):
                 remaining = deadline - time.monotonic()
                 if not subprocess_not_ready(error) or self.terminal or remaining <= 0:
                     raise
-                await asyncio.sleep(min(0.2, remaining))
+                await asyncio.sleep(min(READINESS_RETRY_INTERVAL, remaining))
         return self.create_subprocess(spid, await self.claim_queue(spid))
 
     def create_subprocess(

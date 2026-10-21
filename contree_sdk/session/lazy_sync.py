@@ -21,6 +21,11 @@ from contree_sdk.inspection import ImageInspector
 from contree_sdk.live_files import extract_download, pack_upload, ready_call, ready_stream, validate_remote_path
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
+from contree_sdk.session.defaults import (
+    DEFAULT_IDLE_SNAPSHOT_SECONDS,
+    DEFAULT_SNAPSHOT_TIMEOUT,
+    KEEPALIVE_SLEEP_SECONDS,
+)
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
@@ -42,14 +47,16 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         session: ContreeSession,
         *,
         snapshot_policy: AbstractSnapshotPolicy | None = None,
-        snapshot_timeout: float = 30,
+        snapshot_timeout: float = DEFAULT_SNAPSHOT_TIMEOUT,
         vm_request: RunRequest | None = None,
     ) -> None:
         if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
         self.session = session
         self.session_id = session.session_id
-        self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
+        self.snapshot_policy = (
+            snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(DEFAULT_IDLE_SNAPSHOT_SECONDS)
+        )
         self.snapshot_timeout = snapshot_timeout
         if vm_request is not None and vm_request.disposable:
             raise ValueError("the VM request must be non-disposable")
@@ -104,7 +111,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             The non-disposable request used to start each VM.
 
         """
-        return self.vm_request or RunRequest(command="sleep", args=("2147483647",), disposable=False)
+        return self.vm_request or RunRequest(command="sleep", args=(str(KEEPALIVE_SLEEP_SECONDS),), disposable=False)
 
     def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
         """Observe the operation's sole reader without depending on handle.wait()."""

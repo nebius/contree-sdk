@@ -13,6 +13,7 @@ from typing import TypeVar
 from contree_client.exceptions import ConflictError, TooEarlyError
 
 from contree_sdk.session.base import subprocess_not_ready
+from contree_sdk.session.defaults import DEFAULT_READINESS_TIMEOUT, READINESS_RETRY_INTERVAL
 
 
 T = TypeVar("T")
@@ -42,29 +43,29 @@ def file_not_ready(error: Exception, deadline: float) -> bool:
 
 
 def ready_call(call: Callable[[], T]) -> T:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + DEFAULT_READINESS_TIMEOUT
     while True:
         try:
             return call()
         except (TooEarlyError, ConflictError) as error:  # noqa: PERF203 - retry only explicit pre-admission rejection
             if not file_not_ready(error, deadline):
                 raise
-            time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            time.sleep(min(READINESS_RETRY_INTERVAL, max(0, deadline - time.monotonic())))
 
 
 async def ready_call_async(call: Callable[[], Awaitable[T]]) -> T:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + DEFAULT_READINESS_TIMEOUT
     while True:
         try:
             return await call()
         except (TooEarlyError, ConflictError) as error:  # noqa: PERF203 - retry only explicit pre-admission rejection
             if not file_not_ready(error, deadline):
                 raise
-            await asyncio.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            await asyncio.sleep(min(READINESS_RETRY_INTERVAL, max(0, deadline - time.monotonic())))
 
 
 def ready_stream(source: Callable[[], Iterator[bytes]]) -> Generator[bytes, None, None]:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + DEFAULT_READINESS_TIMEOUT
     delivered = False
     while True:
         try:  # noqa: PLW0717 - readiness retry owns iterator lifetime
@@ -80,13 +81,13 @@ def ready_stream(source: Callable[[], Iterator[bytes]]) -> Generator[bytes, None
         except (TooEarlyError, ConflictError) as error:  # noqa: PERF203 - retry only explicit pre-admission rejection
             if delivered or not file_not_ready(error, deadline):
                 raise
-            time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            time.sleep(min(READINESS_RETRY_INTERVAL, max(0, deadline - time.monotonic())))
         else:
             return
 
 
 async def ready_stream_async(source: Callable[[], AsyncIterator[bytes]]) -> AsyncGenerator[bytes, None]:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + DEFAULT_READINESS_TIMEOUT
     delivered = False
     while True:
         try:  # noqa: PLW0717 - readiness retry owns iterator lifetime
@@ -102,7 +103,7 @@ async def ready_stream_async(source: Callable[[], AsyncIterator[bytes]]) -> Asyn
         except (TooEarlyError, ConflictError) as error:  # noqa: PERF203 - retry only explicit pre-admission rejection
             if delivered or not file_not_ready(error, deadline):
                 raise
-            await asyncio.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            await asyncio.sleep(min(READINESS_RETRY_INTERVAL, max(0, deadline - time.monotonic())))
         else:
             return
 

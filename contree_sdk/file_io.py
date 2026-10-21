@@ -13,6 +13,7 @@ from tempfile import NamedTemporaryFile
 from typing import IO, Any, Literal, TypeVar
 
 
+HASH_CHUNK_SIZE = 1024 * 1024
 T = TypeVar("T")
 
 
@@ -55,7 +56,7 @@ def hash_upload(handle: IO[bytes]) -> str:
     position = handle.tell()
     digest = hashlib.sha256()
     try:
-        while chunk := handle.read(1024 * 1024):
+        while chunk := handle.read(HASH_CHUNK_SIZE):
             digest.update(chunk)
     finally:
         handle.seek(position)
