@@ -15,8 +15,8 @@ from {doc}`../python_sdk/getting-started`.
 :::
 
 The examples use the default sandbox from `create_sandbox_session`. Commands and
-uploads use the same VM. Downloads automatically save its current filesystem
-before reading; this stops the VM. The next command starts from the saved image.
+uploads use the same VM. Downloads read that VM directly while it is running,
+or inspect the selected image after it stops. File transfers do not request snapshots.
 The factory handles connection setup and cleanup.
 
 ## Install and test the backend
@@ -165,7 +165,7 @@ assert len(tool_results) == 2
 assert all(message.status == "success" for message in tool_results)
 assert "2" in str(tool_results[-1].content)
 assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
-assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 3
+assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
 ```
 -->
 
@@ -225,7 +225,7 @@ assert len(tool_results) == 2
 assert all(message.status == "success" for message in tool_results)
 assert "2" in str(tool_results[-1].content)
 assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
-assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 3
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
 ```
 -->
 
@@ -238,8 +238,9 @@ application. The SDK does not choose a provider or supply a model key.
 
 Uploads call `session.write_file(path, content)`. Its default implementation writes
 binary stdin with `cat`, creates parent directories, and requests no snapshot.
-Custom executors can override `write_file` without changing this adapter. Downloads call `session.read_file()`, which saves active lazy-session
-work before reading the resulting image.
+Lazy sessions override this with native live uploads. Custom executors can override
+`write_file` without changing this adapter. Downloads call `session.read_file()`,
+which reads a running VM directly or inspects the saved image when it is stopped.
 
 | Sync sandbox                    | Async sandbox                          |
 | ------------------------------- | -------------------------------------- |

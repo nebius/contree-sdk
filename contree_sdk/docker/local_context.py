@@ -18,6 +18,7 @@ from pathlib import Path
 from .dockerignore import DockerignoreRule, is_ignored, parse_dockerignore
 
 
+HASH_CHUNK_SIZE = 256 * 1024
 DEFAULT_FILE_EXCLUDES = (
     ".*",
     ".git",
@@ -44,7 +45,7 @@ class MappedFile:
         # hex SHA256 digest of the host file (streamed)
         digest = hashlib.sha256()
         with Path(self.host_path).open("rb") as handle:
-            while chunk := handle.read(256 * 1024):
+            while chunk := handle.read(HASH_CHUNK_SIZE):
                 digest.update(chunk)
         return digest.hexdigest()
 

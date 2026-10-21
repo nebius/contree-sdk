@@ -7,23 +7,37 @@ import threading
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import suppress
+from math import isfinite
 from typing import IO
 
+from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeSyncClient
 
-from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
-from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
+from contree_sdk.session.base import (
+    encode_stdin_chunk,
+    instance_result,
+    stream_repr_for_stdin,
+    subprocess_not_ready,
+    write_stream_chunk,
+)
 from contree_sdk.session.contracts import OperationContract, OperationObserver, SubprocessContract
-from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
+from contree_sdk.session.defaults import DEFAULT_READINESS_TIMEOUT, DEFAULT_SHUTDOWN_TIMEOUT, READINESS_RETRY_INTERVAL
+from contree_sdk.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
+from contree_sdk.utils.compat import Self
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
 
 
 class Operation(OperationContract):
-    """Handle to a spawned instance operation, identified by its UUID."""
+    """Handle to a spawned instance operation, identified by its UUID.
+
+    Subprocess creation retries explicit pending/control-channel rejections for
+    readiness_timeout seconds (default 30). Zero disables readiness retries.
+    Transport errors and other conflicts propagate without resubmission.
+    """
 
     def __init__(
         self,
@@ -31,10 +45,14 @@ class Operation(OperationContract):
         operation_uuid: str,
         *,
         timeout: float | None = None,
-        shutdown_timeout: float = 10.0,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
+        readiness_timeout: float = DEFAULT_READINESS_TIMEOUT,
         files: tuple[str, ...] = (),
         context: OperationContext | None = None,
     ) -> None:
+        if not isfinite(readiness_timeout) or readiness_timeout < 0:
+            raise ValueError("readiness_timeout must be finite and nonnegative")
+        self.readiness_timeout = readiness_timeout
         self.client = client
         self.uuid = operation_uuid
         self.timeout = timeout
@@ -331,18 +349,26 @@ class Operation(OperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
-        spid = self.client.operation_subprocess_create(
-            self.uuid,
-            command,
-            args=list(args) if args else ...,
-            shell=shell,
-            env=env if env is not None else ...,
-            cwd=cwd if cwd is not None else ...,
-            uid=uid if uid is not None else ...,
-            gid=gid if gid is not None else ...,
-            stdin=stdin_repr,
-            truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
-        )
+        kwargs = {
+            "args": list(args) if args else ...,
+            "shell": shell,
+            "env": env if env is not None else ...,
+            "cwd": cwd if cwd is not None else ...,
+            "uid": uid if uid is not None else ...,
+            "gid": gid if gid is not None else ...,
+            "stdin": stdin_repr,
+            "truncate_output_at": truncate_output_at if truncate_output_at is not None else ...,
+        }
+        deadline = time.monotonic() + self.readiness_timeout
+        while True:
+            try:
+                spid = self.client.operation_subprocess_create(self.uuid, command, **kwargs)
+                break
+            except (TooEarlyError, ConflictError) as error:
+                remaining = deadline - time.monotonic()
+                if not subprocess_not_ready(error) or self.terminal or remaining <= 0:
+                    raise
+                time.sleep(min(READINESS_RETRY_INTERVAL, remaining))
         return self.create_subprocess(spid, self.claim_queue(spid))
 
     def create_subprocess(self, spid: int, events_queue: queue.Queue[OperationEvent | None]) -> SubprocessContract:

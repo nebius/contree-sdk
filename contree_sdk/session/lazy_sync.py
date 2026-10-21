@@ -3,24 +3,38 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Generator
 from concurrent.futures import Future
-from contextlib import suppress
+from contextlib import closing, contextmanager, suppress
 from math import isfinite
+from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 
+from contree_client.exceptions import UnprocessableEntityError
 from contree_client.models import InstanceResult, OperationEvent
 
-from contree_sdk.compat import Self
+from contree_sdk.exceptions import FileWriteError
 from contree_sdk.execution import RunRequest, SyncExecutor
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
+from contree_sdk.session.defaults import (
+    DEFAULT_IDLE_SNAPSHOT_SECONDS,
+    DEFAULT_SNAPSHOT_TIMEOUT,
+    KEEPALIVE_SLEEP_SECONDS,
+)
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.sync import ContreeSession
+from contree_sdk.stdin import read_stdin
 from contree_sdk.store import HistoryEntry
+from contree_sdk.utils.compat import Self
+from contree_sdk.utils.file_io import write_download
+from contree_sdk.utils.live_files import extract_download, pack_upload, ready_call, ready_stream, validate_remote_path
+from contree_sdk.utils.models.file import UploadFileSpec
 
 
-class LazySession(SyncExecutor):
+class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and filesystem operations
     """Share one VM across commands; save one history entry per snapshot.
 
     The supplied session, its client and its store remain caller-owned. Do not
@@ -33,14 +47,20 @@ class LazySession(SyncExecutor):
         session: ContreeSession,
         *,
         snapshot_policy: AbstractSnapshotPolicy | None = None,
-        snapshot_timeout: float = 30,
+        snapshot_timeout: float = DEFAULT_SNAPSHOT_TIMEOUT,
+        vm_request: RunRequest | None = None,
     ) -> None:
         if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
         self.session = session
         self.session_id = session.session_id
-        self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
+        self.snapshot_policy = (
+            snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(DEFAULT_IDLE_SNAPSHOT_SECONDS)
+        )
         self.snapshot_timeout = snapshot_timeout
+        if vm_request is not None and vm_request.disposable:
+            raise ValueError("the VM request must be non-disposable")
+        self.vm_request = vm_request
         self.state = LazyState()
         self.condition = threading.Condition()
         self.operation: OperationContract | None = None
@@ -84,14 +104,14 @@ class LazySession(SyncExecutor):
             )
         return request
 
-    def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
+    def keepalive_request(self) -> RunRequest:
         """Supply a long-running main process available in the base image.
 
         Returns:
             The non-disposable request used to start each VM.
 
         """
-        return RunRequest(command="sleep", args=("2147483647",), disposable=False)
+        return self.vm_request or RunRequest(command="sleep", args=(str(KEEPALIVE_SLEEP_SECONDS),), disposable=False)
 
     def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
         """Observe the operation's sole reader without depending on handle.wait()."""
@@ -118,7 +138,7 @@ class LazySession(SyncExecutor):
         return True
 
     def _start(self) -> None:
-        self.state.begin()
+        self.state.begin_start()
         self.snapshot_policy.notify(SnapshotEvent.RESET)
         self._snapshot_future = self.snapshot_policy.should_snapshot()
         self._snapshot_future.add_done_callback(self._policy_ready)
@@ -128,40 +148,51 @@ class LazySession(SyncExecutor):
             raise ValueError("the keepalive factory must create a bound, non-disposable operation")
         self.operation.add_observer(self.observe)
         self.operation.__enter__()  # noqa: PLC2801 - context spans several commands
-        self.state.phase = "running"
+        self.state.finish_start()
         if self.worker is None:
             self.worker = threading.Thread(target=self._control, daemon=True, name=f"lazy-{self.session_id}")
             self.worker.start()
 
-    def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
-        request = self.prepare_request(request)
-        stdin = self.session.file_transfer.read_stdin(request.stdin) if request.stdin is not None else None
-        with self.condition:
-            while True:
-                self.state.check()
-                starting = self.state.phase == "cold"
-                if starting:
+    def _get_running_operation_locked(self, *, start_vm: bool = True) -> OperationContract | None:
+        # Caller holds the condition lock. A cold read returns None to use the saved image.
+        while True:
+            self.state.ensure_usable()
+            if self.state.phase == "cold" and not start_vm:
+                return None
+            started_here = self.state.phase == "cold"
+            if started_here:
+                try:
+                    self._start()
+                except BaseException as error:
+                    self.state.fail(error)
+                    self._notify()
+                    raise
+            if self.state.phase == "running":
+                # Admit the work that started this VM before considering another snapshot.
+                if not started_here:
                     try:
-                        self._start()
+                        if self._snapshot_requested():
+                            self.state.request_snapshot()
                     except BaseException as error:
                         self.state.fail(error)
                         self._notify()
                         raise
                 if self.state.phase == "running":
-                    if not starting:
-                        try:
-                            self.state.wants_snapshot(self._snapshot_requested())
-                        except BaseException as error:
-                            self.state.fail(error)
-                            self._notify()
-                            raise
-                    if self.state.phase == "running":
-                        break
-                self._notify()
-                self.condition.wait()
-            operation = self.operation
+                    break
+            self._notify()
+            self.condition.wait()
+        operation = self.operation
+        if operation is None:
+            raise RuntimeError("running LazySession has no operation")
+        return operation
+
+    def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
+        request = self.prepare_request(request)
+        stdin = read_stdin(request.stdin) if request.stdin is not None else None
+        with self.condition:
+            operation = self._get_running_operation_locked()
             if operation is None:
-                raise RuntimeError("running LazySession has no operation")
+                raise RuntimeError("command admission returned no VM")
             self.state.reserve()
             try:
                 self.snapshot_policy.notify(SnapshotEvent.COMMAND_STARTED)
@@ -248,7 +279,7 @@ class LazySession(SyncExecutor):
             self.operation = None
             self.snapshot_policy.notify(SnapshotEvent.RESET)
             self._snapshot_future = None
-            self.state.saved()
+            self.state.finish_snapshot()
             self._notify()
 
     def _control(self) -> None:
@@ -259,11 +290,13 @@ class LazySession(SyncExecutor):
                     if self.state.phase in {"closed", "failed"}:
                         return
                     previous_phase = self.state.phase
-                    if self.state.wants_snapshot(self._snapshot_requested()):
+                    if self._snapshot_requested():
+                        self.state.request_snapshot()
+                    if self.state.ready_to_snapshot():
                         operation = self.operation
                         if operation is None:
                             raise RuntimeError("snapshot has no operation")  # noqa: TRY301 - fail the worker
-                        self.state.phase = "snapshotting"
+                        self.state.begin_snapshot()
                     else:
                         operation = None
                     if self.state.phase != previous_phase:
@@ -285,7 +318,7 @@ class LazySession(SyncExecutor):
             self.snapshot_policy.notify(SnapshotEvent.CLOSE)
 
     def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
-        """Drain accepted commands, save their common image, and reopen admission.
+        """Drain accepted commands and transfers, save their common image, and reopen admission.
 
         Snapshots are lightweight and can run after every command. They stop
         the VM. An unchanged filesystem can return the same image UUID.
@@ -302,12 +335,11 @@ class LazySession(SyncExecutor):
             return self._snapshot_locked(timeout=timeout)
 
     def _snapshot_locked(self, *, timeout: float | None = None) -> HistoryEntry | None:
-        self.state.check()
+        self.state.ensure_usable()
         if self.state.phase == "cold":
             return self.last_entry
         generation = self.state.snapshots
-        if self.state.phase == "running":
-            self.state.phase = "draining"
+        self.state.request_snapshot()
         self._notify()
         completed = self.condition.wait_for(
             lambda: self.state.snapshots != generation or self.state.error is not None or self.state.phase == "closed",
@@ -332,12 +364,9 @@ class LazySession(SyncExecutor):
         with self.condition:
             if self.state.phase == "closed":
                 return
-            self.state.closing = True
-            if self.state.phase == "cold":
-                self.state.phase = "closed"
+            self.state.request_close()
+            if self.state.phase == "closed":
                 self.snapshot_policy.notify(SnapshotEvent.CLOSE)
-            elif self.state.phase == "running":
-                self.state.phase = "draining"
             self._notify()
             completed = self.condition.wait_for(
                 lambda: self.state.phase in {"closed", "failed"},
@@ -358,8 +387,7 @@ class LazySession(SyncExecutor):
         with self.condition:
             self.condition.wait_for(lambda: self.state.phase != "snapshotting")
             operation = self.operation
-            self.state.closing = True
-            self.state.phase = "closed"
+            self.state.close()
             self.snapshot_policy.notify(SnapshotEvent.CLOSE)
             self._notify()
         try:
@@ -376,41 +404,150 @@ class LazySession(SyncExecutor):
             if self.worker is not None:
                 self.worker.join()
 
-    def inspect(self, *, timeout: float | None = None) -> ImageInspector:
-        """Save active work and pin the resulting image for inspection.
-
-        Waits for admitted commands and stops the VM even with a manual policy.
-        A cold session starts no VM. Later commands cannot change the pinned image.
-        timeout limits the snapshot wait; saving continues if the wait ends early.
-        A failed snapshot raises instead of returning the previous image.
-        Staged attachments appear only after a command applies them.
+    def inspect(self) -> ImageInspector:
+        """Pin the selected saved image without stopping or starting a VM.
 
         Returns:
             An inspector borrowing the underlying client and file transfer.
 
+        Raises:
+            RuntimeError: A VM is active, or this session has failed or is closing/closed.
+
         """
         with self.condition:
-            cold = self.state.phase == "cold"
-            entry = self._snapshot_locked(timeout=timeout)
-            image_uuid = (
-                entry.image_uuid
-                if not cold and entry is not None
-                else require_str(self.session.image_uuid, "session has no resolved image")
-            )
+            self.state.ensure_usable()
+            if self.state.phase != "cold":
+                raise RuntimeError("Live inspection is not supported; call snapshot() before inspect()")
+            image_uuid = require_str(self.session.image_uuid, "session has no resolved image")
             return self.session.create_inspector(image_uuid)
 
+    @contextmanager
+    def _file_access(self, *, write: bool = False) -> Generator[tuple[str, bool], None, None]:
+        reserved = False
+        try:
+            with self.condition:
+                operation = self._get_running_operation_locked(start_vm=write)
+                live = operation is not None
+                if operation is not None:
+                    self.state.transfers += 1
+                    reserved = True
+                    self.snapshot_policy.notify(SnapshotEvent.TRANSFER_STARTED)
+                    identifier = operation.uuid
+                else:
+                    identifier = require_str(self.session.image_uuid, "session has no resolved image")
+            yield identifier, live
+        finally:
+            if reserved:
+                with self.condition:
+                    self.state.transfers -= 1
+                    if self.state.phase not in {"closed", "failed"}:
+                        self.snapshot_policy.notify(SnapshotEvent.TRANSFER_FINISHED)
+                    self._notify()
+            elif self.state.error is not None and self.operation is not None:
+                with suppress(Exception):
+                    self.abort()
+
+    def _apply_file(self, operation: str, source: Path | bytes, path: str, *, unpack: bool = False) -> None:
+        uploaded = self.session.file_transfer.upload(UploadFileSpec(source=source, path=path))
+        try:
+            ready_call(
+                lambda: self.session.client.apply_instance_file(
+                    operation,
+                    require_str(uploaded.uuid, "upload returned no file UUID"),
+                    path,
+                    replace=True,
+                    unpack=unpack,
+                    merge=unpack,
+                )
+            )
+        except UnprocessableEntityError as error:
+            raise FileWriteError(path, error.error) from error
+
     def read_file(self, path: str) -> bytes:
-        """Save active work, then read the file from the resulting image.
+        """Read live VM contents, or the selected image when no VM is running.
 
         Returns:
-            The complete file as bytes.
+            Complete file contents. This does not request a snapshot.
 
         """
-        view = self.inspect()
-        return view.read_file(path)
+        validate_remote_path(path)
+        with self._file_access() as (identifier, live):
+            if live:
+                return ready_call(lambda: self.session.client.inspect_instance_download(identifier, path))
+            return self.session.file_transfer.read_file(identifier, path)
+
+    def write_file(self, path: str, content: bytes) -> None:
+        """Publish bytes in the live VM; start a VM if needed. Does not snapshot."""
+        validate_remote_path(path)
+        with self._file_access(write=True) as (identifier, _):
+            self._apply_file(identifier, content, path)
+
+    def upload_file(self, source: str | Path, path: str) -> None:
+        """Upload a local regular file, preserving its permission bits.
+
+        Raises:
+            ValueError: The source is not a regular file or the destination has no filename.
+
+        """
+        validate_remote_path(path)
+        destination = PurePosixPath(path)
+        if not destination.name or not Path(source).is_file():
+            raise ValueError("upload_file requires a regular source file and a destination filename")
+        with self._file_access(write=True) as (identifier, _), TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "upload.tar.gz"
+            pack_upload(Path(source), archive, name=destination.name)
+            self._apply_file(identifier, archive, str(destination.parent), unpack=True)
+
+    def upload_dir(self, source: str | Path, path: str) -> None:
+        """Merge a local directory into the live VM, preserving unrelated entries.
+
+        Raises:
+            ValueError: The source is not a directory.
+
+        """
+        validate_remote_path(path)
+        if not Path(source).is_dir():
+            raise ValueError("upload_dir requires a source directory")
+        with self._file_access(write=True) as (identifier, _), TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "upload.tar.gz"
+            pack_upload(Path(source), archive)
+            self._apply_file(identifier, archive, path, unpack=True)
+
+    def download_file(self, path: str, destination: str | Path) -> int:
+        """Atomically download a live or saved file without requesting a snapshot.
+
+        Returns:
+            Number of downloaded bytes.
+
+        """
+        validate_remote_path(path)
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        with self._file_access() as (identifier, live):
+            if not live:
+                return self.session.file_transfer.download_file(identifier, path, destination)
+            with closing(
+                ready_stream(lambda: self.session.client.inspect_instance_download_stream(identifier, path))
+            ) as chunks:
+                return write_download(
+                    chunks, destination, path=path, on_progress=self.session.file_transfer.on_progress
+                )
+
+    def download_dir(self, path: str, destination: str | Path) -> None:
+        """Download a live or saved directory as an archive; never snapshots."""
+        validate_remote_path(path)
+        with self._file_access() as (identifier, live), TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "download.tar"
+            source = (
+                ready_stream(lambda: self.session.client.inspect_instance_archive(identifier, path))
+                if live
+                else ready_stream(lambda: self.session.client.inspect_image_archive(identifier, path))
+            )
+            with closing(source) as chunks:
+                write_download(chunks, archive, path=path)
+            extract_download(archive, Path(destination))
 
     def _boundary(self) -> None:
-        self.state.check()
+        self.state.ensure_usable()
         if self.state.phase != "cold":
             raise RuntimeError("snapshot pending work before changing history")
 
@@ -431,7 +568,7 @@ class LazySession(SyncExecutor):
 
     def __enter__(self) -> Self:
         with self.condition:
-            self.state.check()
+            self.state.ensure_usable()
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:

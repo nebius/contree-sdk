@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing, closing
 
@@ -39,6 +40,7 @@ def setup(request):
     client.mock("inspect_image_list", DirectoryList(path="/", files=[]))
     client.mock("inspect_image_grep", GrepResult(path="/", patterns=["hello"], matches=[], truncated=False))
     client.mock("inspect_image_download", b"hello\x00\xff")
+    client.mock("inspect_instance_download", b"live")
     client.mock("inspect_image_download_stream", [b"hello", b"\x00\xff"])
     client.mock("inspect_image_archive", [b"archive"])
     client.mock("check_image_file", True)
@@ -50,6 +52,7 @@ async def test_inspect_pins_all_operations_to_saved_image(setup, tmp_path):
     asynchronous, client, base, lazy = setup
     try:
         await invoke(lazy.run, "write")
+        await invoke(lazy.snapshot)
         view = await invoke(lazy.inspect)
         assert view.image_uuid == "image-op-1"
         assert lazy.phase == "cold"
@@ -100,6 +103,10 @@ async def test_cold_read_and_branch_changes_need_no_vm(setup):
         assert await invoke(lazy.read_file, "/data") == b"hello\x00\xff"
         assert not client.calls_for("spawn_instance")
         await invoke(lazy.run, "one")
+        assert await invoke(lazy.read_file, "/data") == b"live"
+        assert lazy.phase == "running"
+        assert client.calls_for("inspect_instance_download")[-1].args[0] == "op-1"
+        await invoke(lazy.snapshot)
         assert await invoke(lazy.read_file, "/data") == b"hello\x00\xff"
         assert client.calls_for("inspect_image_download")[-1].args[0] == "image-op-1"
         await invoke(lazy.rollback)
@@ -127,7 +134,9 @@ async def test_failed_snapshot_does_not_inspect_stale_image(setup, failure):
         else:
             await invoke(base.store.append, base.session_id, image_uuid="external", parent_id=base.tip_id)
         with pytest.raises(RuntimeError):
-            await invoke(lazy.read_file, "/data")
+            await invoke(lazy.snapshot)
+        with pytest.raises(RuntimeError, match="failed"):
+            await invoke(lazy.inspect)
         assert not client.calls_for("inspect_image_download")
         assert base.image_uuid == "base"
         assert lazy.error is not None
@@ -141,6 +150,7 @@ async def test_inspect_error_does_not_poison_saved_session(setup):
     client.mock("inspect_image_list", error=OSError("inspect failed"))
     try:
         await invoke(lazy.run, "write")
+        await invoke(lazy.snapshot)
         view = await invoke(lazy.inspect)
         with pytest.raises(OSError, match="inspect failed"):
             await invoke(view.list)
@@ -186,119 +196,74 @@ async def test_partial_streams_close_source(setup, monkeypatch):
         await invoke(lazy.close)
 
 
-def test_sync_inspect_drains_commands_and_pins_before_next_vm():
-    client = LiveClient()
-    client.auto_exit = False
-    lazy = LazySession(ContreeSession(client, image="base"), snapshot_policy=ManualSnapshotPolicy())
-    handle = lazy.spawn("long")
-    try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            reading = pool.submit(lazy.inspect, timeout=2)
-            with lazy.condition:
-                assert lazy.condition.wait_for(lambda: lazy.phase == "draining", 2)
-            client.auto_exit = True
-            next_command = pool.submit(lazy.run, "next")
-            assert not client.calls_for("operation_subprocess_kill")
-            client.streams["op-1"].put(event("exit", handle.spid))
-            view = reading.result(2)
-            next_command.result(2)
-            assert view.image_uuid == "image-op-1"
-            assert client.calls_for("spawn_instance")[-1].args[1] == view.image_uuid
-    finally:
-        lazy.abort()
-
-
-async def test_async_inspect_drains_commands_and_pins_before_next_vm():
-    client = LiveAsyncClient()
-    client.auto_exit = False
-    lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"), snapshot_policy=ManualSnapshotPolicy())
-    handle = await lazy.spawn("long")
-    try:
-        reading = asyncio.create_task(lazy.inspect(timeout=2))
-        async with lazy.condition:
-            await asyncio.wait_for(lazy.condition.wait_for(lambda: lazy.phase == "draining"), 2)
-        client.auto_exit = True
-        next_command = asyncio.create_task(lazy.run("next"))
-        assert not client.calls_for("operation_subprocess_kill")
-        await client.streams["op-1"].put(event("exit", handle.spid))
-        view = await asyncio.wait_for(reading, 2)
-        await asyncio.wait_for(next_command, 2)
-        assert view.image_uuid == "image-op-1"
-        assert client.calls_for("spawn_instance")[-1].args[1] == view.image_uuid
-    finally:
-        await lazy.abort()
-
-
-async def test_cancelled_inspect_does_not_cancel_snapshot_or_block_next_command():
-    client = LiveAsyncClient()
-    client.auto_exit = False
-    lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"), snapshot_policy=ManualSnapshotPolicy())
-    handle = await lazy.spawn("long")
-    try:
-        reading = asyncio.create_task(lazy.inspect())
-        async with lazy.condition:
-            await asyncio.wait_for(lazy.condition.wait_for(lambda: lazy.phase == "draining"), 2)
-        reading.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await reading
-        assert not client.calls_for("cancel_operation")
-        await client.streams["op-1"].put(event("exit", handle.spid))
-        await lazy.snapshot(timeout=2)
-        assert (await lazy.inspect()).image_uuid == "image-op-1"
-    finally:
-        await lazy.abort()
-
-
-def test_abort_wakes_sync_inspect_waiter():
-    client = LiveClient()
-    client.auto_exit = False
-    lazy = LazySession(ContreeSession(client, image="base"))
-    lazy.spawn("long")
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        reading = pool.submit(lazy.inspect)
-        try:
-            with lazy.condition:
-                assert lazy.condition.wait_for(lambda: lazy.phase == "draining", 2)
-            lazy.abort()
-            with pytest.raises(RuntimeError, match="closed"):
-                reading.result(2)
-        finally:
-            lazy.abort()
-
-
-async def test_abort_wakes_async_inspect_waiter():
-    client = LiveAsyncClient()
-    client.auto_exit = False
-    lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"))
-    await lazy.spawn("long")
-    reading = asyncio.create_task(lazy.inspect())
-    try:
-        async with lazy.condition:
-            await asyncio.wait_for(lazy.condition.wait_for(lambda: lazy.phase == "draining"), 2)
-        await lazy.abort()
-        with pytest.raises(RuntimeError, match="closed"):
-            await asyncio.wait_for(reading, 2)
-    finally:
-        await lazy.abort()
-
-
-async def test_inspect_timeout_leaves_snapshot_running(setup):
+async def test_inspect_rejects_running_vm_without_stopping_it(setup):
     _, client, _, lazy = setup
     client.auto_exit = False
     try:
-        await invoke(lazy.spawn, "long")
-        with pytest.raises(TimeoutError, match="pending"):
-            await invoke(lazy.inspect, timeout=0.001)
-        assert lazy.phase == "draining"
+        handle = await invoke(lazy.spawn, "long")
+        with pytest.raises(RuntimeError, match=r"Live inspection.*snapshot"):
+            await invoke(lazy.inspect)
+        assert lazy.phase == "running"
+        assert handle.spid in lazy.state.active
+        assert lazy.error is None
+        assert not client.calls_for("operation_subprocess_kill")
+        assert not client.calls_for("get_operation_status")
         assert not client.calls_for("cancel_operation")
-        assert not client.calls_for("inspect_image_download")
+        assert not client.calls_for("inspect_image")
     finally:
         await invoke(lazy.abort)
 
 
-def test_sync_read_pins_image_without_holding_lifecycle_lock(monkeypatch):
-    import threading
+async def test_inspect_rejects_draining_vm_without_waiting_or_cancelling_snapshot(setup):
+    asynchronous, client, _, lazy = setup
+    client.auto_exit = False
+    try:
+        handle = await invoke(lazy.spawn, "long")
+        with pytest.raises(TimeoutError, match="pending"):
+            await invoke(lazy.snapshot, timeout=0.001)
+        assert lazy.phase == "draining"
+        with pytest.raises(RuntimeError, match="Live inspection"):
+            await invoke(lazy.inspect)
+        assert lazy.phase == "draining"
+        assert lazy.error is None
+        assert not client.calls_for("operation_subprocess_kill")
+        assert not client.calls_for("cancel_operation")
+        if asynchronous:
+            await client.streams["op-1"].put(event("exit", handle.spid))
+        else:
+            client.streams["op-1"].put(event("exit", handle.spid))
+        await invoke(lazy.snapshot, timeout=2)
+        assert (await invoke(lazy.inspect)).image_uuid == "image-op-1"
+    finally:
+        await invoke(lazy.abort)
 
+
+async def test_inspect_rejects_snapshot_in_progress_without_inspecting_old_image(setup):
+    asynchronous, client, _, lazy = setup
+    client.wait_gate = asyncio.Event() if asynchronous else threading.Event()
+    await invoke(lazy.run, "write")
+    saving = asyncio.create_task(
+        lazy.snapshot(timeout=2) if asynchronous else asyncio.to_thread(lazy.snapshot, timeout=2)
+    )
+    try:
+        if asynchronous:
+            await asyncio.wait_for(client.saving.wait(), 2)
+        else:
+            assert await asyncio.to_thread(client.saving.wait, 2)
+        assert lazy.phase == "snapshotting"
+        with pytest.raises(RuntimeError, match="Live inspection"):
+            await invoke(lazy.inspect)
+        assert lazy.phase == "snapshotting"
+        assert lazy.error is None
+        assert not client.calls_for("inspect_image")
+        assert not client.calls_for("cancel_operation")
+    finally:
+        client.wait_gate.set()
+        await saving
+        await invoke(lazy.abort)
+
+
+def test_sync_read_pins_image_without_holding_lifecycle_lock(monkeypatch):
     client = LiveClient()
     base = ContreeSession(client, image="base")
     started, release = threading.Event(), threading.Event()
@@ -313,9 +278,10 @@ def test_sync_read_pins_image_without_holding_lifecycle_lock(monkeypatch):
     monkeypatch.setattr(base.file_transfer, "read_file", read)
     lazy = LazySession(base, snapshot_policy=ManualSnapshotPolicy())
     lazy.run("one")
+    lazy.snapshot()
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            reading = pool.submit(lazy.read_file, "/data")
+            reading = pool.submit(lambda: lazy.inspect().read_file("/data"))
             try:
                 assert started.wait(2)
                 pool.submit(lazy.run, "two").result(2)
@@ -343,7 +309,13 @@ async def test_async_read_pins_image_without_holding_lifecycle_lock(monkeypatch)
     monkeypatch.setattr(base.file_transfer, "read_file", read)
     lazy = AsyncLazySession(base, snapshot_policy=ManualSnapshotPolicy())
     await lazy.run("one")
-    reading = asyncio.create_task(lazy.read_file("/data"))
+    await lazy.snapshot()
+
+    async def read_saved():
+        view = await lazy.inspect()
+        return await view.read_file("/data")
+
+    reading = asyncio.create_task(read_saved())
     try:
         await asyncio.wait_for(started.wait(), 2)
         await asyncio.wait_for(lazy.run("two"), 2)

@@ -5,6 +5,7 @@ from types import EllipsisType
 from typing import IO, Any, Literal, cast
 from uuid import uuid4
 
+from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import (
     ClosableStreamRepr,
     EventDataStream,
@@ -18,6 +19,21 @@ from contree_client.models import (
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.files import RunFiles  # noqa: F401 - public re-export for existing module users
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
+
+
+def subprocess_not_ready(error: Exception) -> bool:
+    """Identify rejections made before a subprocess can have been created.
+
+    Returns:
+        Whether retrying can safely wait for VM readiness.
+
+    """
+    return (
+        isinstance(error, TooEarlyError)
+        and any(
+            message in str(error) for message in ("control channel not connected", "primary workload not started yet")
+        )
+    ) or (isinstance(error, ConflictError) and "Operation is PENDING, not running" in str(error))
 
 
 def or_none(value: Any) -> Any | None:

@@ -19,8 +19,6 @@ from contree_client.models import (
 )
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
-from tests.unit.session.lazy_clients import LiveAsyncClient
-
 
 class DocumentationAPI:
     """Keep SDK orchestration real and supply explicit remote responses per scenario."""
@@ -76,6 +74,7 @@ class DocumentationAPI:
     def download(self, data: bytes) -> None:
         for client in (self.sync, self.async_client):
             client.mock("inspect_image_download", data)
+            client.mock("inspect_instance_download", data)
 
     def command(self, stdout: str = "", exit_code: int = 0) -> None:
         """Set the response returned for commands in a shared sandbox."""
@@ -137,7 +136,7 @@ def agent_model_factory() -> type:
     pytest.importorskip("deepagents")
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
-    from contree_sdk.compat import Self
+    from contree_sdk.utils.compat import Self
 
     class ScriptedModel(FakeMessagesListChatModel):
         def bind_tools(self, tools: object, **kwargs: object) -> Self:
@@ -187,6 +186,7 @@ def lazy_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Docu
     for client in (doc_api.sync, doc_api.async_client):
         client.mock("ensure_file", FileResponse(uuid="uploaded-file", sha256="a" * 64, size=4))
         client.mock("operation_subprocess_stdin", None)
+        client.mock("apply_instance_file", None)
     for path, client in [
         ("contree_client.sync.ContreeClient", doc_api.sync),
         ("contree_client.asyncio.ContreeAsyncClient", doc_api.async_client),
@@ -232,14 +232,3 @@ def stdin_api(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> Doc
         factory.from_profile = Mock(return_value=client)
         monkeypatch.setattr(path, factory)
     return doc_api
-
-
-@pytest.fixture
-def doc_runtime_client(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> LiveAsyncClient:
-    """Drive a real runtime with a controllable single operation stream."""
-    client = LiveAsyncClient()
-    factory = Mock(return_value=client)
-    factory.from_profile = Mock(return_value=client)
-    monkeypatch.setattr("contree_client.asyncio.ContreeAsyncClient", factory)
-    monkeypatch.setattr("contree_client.aiohttp.ContreeAsyncClient", factory)
-    return client

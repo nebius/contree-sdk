@@ -20,7 +20,7 @@ from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import AsyncExecutor, OperationContext, RunRequest
-from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, InputSource, RunFiles, UploadFileSpec
+from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, RunFiles, UploadFileSpec
 from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_async_operation
@@ -28,6 +28,7 @@ from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCo
 from contree_sdk.session.contracts import AsyncOperationContract
 from contree_sdk.session.detached import decode_response, encode_response, operation_context, operation_record
 from contree_sdk.session.operation_async import AsyncOperation
+from contree_sdk.stdin import InputSource, read_stdin_async
 from contree_sdk.store import AsyncMemoryStore, AsyncStore, HistoryEntry, StagedFile
 from contree_sdk.store.operations import OperationRecord
 
@@ -643,7 +644,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         files.update(await self.build_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
-            data = await self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
+            data = await read_stdin_async(request.stdin) if request.stdin is not None else b""
             stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(
             request,

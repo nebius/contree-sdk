@@ -5,9 +5,12 @@ icon: file-arrow-up
 # Upload inputs and download results
 
 Use `write_file(path, content)` to write bytes into the sandbox. It creates parent
-directories and returns after the write completes. `read_file()` saves active
-lazy-session work automatically before reading the image. This snapshot stops the
-VM; the next command starts from the saved filesystem.
+directories and returns after the write completes. A running lazy sandbox uses
+live file APIs for reads and writes, without snapshots or file contents in command
+events. When no VM is running, reads inspect the selected saved image; writes start
+a VM. Use `snapshot()` to explicitly save filesystem changes and stop the VM.
+`inspect()` returns an inspector for the selected saved image only when no VM is
+active; it raises while a VM is starting, running, draining, or snapshotting.
 
 This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
 and saves the result as `output.txt` in your local working directory.
@@ -47,9 +50,10 @@ main()
 name: test_files
 ```python
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
-assert sandbox_api.sync.calls_for("inspect_image_download")[0].args == ("image-op-1", "/output.txt")
+assert sandbox_api.sync.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
+assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 1
+assert sandbox_api.sync.calls_for("apply_instance_file")
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -89,9 +93,10 @@ asyncio.run(main())
 name: test_files_async
 ```python
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
-assert sandbox_api.async_client.calls_for("inspect_image_download")[0].args == ("image-op-1", "/output.txt")
+assert sandbox_api.async_client.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 1
+assert sandbox_api.async_client.calls_for("apply_instance_file")
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -99,7 +104,8 @@ assert capsys.readouterr().out == "Hello from a file!\n"
 ::::
 
 Both stdout and the local `output.txt` contain `Hello from a file!` followed by a newline.
-`read_file()` saves both writes before downloading the result.
+`read_file()` downloads the live result and keeps the VM running. Normal context
+exit saves the filesystem changes.
 With `ContreeSession`, each command saves by default; `disposable=True` leaves
 the previous image selected.
 
@@ -109,7 +115,11 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-For a local file, use `run(shell="cat > /input.txt", stdin=Path("local.txt"))`. The default lazy sandbox does not support `run(files=...)` while a
+For local files and directories, use `upload_file("local.txt", "/input.txt")` and
+`upload_dir("local-dir", "/work")`. Use `download_file("/output.txt", "local.txt")`
+or `download_dir("/work", "local-dir")` for streamed results. Directory uploads
+merge with existing contents; these methods preserve file permission bits.
+Live transfers require a client and backend supporting running-instance file APIs. The default lazy sandbox does not support `run(files=...)` while a
 VM is active. The advanced examples below select `ContreeSession` or
 `ContreeAsyncSession` explicitly for startup attachments and per-command images.
 

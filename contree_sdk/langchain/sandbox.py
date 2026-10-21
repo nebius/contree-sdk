@@ -15,6 +15,9 @@ from contree_sdk.execution import AsyncExecutor, RunRequest, SyncExecutor
 from contree_sdk.session.base import or_none
 
 
+_OUTPUT_LIMIT = 10 * 1024 * 1024
+
+
 try:
     from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
     from deepagents.backends.sandbox import BaseSandbox
@@ -70,7 +73,7 @@ class ContreeSandbox(BaseSandbox, Generic[SyncExecutorT]):
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         with self.lock:
             result = self.session.execute(
-                RunRequest(shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024)
+                RunRequest(shell=command, timeout=timeout, disposable=False, truncate_output_at=_OUTPUT_LIMIT)
             )
         return to_execute_response(result)
 
@@ -131,7 +134,7 @@ class ContreeAsyncSandbox(BaseSandbox, Generic[AsyncExecutorT]):
     async def aexecute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         async with self.lock:
             result = await self.session.execute(
-                RunRequest(shell=command, timeout=timeout, disposable=False, truncate_output_at=10 * 1024 * 1024)
+                RunRequest(shell=command, timeout=timeout, disposable=False, truncate_output_at=_OUTPUT_LIMIT)
             )
         return to_execute_response(result)
 

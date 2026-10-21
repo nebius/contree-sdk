@@ -53,7 +53,7 @@ def reference_html(tmp_path_factory):
         ("store", "contree_sdk.store.AsyncSQLiteStore.append"),
         ("docker", "contree_sdk.docker.ContreeDockerBuilder.build"),
         ("langchain", "contree_sdk.langchain.ContreeAsyncSandbox.aexecute"),
-        ("harbor", "contree_sdk.harbor.runtime.ContreeAsyncRuntime.stop"),
+        ("harbor", "contree_sdk.harbor.environment.ConTreeEnvironment.stop"),
         ("cache", "contree_sdk.cache.SyncMemoryCache.get"),
         ("files", "contree_sdk.files.SyncFileTransfer.read_file"),
         ("exceptions", "contree_sdk.exceptions.SessionConflictError"),

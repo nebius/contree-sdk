@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from contree_sdk.cache.models import CacheEntry
-from contree_sdk.compat import Self
+from contree_sdk.utils.compat import Self
 
 
 class SyncCache(ABC):

@@ -13,6 +13,7 @@ LazyPhase = Literal["cold", "starting", "running", "draining", "snapshotting", "
 class LazyState:
     phase: LazyPhase = "cold"
     creating: int = 0
+    transfers: int = 0
     active: set[int] = field(default_factory=set)
     early_exits: set[int] = field(default_factory=set)
     error: BaseException | None = None
@@ -20,12 +21,15 @@ class LazyState:
     snapshots: int = 0
     completion_seen: bool = False
 
-    def begin(self) -> None:
+    def begin_start(self) -> None:
         self.phase = "starting"
         self.creating = 0
         self.completion_seen = False
         self.active.clear()
         self.early_exits.clear()
+
+    def finish_start(self) -> None:
+        self.phase = "running"
 
     def reserve(self) -> None:
         self.creating += 1
@@ -66,16 +70,32 @@ class LazyState:
                 return True
         return False
 
-    def wants_snapshot(self, requested: bool) -> bool:
-        if self.phase == "running" and requested:
+    def request_snapshot(self) -> None:
+        if self.phase == "running":
             self.phase = "draining"
-        return self.phase == "draining" and self.creating == 0 and not self.active
 
-    def saved(self) -> None:
+    def ready_to_snapshot(self) -> bool:
+        return self.phase == "draining" and self.creating == 0 and self.transfers == 0 and not self.active
+
+    def begin_snapshot(self) -> None:
+        self.phase = "snapshotting"
+
+    def finish_snapshot(self) -> None:
         self.snapshots += 1
         self.phase = "closed" if self.closing else "cold"
 
-    def check(self) -> None:
+    def request_close(self) -> None:
+        self.closing = True
+        if self.phase == "cold":
+            self.close()
+        else:
+            self.request_snapshot()
+
+    def close(self) -> None:
+        self.closing = True
+        self.phase = "closed"
+
+    def ensure_usable(self) -> None:
         if self.error is not None:
             raise RuntimeError(
                 "LazySession failed; inspect error and abort before reusing the base session"

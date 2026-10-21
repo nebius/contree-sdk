@@ -21,12 +21,15 @@ from http import HTTPStatus
 from typing import IO, Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
-from contree_sdk.file_io import run_file_io
+from contree_sdk.utils.file_io import run_file_io
 
 from .context import AsyncBuildContext, BuildContext, PendingFile
 from .keyword import DockerKeyword
 from .kw_copy import format_copy_like, parse_chmod, parse_chown, parse_copy_like, stage_copy, stage_copy_async
 from .url_fetch import HTTP_NOT_MODIFIED, is_url, url_basename
+
+
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
 
 
 @dataclass(frozen=True, repr=False)
@@ -133,7 +136,7 @@ def iter_url_body(body: Iterable[bytes]) -> Iterator[bytes]:
     if read is None:
         yield from body
     else:
-        while chunk := read(64 * 1024):
+        while chunk := read(DOWNLOAD_CHUNK_SIZE):
             yield chunk
 
 
