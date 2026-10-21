@@ -436,8 +436,12 @@ They receive `(event, None)` for events and `(None, error)` at EOF. Keep them sh
 do not wait for the operation from its own observer. Observer errors fail the reader.
 
 `LazySession` requires `add_observer()` support from a custom operation contract.
-It delegates request policy and operation creation to the wrapped session. Override
-`keepalive_request()` on the lazy wrapper to use another main process. See
+It delegates request policy and operation creation to the wrapped session. Pass
+`vm_request=RunRequest(...)` to configure the main process, VM lifetime, and other
+startup options without subclassing. With the sandbox factories, put `vm_request`
+in `session_kwargs`. `ManualSnapshotPolicy` keeps the VM alive until explicit
+snapshot, close, or abort; the default remains a ten-second idle snapshot.
+Override `keepalive_request()` when the startup request needs custom logic. See
 {doc}`reference/session` for the public snapshot-policy interface.
 
 ## Resolve application-specific image names
