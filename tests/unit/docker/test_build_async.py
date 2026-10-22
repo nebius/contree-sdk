@@ -1,3 +1,4 @@
+import asyncio
 import io
 import tarfile
 from collections.abc import AsyncIterator
@@ -6,7 +7,6 @@ import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeAsyncClient
 
-from contree_sdk.cache import AsyncMemoryCache, AsyncSQLiteCache
 from contree_sdk.docker import ContreeAsyncDockerBuilder
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore
@@ -29,7 +29,7 @@ async def test_simple_build(tmp_path, client: ContreeAsyncClient):
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
     image = await builder.build(tmp_path, session_id="sess")
 
     assert image == "img-uuid-1"
@@ -41,7 +41,7 @@ async def test_simple_build(tmp_path, client: ContreeAsyncClient):
 
 async def test_missing_from_raises(tmp_path, client: ContreeAsyncClient):
     write_dockerfile(tmp_path, "RUN echo hi\n")
-    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
     with pytest.raises(ValueError, match="FROM"):
         await builder.build(tmp_path, session_id="sess")
 
@@ -51,7 +51,7 @@ async def test_run_nonzero_exit_raises_docker_build_error(tmp_path, client: Cont
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
 
-    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
     with pytest.raises(DockerBuildError, match="boom"):
         await builder.build(tmp_path, session_id="sess")
 
@@ -62,7 +62,7 @@ async def test_tag_applied_on_success(tmp_path, client: ContreeAsyncClient):
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     client.mock("update_image_tag", None)
 
-    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+    builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
     await builder.build(tmp_path, session_id="sess", tag="myapp:latest")
 
     calls = client.calls_for("update_image_tag")
@@ -71,15 +71,41 @@ async def test_tag_applied_on_success(tmp_path, client: ContreeAsyncClient):
 
 
 class TestCache:
+    async def test_rebuilt_parent_does_not_reuse_old_child(self, tmp_path, client):
+        full = "FROM tag:python:3.11\nRUN echo A\nRUN echo B\n"
+        write_dockerfile(tmp_path, full)
+        for index, image in enumerate(("a-old", "b-old", "a-new", "b-new"), start=1):
+            operation = f"op-{index}"
+            client.mock("spawn_instance", spawn_response(operation))
+            mock_completion(client, operation_response(operation_uuid=operation, result_image_uuid=image))
+
+        store = AsyncMemoryStore()
+        first = await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        assert first == "b-old"
+
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo A\n")
+        rebuilt = await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess", no_cache=True)
+        assert rebuilt == "a-new"
+
+        write_dockerfile(tmp_path, full)
+        events = []
+        final = await ContreeAsyncDockerBuilder(client, store=store).build(
+            tmp_path, session_id="sess", on_step=events.append
+        )
+        assert final == "b-new"
+        assert [event.cache_hit for event in events] == [True, True, False]
+        spawns = client.calls_for("spawn_instance")
+        assert len(spawns) == 4
+        assert spawns[-1].args[1] == "a-new"
+
     async def test_second_identical_build_is_full_cache_hit(self, tmp_path, client: ContreeAsyncClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        image1 = await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
-        image2 = await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+        image1 = await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        image2 = await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
         assert image1 == image2
         assert len(client.calls_for("spawn_instance")) == 1
@@ -92,11 +118,8 @@ class TestCache:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", no_cache=True
-        )
+        await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess", no_cache=True)
 
         assert len(client.calls_for("spawn_instance")) == 2
 
@@ -113,11 +136,10 @@ class TestCache:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
         with pytest.raises(DockerBuildError):
-            await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+            await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
-        image = await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+        image = await ContreeAsyncDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
         assert image == "img-ok"
         assert len(client.calls_for("spawn_instance")) == 2
@@ -130,9 +152,8 @@ class TestOnStep:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
         first_events = []
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", on_step=first_events.append
         )
         assert [event.cache_hit for event in first_events] == [False, False]
@@ -142,7 +163,7 @@ class TestOnStep:
         assert all(event.error is None for event in first_events)
 
         second_events = []
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", on_step=second_events.append
         )
         assert [event.cache_hit for event in second_events] == [True, True]
@@ -157,7 +178,7 @@ class TestOnStep:
         async def on_step(event):
             events.append(event)
 
-        await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache()).build(
+        await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore()).build(
             tmp_path, session_id="sess", on_step=on_step
         )
         assert len(events) == 2
@@ -169,7 +190,7 @@ class TestOnStep:
 
         events = []
         with pytest.raises(DockerBuildError):
-            await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache()).build(
+            await ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore()).build(
                 tmp_path, session_id="sess", on_step=events.append
             )
 
@@ -186,7 +207,7 @@ class TestCopy:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         await builder.build(tmp_path, session_id="sess")
 
         assert len(client.calls_for("spawn_instance")) == 1
@@ -221,7 +242,7 @@ class TestMultistage:
         client.mock("inspect_image_archive", [buf.read()])
         client.mock("ensure_file", FileResponse(uuid="tar-uuid", sha256="tarsha", size=6))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         image = await builder.build(tmp_path, session_id="sess-multi")
 
         assert image == "img-final"
@@ -248,14 +269,13 @@ class TestAddUrl:
             return 200, [("ETag", "abc123")], body()
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+        await ContreeAsyncDockerBuilder(client, store=store, http_fetch_async=fake_http_fetch_async).build(
             tmp_path, session_id="sess-add"
         )
         assert calls["n"] == 1
         assert len(client.calls_for("ensure_file")) == 1
 
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+        await ContreeAsyncDockerBuilder(client, store=store, http_fetch_async=fake_http_fetch_async).build(
             tmp_path, session_id="sess-add", no_cache=True
         )
         assert calls["n"] == 2
@@ -287,15 +307,14 @@ class TestAddUrl:
             return 200, [("ETag", "abc123")], body()
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+        await ContreeAsyncDockerBuilder(client, store=store, http_fetch_async=fake_http_fetch_async).build(
             tmp_path, session_id="sess-add"
         )
         assert len(requests) == 1
         assert "If-None-Match" not in requests[0]
         assert len(client.calls_for("ensure_file")) == 1
 
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache, http_fetch_async=fake_http_fetch_async).build(
+        await ContreeAsyncDockerBuilder(client, store=store, http_fetch_async=fake_http_fetch_async).build(
             tmp_path, session_id="sess-add", no_cache=True
         )
         assert len(requests) == 2
@@ -310,7 +329,7 @@ class TestEnvWorkdirUser:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         await builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -327,7 +346,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         await builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -340,7 +359,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         await builder.build(tmp_path, session_id="sess", build_args={"VERSION": "2.0"})
 
         call = client.calls_for("spawn_instance")[0]
@@ -352,7 +371,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore(), cache=AsyncMemoryCache())
+        builder = ContreeAsyncDockerBuilder(client, store=AsyncMemoryStore())
         await builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -366,11 +385,10 @@ class TestArgCacheBusting:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
         )
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
         )
 
@@ -386,11 +404,10 @@ class TestArgCacheBusting:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = AsyncMemoryStore()
-        cache = AsyncMemoryCache()
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
         )
-        await ContreeAsyncDockerBuilder(client, store=store, cache=cache).build(
+        await ContreeAsyncDockerBuilder(client, store=store).build(
             tmp_path, session_id="sess", build_args={"VERSION": "3.12"}
         )
 
@@ -406,19 +423,63 @@ class TestSqlitePersistence:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store_path = tmp_path / "store.db"
-        cache_path = tmp_path / "cache.db"
 
         store1 = AsyncSQLiteStore(store_path)
-        cache1 = AsyncSQLiteCache(cache_path)
-        await ContreeAsyncDockerBuilder(client, store=store1, cache=cache1).build(tmp_path, session_id="sess")
+        await ContreeAsyncDockerBuilder(client, store=store1).build(tmp_path, session_id="sess")
         await store1.close()
-        await cache1.close()
 
         store2 = AsyncSQLiteStore(store_path)
-        cache2 = AsyncSQLiteCache(cache_path)
-        await ContreeAsyncDockerBuilder(client, store=store2, cache=cache2).build(tmp_path, session_id="sess")
+        await ContreeAsyncDockerBuilder(client, store=store2).build(tmp_path, session_id="sess")
         await store2.close()
-        await cache2.close()
 
         assert len(client.calls_for("spawn_instance")) == 1
         assert len(client.calls_for("ensure_file")) == 1
+
+
+async def test_concurrent_cache_misses_preserve_both_results(tmp_path, monkeypatch):
+    clients = [ContreeAsyncClient(), ContreeAsyncClient()]
+    for index, client in enumerate(clients):
+        client.mock("resolve_image", "base")
+        client.mock("spawn_instance", spawn_response(f"op-{index}"))
+        mock_completion(client, operation_response(operation_uuid=f"op-{index}", result_image_uuid=f"image-{index}"))
+    async with AsyncSQLiteStore(tmp_path / "shared.db") as first, AsyncSQLiteStore(tmp_path / "shared.db") as second:
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\n")
+        await ContreeAsyncDockerBuilder(clients[0], store=first).build(tmp_path, session_id="shared")
+        parent = (await first.list_nodes("shared", kind="use")).items[0].id
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo work\n")
+        ready = asyncio.Event()
+        waiting = 0
+
+        def synchronize(store):
+            append = store.append
+
+            async def save(session_id, node):
+                nonlocal waiting
+                if node.kind == "run":
+                    waiting += 1
+                    if waiting == 2:
+                        ready.set()
+                    await asyncio.wait_for(ready.wait(), timeout=10)
+                await append(session_id, node)
+
+            monkeypatch.setattr(store, "append", save)
+
+        synchronize(first)
+        synchronize(second)
+        builders = [
+            ContreeAsyncDockerBuilder(clients[0], store=first),
+            ContreeAsyncDockerBuilder(clients[1], store=second),
+        ]
+        images = await asyncio.gather(*(builder.build(tmp_path, session_id="shared") for builder in builders))
+        assert set(images) == {"image-0", "image-1"}
+        nodes = (await first.list_children("shared", parent, kind="run")).items
+        assert {node.data["image_uuid"] for node in nodes} == set(images)
+        hashes = []
+        for node in nodes:
+            user = node.data["user"]
+            assert isinstance(user, dict)
+            hashes.append(user["docker_hash"])
+        assert hashes[0] == hashes[1]
+        reused = await builders[0].build(tmp_path, session_id="shared")
+        assert reused in images
+        assert sum(len(client.calls_for("spawn_instance")) for client in clients) == 2

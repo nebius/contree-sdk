@@ -1,1442 +1,477 @@
+"""SQLite tree stores. Transactions protect invariants across connections."""
+
 from __future__ import annotations
 
-import os
+import json
 import sqlite3
-import threading
-from asyncio import Lock
-from collections.abc import AsyncIterator, Iterable, Iterator
+import time
+from asyncio import Lock, shield
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import replace
-from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
-from types import EllipsisType
-from typing import Any
+from threading import RLock
 
-from contree_sdk.exceptions import SessionConflictError
-from contree_sdk.store.base import AsyncStore, HistoryEntry, SessionMetadata, SyncStore
-from contree_sdk.store.models import (
-    HistorySnapshot,
-    StagedFile,
-    history_snapshot,
-    prune_selection,
-    validate_attachments,
-    validate_prune,
+from contree_sdk.store.base import AsyncStore, SyncStore
+from contree_sdk.store.tree import (
+    DEFAULT_PAGE_SIZE,
+    Node,
+    NodeConflictError,
+    Page,
+    SessionInfo,
+    cursor_position,
+    encode_data,
+    next_cursor,
+    validate_node_ids,
 )
-from contree_sdk.store.operations import OperationRecord, validate_registration
+from contree_sdk.store.ttl import Clock, expiration
 
 
-try:
-    import aiosqlite
+SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS tree_sessions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, created "
+    "REAL NOT NULL, expires REAL)",
+    "CREATE TABLE IF NOT EXISTS tree_nodes (session_id TEXT NOT NULL REFERENCES "
+    "tree_sessions(id) ON DELETE CASCADE, id TEXT NOT NULL, parent TEXT, kind TEXT NOT NULL, "
+    "data TEXT NOT NULL, PRIMARY KEY(session_id,id), FOREIGN KEY(session_id,parent) REFERENCES "
+    "tree_nodes(session_id,id))",
+    "CREATE UNIQUE INDEX IF NOT EXISTS tree_root ON tree_nodes(session_id) WHERE parent IS NULL",
+    "CREATE INDEX IF NOT EXISTS tree_children ON tree_nodes(session_id,parent,kind,id)",
+    "CREATE INDEX IF NOT EXISTS tree_kind ON tree_sessions(kind,id)",
+    "CREATE INDEX IF NOT EXISTS tree_node_kind ON tree_nodes(session_id,kind,id)",
+    "CREATE INDEX IF NOT EXISTS tree_parent ON tree_nodes(session_id,parent,id)",
+)
 
-    AIOSQLITE_AVAILABLE = True
-except ImportError:
-    AIOSQLITE_AVAILABLE = False
 
-
-DB_TIMEOUT = float(os.getenv("CONTREE_DB_TIMEOUT", "30"))
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS session_operations_v1 (
-    session_id TEXT NOT NULL,
-    operation_uuid TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    PRIMARY KEY (session_id, operation_uuid)
-);
-
-CREATE TABLE IF NOT EXISTS session_history_v1 (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id     TEXT NOT NULL,
-    image_uuid     TEXT NOT NULL,
-    parent_id      INTEGER REFERENCES session_history_v1(id),
-    kind           TEXT NOT NULL DEFAULT '',
-    title          TEXT NOT NULL DEFAULT '',
-    operation_uuid TEXT,
-    exit_code      INTEGER,
-    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
-);
-
-CREATE TABLE IF NOT EXISTS session_branches_v1 (
-    session_id  TEXT NOT NULL,
-    branch_name TEXT NOT NULL,
-    history_id  INTEGER NOT NULL REFERENCES session_history_v1(id),
-    PRIMARY KEY (session_id, branch_name)
-);
-
-CREATE TABLE IF NOT EXISTS session_state_v1 (
-    session_id    TEXT PRIMARY KEY,
-    active_branch TEXT NOT NULL DEFAULT 'main',
-    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
-);
-
-CREATE INDEX IF NOT EXISTS ix_history_v1_session ON session_history_v1(session_id);
-CREATE INDEX IF NOT EXISTS ix_history_v1_parent ON session_history_v1(parent_id);
-
-CREATE TABLE IF NOT EXISTS session_metadata_v1 (
-    session_id TEXT PRIMARY KEY,
-    cwd        TEXT,
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
-);
-
-CREATE TABLE IF NOT EXISTS session_env_v1 (
-    session_id TEXT NOT NULL,
-    key        TEXT NOT NULL,
-    value      TEXT NOT NULL,
-    PRIMARY KEY (session_id, key)
-);
-
-CREATE TABLE IF NOT EXISTS session_history_files_v1 (
-    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
-    file_path  TEXT NOT NULL,
-    PRIMARY KEY (history_id, file_path)
-);
-
-CREATE TABLE IF NOT EXISTS session_history_attachments_v1 (
-    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
-    file_path TEXT NOT NULL,
-    upload_uuid TEXT NOT NULL,
-    uid INTEGER,
-    gid INTEGER,
-    mode INTEGER,
-    PRIMARY KEY (history_id, file_path)
-);
-
-CREATE TABLE IF NOT EXISTS session_history_applied_files_v1 (
-    history_id INTEGER NOT NULL REFERENCES session_history_v1(id),
-    file_path TEXT NOT NULL,
-    PRIMARY KEY (history_id, file_path)
-);
-
+# Store-issued cursors retain the next ancestor; they are positions, not access tokens.
+HISTORY_SQL = """
+WITH RECURSIVE ancestry(id,parent,kind,data,depth) AS (
+    SELECT id,parent,kind,data,0 FROM tree_nodes WHERE session_id=? AND id=?
+    UNION ALL
+    SELECT n.id,n.parent,n.kind,n.data,a.depth+1
+    FROM tree_nodes AS n JOIN ancestry AS a ON n.id=a.parent
+    WHERE n.session_id=? LIMIT ?
+)
+SELECT id,parent,kind,data FROM ancestry ORDER BY depth
 """
+SQL_BATCH_SIZE = 900  # Leave room below SQLite's historical 999-parameter limit.
 
 
-def escape_like(value: str) -> str:
-    # escape SQL LIKE's own wildcards so a literal `_`/`%` in a session_id suffix
-    # doesn't get treated as "match any single/any run of characters"
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def sessions_query(kind: str | None, prefix: str, after: str, now: float, limit: int) -> tuple[str, tuple]:
+    sql = "SELECT id,kind,created,expires FROM tree_sessions WHERE id>? AND (expires IS NULL OR expires>?)"
+    args: list = [after, now]
+    if kind is not None:
+        sql += " AND kind=?"
+        args.append(kind)
+    if prefix:
+        sql += " AND id>=? AND substr(id,1,length(?))=?"
+        args.extend((prefix, prefix, prefix))
+    return sql + " ORDER BY id LIMIT ?", (*args, limit + 1)
 
 
-def attachment_from_row(row: Any) -> StagedFile:
-    return StagedFile(row["file_path"], row["upload_uuid"], row["uid"], row["gid"], row["mode"])
+def nodes_query(
+    session_id: str, parent_id: str | None, children: bool, kind: str | None, after: str, limit: int
+) -> tuple[str, tuple]:
+    sql = "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id>?"
+    args: list = [session_id, after]
+    if children:
+        sql += " AND parent IS ?"
+        args.append(parent_id)
+    if kind is not None:
+        sql += " AND kind=?"
+        args.append(kind)
+    return sql + " ORDER BY id LIMIT ?", (*args, limit + 1)
 
 
-def entry_from_row(
-    row: Any,
-    files: tuple[str, ...] = (),
-    attachments: tuple[StagedFile, ...] = (),
-    applied_files: tuple[str, ...] = (),
-) -> HistoryEntry:
-    # column values are naive UTC (SQLite's strftime('%Y-%m-%dT%H:%M:%S','now')), so
-    # attach tzinfo explicitly to match MemoryStore's datetime.now(timezone.utc)
-    return HistoryEntry(
-        id=row["id"],
-        session_id=row["session_id"],
-        image_uuid=row["image_uuid"],
-        parent_id=row["parent_id"],
-        kind=row["kind"],
-        title=row["title"],
-        operation_uuid=row["operation_uuid"],
-        exit_code=row["exit_code"],
-        created_at=datetime.fromisoformat(row["created_at"]).replace(tzinfo=timezone.utc),
-        files=files,
-        attachments=attachments,
-        applied_files=applied_files,
-    )
+def batch_query(session_id: str, node_ids: tuple[str, ...]) -> tuple[str, tuple]:
+    placeholders = ",".join("?" for _ in node_ids)
+    # Only placeholder syntax is interpolated; identities remain SQL parameters.
+    sql = "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id IN (" + placeholders + ")"  # noqa: S608
+    return sql, (session_id, *node_ids)
+
+
+def node_from_row(row: tuple) -> Node:
+    return Node(id=row[0], parent_id=row[1], kind=row[2], data=json.loads(row[3]))
 
 
 class SyncSQLiteStore(SyncStore):
-    """SQLite-backed Store: one file holds many sessions, keyed by session_id.
+    """Persist trees. None TTL means no expiry for this implementation."""
 
-    WAL journal mode + a busy timeout make the file safe to share across
-    *processes*. `check_same_thread=False` plus a `threading.RLock` make one
-    instance safe to share across *threads* within this process too.
+    def __init__(self, db_path: str | Path, *, clock: Clock = time.time) -> None:
+        self.db_path = str(db_path)
+        self.clock = clock
+        self.lock = RLock()
+        if self.db_path != ":memory:":
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.db_path, isolation_level=None, check_same_thread=False, timeout=30)
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        for statement in SCHEMA:
+            self.conn.execute(statement)
 
-    No in-place schema migrations: tables are named `session_history_v1`,
-    `session_branches_v1`, `session_state_v1`, `session_metadata_v1`,
-    `session_env_v1`, `session_history_files_v1`. A future schema change
-    bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
-    tables in place - old data under the previous suffix is abandoned, not
-    migrated forward. Additive attachment and consumption tables preserve v1 history.
-    """
+    def _rows(self, sql: str, args: tuple = ()) -> list[tuple]:
+        return self.conn.execute(sql, args).fetchall()
 
-    def __init__(self, db_path: str | Path) -> None:
-        path = Path(db_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path), timeout=DB_TIMEOUT, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-        self.conn.execute(f"PRAGMA busy_timeout={int(DB_TIMEOUT * 1000)}")
-        self.conn.executescript(SCHEMA)
-        self.rlock = threading.RLock()
-
-    def close(self) -> None:
-        self.conn.close()
+    def _write(self, sql: str, args: tuple = ()) -> None:
+        self.conn.execute(sql, args)
 
     @contextmanager
-    def transaction(self) -> Iterator[None]:
-        # roll back on ANY exception mid-write, so a failed write never leaves this
-        # connection's next statement silently continuing inside a half-done transaction
-        try:
-            yield
-        except BaseException:
-            self.conn.rollback()
-            raise
-
-    @contextmanager
-    def read_transaction(self) -> Iterator[None]:
-        """Use one read snapshot, retaining any transaction owned by the caller.
-
-        The caller must hold rlock throughout this context.
-        """
-        owned = not self.conn.in_transaction
-        try:
-            if owned:
-                self.conn.execute("BEGIN")
-            yield
-            if owned:
+    def _transaction(self, *, write: bool = False) -> Iterator[None]:
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+            try:
+                yield
                 self.conn.commit()
-        except BaseException:
-            if owned:
+            except BaseException:
                 self.conn.rollback()
-            raise
+                raise
 
-    def branch_tip_row(self, session_id: str, branch: str) -> sqlite3.Row | None:
-        with self.rlock:
-            return self.conn.execute(
-                "SELECT history_id FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-                (session_id, branch),
-            ).fetchone()
-
-    def files_for(self, history_id: int) -> tuple[str, ...]:
-        with self.rlock:
-            rows = self.conn.execute(
-                "SELECT file_path FROM session_history_files_v1 WHERE history_id = ? ORDER BY file_path",
-                (history_id,),
-            ).fetchall()
-        return tuple(row["file_path"] for row in rows)
-
-    def get_entry_row(self, session_id: str, history_id: int) -> HistoryEntry:
-        with self.rlock, self.read_transaction():
-            row = self.conn.execute(
-                "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
-                (history_id, session_id),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-            attachments = self.conn.execute(
-                "SELECT * FROM session_history_attachments_v1 WHERE history_id = ? ORDER BY file_path",
-                (history_id,),
-            ).fetchall()
-            applied = self.conn.execute(
-                "SELECT file_path FROM session_history_applied_files_v1 WHERE history_id = ? ORDER BY file_path",
-                (history_id,),
-            ).fetchall()
-            return entry_from_row(
-                row,
-                self.files_for(history_id),
-                tuple(attachment_from_row(item) for item in attachments),
-                tuple(item["file_path"] for item in applied),
-            )
-
-    def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
-        return self.get_entry_row(session_id, history_id)
-
-    def get_session_metadata(self, session_id: str) -> SessionMetadata:
-        with self.rlock, self.read_transaction():
-            row = self.conn.execute(
-                "SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,)
-            ).fetchone()
-            env_rows = self.conn.execute(
-                "SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,)
-            ).fetchall()
-        cwd = row["cwd"] if row is not None else None
-        return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
-
-    def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
-        with self.rlock, self.transaction():
-            self.conn.execute(
-                """
-                INSERT INTO session_metadata_v1 (session_id, cwd) VALUES (?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-                """,
-                (session_id, cwd),
-            )
-            self.conn.commit()
-
-    def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
-        with self.rlock, self.transaction():
-            for key, value in updates.items():
-                if value is None:
-                    self.conn.execute("DELETE FROM session_env_v1 WHERE session_id = ? AND key = ?", (session_id, key))
-                else:
-                    self.conn.execute(
-                        """
-                        INSERT INTO session_env_v1 (session_id, key, value) VALUES (?, ?, ?)
-                        ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value
-                        """,
-                        (session_id, key, value),
-                    )
-            self.conn.commit()
-
-    def active_branch(self, session_id: str) -> str | None:
-        with self.rlock:
-            row = self.conn.execute(
-                "SELECT active_branch FROM session_state_v1 WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-        return row["active_branch"] if row else None
-
-    def latest_child_id(self, session_id: str, parent_id: int) -> int | None:
-        with self.rlock:
-            row = self.conn.execute(
-                "SELECT id FROM session_history_v1 WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
-                (parent_id, session_id),
-            ).fetchone()
-        return None if row is None else row["id"]
-
-    def register_operation(self, record: OperationRecord) -> OperationRecord:
-        session_id, operation_uuid = record.session_id, record.uuid
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            parent = self.get_entry_row(record.session_id, record.parent_id)
-            if parent.image_uuid != record.image_uuid:
-                raise ValueError("operation source image does not match its history entry")
-            row = self.conn.execute(
-                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                (session_id, operation_uuid),
-            ).fetchone()
-            saved = validate_registration(record, None if row is None else OperationRecord.from_json(row["payload"]))
-            self.conn.execute(
-                "INSERT OR IGNORE INTO session_operations_v1 (session_id, operation_uuid, payload) VALUES (?, ?, ?)",
-                (session_id, operation_uuid, saved.to_json()),
-            )
-            self.conn.commit()
-            return saved
-
-    def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
-        with self.rlock:
-            row = self.conn.execute(
-                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                (session_id, operation_uuid),
-            ).fetchone()
-            if row is None:
-                raise ValueError("operation is not registered in this session")
-            return OperationRecord.from_json(row["payload"])
-
-    def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
-        with self.rlock:
-            rows = self.conn.execute(
-                "SELECT payload FROM session_operations_v1 WHERE session_id = ? ORDER BY operation_uuid", (session_id,)
-            ).fetchall()
-            records = (OperationRecord.from_json(row["payload"]) for row in rows)
-            return tuple(record for record in records if not pending_only or record.pending)
-
-    def finish_operation(
-        self,
-        session_id: str,
-        operation_uuid: str,
-        response_json: str,
-        *,
-        image_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-    ) -> OperationRecord:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            row = self.conn.execute(
-                "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                (session_id, operation_uuid),
-            ).fetchone()
-            if row is None:
-                raise ValueError("operation is not registered in this session")
-            record = OperationRecord.from_json(row["payload"])
-            if not record.pending:
-                self.conn.commit()
-                return record
-            completed = replace(record, response_json=response_json)
-            if image_uuid is not None:
-                if record.disposable:
-                    raise ValueError("cannot commit a disposable operation")
-                entry = self._append(
-                    session_id,
-                    image_uuid=image_uuid,
-                    parent_id=record.parent_id,
-                    kind="run",
-                    title=record.title,
-                    operation_uuid=record.uuid,
-                    exit_code=exit_code,
-                    branch=branch or record.branch,
-                    files=record.files,
-                    applied_files=record.files,
-                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
-                )
-                completed = replace(completed, history_id=entry.id)
-            self.conn.execute(
-                "UPDATE session_operations_v1 SET payload = ? WHERE session_id = ? AND operation_uuid = ?",
-                (completed.to_json(), session_id, operation_uuid),
-            )
-            self.conn.commit()
-            return completed
-
-    def append(
-        self,
-        session_id: str,
-        *,
-        image_uuid: str,
-        parent_id: int | None,
-        kind: str = "",
-        title: str = "",
-        operation_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-        files: tuple[str, ...] = (),
-        attachments: tuple[StagedFile, ...] = (),
-        applied_files: tuple[str, ...] = (),
-        expected_tip: int | EllipsisType | None = ...,
-    ) -> HistoryEntry:
-        validate_attachments(attachments)
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            entry = self._append(
-                session_id,
-                image_uuid=image_uuid,
-                parent_id=parent_id,
-                kind=kind,
-                title=title,
-                operation_uuid=operation_uuid,
-                exit_code=exit_code,
-                branch=branch,
-                files=files,
-                attachments=attachments,
-                applied_files=applied_files,
-                expected_tip=expected_tip,
-            )
-            self.conn.commit()
-            return entry
-
-    def _append(
-        self,
-        session_id: str,
-        *,
-        image_uuid: str,
-        parent_id: int | None,
-        kind: str = "",
-        title: str = "",
-        operation_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-        files: tuple[str, ...] = (),
-        attachments: tuple[StagedFile, ...] = (),
-        applied_files: tuple[str, ...] = (),
-        expected_tip: int | EllipsisType | None = ...,
-    ) -> HistoryEntry:
-        branch_name = branch or self.active_branch(session_id) or "main"
-        tip_row = self.branch_tip_row(session_id, branch_name)
-        tip_id = tip_row["history_id"] if tip_row is not None else None
-        if expected_tip is not Ellipsis and tip_id != expected_tip:
-            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-        if parent_id is not None:
-            self.get_entry_row(session_id, parent_id)
-        cursor = self.conn.execute(
-            """
-            INSERT INTO session_history_v1
-                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+    def _info(self, session_id: str) -> SessionInfo | None:
+        rows = self._rows(
+            "SELECT id,kind,created,expires FROM tree_sessions WHERE id=? AND (expires IS NULL OR expires>?)",
+            (session_id, self.clock()),
         )
-        new_id = cursor.lastrowid
-        if new_id is None:
-            raise RuntimeError("INSERT into session_history_v1 did not report a row id")
-        for path in files:
-            self.conn.execute(
-                "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
-                (new_id, path),
-            )
-        self.conn.executemany(
-            "INSERT INTO session_history_attachments_v1 "
-            "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
-            [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
-        )
-        self.conn.executemany(
-            "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
-            [(new_id, path) for path in sorted(set(applied_files))],
-        )
-        self.conn.execute(
-            """
-            INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
-            """,
-            (session_id, branch_name, new_id),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
-            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
-            ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-            """,
-            (session_id, branch_name),
-        )
-        return self.get_entry_row(session_id, new_id)
+        return SessionInfo(*rows[0]) if rows else None
 
-    def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
-        with self.rlock, self.read_transaction():
-            branch_name = branch or self.active_branch(session_id)
-            if branch_name is None:
-                return None
-            row = self.branch_tip_row(session_id, branch_name)
-            return None if row is None else self.get_entry_row(session_id, row["history_id"])
+    def _require(self, session_id: str) -> SessionInfo:
+        info = self._info(session_id)
+        if info is None:
+            raise ValueError(f"unknown or expired session {session_id!r}")
+        return info
 
-    def navigate(self, session_id: str, target: int) -> HistoryEntry:
-        if target == 0:
-            raise ValueError("navigation target must not be 0")
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            branch = self.active_branch(session_id)
-            if branch is None:
-                raise ValueError(f"no active session {session_id!r}")
-            if target > 0:
-                current_id = target
-                self.get_entry_row(session_id, current_id)
-            else:
-                tip_row = self.branch_tip_row(session_id, branch)
-                if tip_row is None:
-                    raise ValueError(f"no active session {session_id!r}")
-                current_id = tip_row["history_id"]
-                for step in range(-target):
-                    entry = self.get_entry_row(session_id, current_id)
-                    if entry.parent_id is None:
-                        raise ValueError(f"cannot go back {-target} steps: only {step} ancestors available")
-                    current_id = entry.parent_id
-            self.conn.execute(
-                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
-                (current_id, session_id, branch),
-            )
-            self.conn.execute(
-                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
-                (session_id,),
-            )
-            entry = self.get_entry_row(session_id, current_id)
-            self.conn.commit()
-            return entry
-
-    def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
-        if steps < 1:
-            raise ValueError("rollback steps must be >= 1")
-        return self.navigate(session_id, -steps)
-
-    def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
-        if steps < 1:
-            raise ValueError("forward steps must be >= 1")
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            branch = self.active_branch(session_id)
-            if branch is None:
-                raise ValueError(f"no active session {session_id!r}")
-            tip_row = self.branch_tip_row(session_id, branch)
-            if tip_row is None:
-                raise ValueError(f"no active session {session_id!r}")
-            current_id = tip_row["history_id"]
-            for step in range(steps):
-                child_id = self.latest_child_id(session_id, current_id)
-                if child_id is None:
-                    raise ValueError(f"cannot go forward {steps} steps: only {step} children available")
-                current_id = child_id
-            self.conn.execute(
-                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
-                (current_id, session_id, branch),
-            )
-            self.conn.execute(
-                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
-                (session_id,),
-            )
-            entry = self.get_entry_row(session_id, current_id)
-            self.conn.commit()
-            return entry
-
-    def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            source = from_branch or self.active_branch(session_id)
-            if source is None:
-                raise ValueError(f"no active session {session_id!r}")
-            row = self.branch_tip_row(session_id, source)
-            if row is None:
-                raise ValueError(f"source branch {source!r} does not exist")
-            existing = self.branch_tip_row(session_id, name)
+    def create_session(self, session_id: str, *, kind: str = "session", ttl: float | None = None) -> SessionInfo:
+        if not isinstance(session_id, str) or not session_id or not isinstance(kind, str) or not kind:
+            raise ValueError("session_id and kind must be nonempty strings")
+        now = self.clock()
+        expires = expiration(ttl, now)
+        with self._transaction(write=True):
+            existing = self._info(session_id)
             if existing is not None:
-                raise ValueError(f"branch {name!r} already exists")
-            self.conn.execute(
-                "INSERT INTO session_branches_v1 (session_id, branch_name, history_id) VALUES (?, ?, ?)",
-                (session_id, name, row["history_id"]),
-            )
-            self.conn.commit()
+                if existing.kind != kind:
+                    raise ValueError("session already exists with another kind")
+                return existing
+            self._write("DELETE FROM tree_sessions WHERE id=?", (session_id,))
+            self._write("INSERT INTO tree_sessions VALUES (?,?,?,?)", (session_id, kind, now, expires))
+            return SessionInfo(session_id, kind, now, expires)
 
-    def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            row = self.branch_tip_row(session_id, name)
-            if row is None:
-                raise ValueError(f"branch {name!r} does not exist")
-            self.conn.execute(
-                "UPDATE session_state_v1 SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
-                "WHERE session_id = ?",
-                (name, session_id),
-            )
-            entry = self.get_entry_row(session_id, row["history_id"])
-            self.conn.commit()
-            return entry
+    def get_session(self, session_id: str) -> SessionInfo | None:
+        with self._transaction():
+            return self._info(session_id)
 
-    def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
-        with self.rlock, self.read_transaction():
-            active = self.active_branch(session_id)
-            if active is None:
-                return []
-            rows = self.conn.execute(
-                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ? ORDER BY branch_name",
-                (session_id,),
-            ).fetchall()
-            return [(row["branch_name"], row["branch_name"] == active) for row in rows]
-
-    def delete_branch(self, session_id: str, name: str) -> None:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            if name == self.active_branch(session_id):
-                raise ValueError("cannot delete the active branch")
-            cursor = self.conn.execute(
-                "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-                (session_id, name),
-            )
-            if cursor.rowcount == 0:
-                raise ValueError(f"branch {name!r} does not exist")
-            self.conn.commit()
-
-    def list_sessions(self) -> list[str]:
-        with self.rlock:
-            rows = self.conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id").fetchall()
-        return [row["session_id"] for row in rows]
-
-    def read_session(self, session_id: str) -> HistorySnapshot:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN")
-            active = self.active_branch(session_id)
-            entries, branches = self.history_dag(session_id)
-            metadata = self.get_session_metadata(session_id)
-            snapshot = history_snapshot(session_id, active, entries, branches, metadata)
-            self.conn.commit()
-            return snapshot
-
-    def prune_branches(
-        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
-    ) -> tuple[str, ...]:
-        retained = validate_prune(prefix, keep)
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            if self.active_branch(session_id) is None:
-                raise ValueError(f"session {session_id!r} not found")
-            selected = prune_selection(self.list_branches(session_id), prefix, retained)
-            if not dry_run:
-                self.conn.executemany(
-                    "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-                    [(session_id, name) for name in selected],
-                )
-            self.conn.commit()
-            return selected
-
-    def find_session(self, name: str) -> str:
-        with self.rlock, self.read_transaction():
-            exact = self.conn.execute(
-                "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
-                (name,),
-            ).fetchone()
-            if exact is not None:
-                return exact["session_id"]
-            rows = self.conn.execute(
-                "SELECT session_id FROM session_state_v1 WHERE session_id LIKE ? ESCAPE '\\'",
-                (f"%\\_{escape_like(name)}",),
-            ).fetchall()
-        if not rows:
-            raise ValueError(f"session {name!r} not found")
-        if len(rows) > 1:
-            matches = ", ".join(row["session_id"] for row in rows)
-            raise ValueError(f"ambiguous session {name!r}: matches {matches}")
-        return rows[0]["session_id"]
+    def set_session_ttl(self, session_id: str, ttl: float | None) -> SessionInfo:
+        expires = expiration(ttl, self.clock())
+        with self._transaction(write=True):
+            info = self._require(session_id)
+            self._write("UPDATE tree_sessions SET expires=? WHERE id=?", (expires, session_id))
+            return SessionInfo(info.session_id, info.kind, info.created_at, expires)
 
     def delete_session(self, session_id: str) -> bool:
-        with self.rlock, self.transaction():
-            self.conn.execute("BEGIN IMMEDIATE")
-            row = self.conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,)).fetchone()
-            if row is None:
-                self.conn.commit()
-                return False
-            self.conn.execute(
-                """
-                DELETE FROM session_history_files_v1
-                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
-                """,
-                (session_id,),
+        with self._transaction(write=True):
+            found = bool(self._rows("SELECT id FROM tree_sessions WHERE id=?", (session_id,)))
+            self._write("DELETE FROM tree_sessions WHERE id=?", (session_id,))
+            return found
+
+    def list_sessions(
+        self, *, kind: str | None = None, prefix: str = "", limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[SessionInfo]:
+        scope = ("sessions", kind, prefix)
+        after = cursor_position(cursor, scope, limit) or ""
+        with self._transaction():
+            rows = self._rows(*sessions_query(kind, prefix, after, self.clock(), limit))
+            items = tuple(SessionInfo(*row) for row in rows[:limit])
+            return Page(items, next_cursor(scope, items[-1].session_id) if len(rows) > limit else None)
+
+    def append(self, session_id: str, node: Node) -> None:
+        payload = encode_data(node.data)
+        with self._transaction(write=True):
+            self._require(session_id)
+            rows = self._rows(
+                "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node.id)
             )
-            self.conn.execute(
-                "DELETE FROM session_history_attachments_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
-                (session_id,),
+            if rows:
+                if rows[0] != (node.id, node.parent_id, node.kind, payload):
+                    raise NodeConflictError("node identity already has different contents")
+                return
+            if node.parent_id is None:
+                if self._rows("SELECT id FROM tree_nodes WHERE session_id=? AND parent IS NULL", (session_id,)):
+                    raise NodeConflictError("tree already has a root")
+            elif not self._rows("SELECT id FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node.parent_id)):
+                raise ValueError("parent does not exist in this session")
+            self._write(
+                "INSERT INTO tree_nodes VALUES (?,?,?,?,?)", (session_id, node.id, node.parent_id, node.kind, payload)
             )
-            self.conn.execute(
-                "DELETE FROM session_history_applied_files_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
-                (session_id,),
-            )
-            self.conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
-            self.conn.execute("DELETE FROM session_operations_v1 WHERE session_id = ?", (session_id,))
-            self.conn.commit()
-            return True
 
-    def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        with self.rlock, self.read_transaction():
-            rows = self.conn.execute(
-                "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
-                (session_id,),
-            ).fetchall()
-            file_rows = self.conn.execute(
-                """
-                SELECT history_id, file_path FROM session_history_files_v1
-                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
-                ORDER BY file_path
-                """,
-                (session_id,),
-            ).fetchall()
-            attachment_rows = self.conn.execute(
-                "SELECT * FROM session_history_attachments_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
-                (session_id,),
-            ).fetchall()
-            applied_rows = self.conn.execute(
-                "SELECT * FROM session_history_applied_files_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
-                (session_id,),
-            ).fetchall()
-            branch_rows = self.conn.execute(
-                "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
-                (session_id,),
-            ).fetchall()
-        files_map: dict[int, list[str]] = {}
-        for row in file_rows:
-            files_map.setdefault(row["history_id"], []).append(row["file_path"])
-        attachments_map: dict[int, list[StagedFile]] = {}
-        for row in attachment_rows:
-            attachments_map.setdefault(row["history_id"], []).append(attachment_from_row(row))
-        applied_map: dict[int, list[str]] = {}
-        for row in applied_rows:
-            applied_map.setdefault(row["history_id"], []).append(row["file_path"])
-        entries = [
-            entry_from_row(
-                row,
-                tuple(files_map.get(row["id"], ())),
-                tuple(attachments_map.get(row["id"], ())),
-                tuple(applied_map.get(row["id"], ())),
-            )
-            for row in rows
-        ]
-        branch_map: dict[int, list[str]] = {}
-        for row in branch_rows:
-            branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
-        return entries, branch_map
-
-
-async def branch_tip_row_async(conn: Any, session_id: str, branch: str) -> Any:
-    cursor = await conn.execute(
-        "SELECT history_id FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-        (session_id, branch),
-    )
-    return await cursor.fetchone()
-
-
-async def files_for_async(conn: Any, history_id: int) -> tuple[str, ...]:
-    cursor = await conn.execute(
-        "SELECT file_path FROM session_history_files_v1 WHERE history_id = ? ORDER BY file_path",
-        (history_id,),
-    )
-    rows = await cursor.fetchall()
-    return tuple(row["file_path"] for row in rows)
-
-
-async def get_entry_row_async(conn: Any, session_id: str, history_id: int) -> HistoryEntry:
-    cursor = await conn.execute(
-        "SELECT * FROM session_history_v1 WHERE id = ? AND session_id = ?",
-        (history_id, session_id),
-    )
-    row = await cursor.fetchone()
-    if row is None:
-        raise ValueError(f"history entry {history_id} not found in session {session_id!r}")
-    attachment_cursor = await conn.execute(
-        "SELECT * FROM session_history_attachments_v1 WHERE history_id = ? ORDER BY file_path",
-        (history_id,),
-    )
-    applied_cursor = await conn.execute(
-        "SELECT file_path FROM session_history_applied_files_v1 WHERE history_id = ? ORDER BY file_path",
-        (history_id,),
-    )
-    return entry_from_row(
-        row,
-        await files_for_async(conn, history_id),
-        tuple(attachment_from_row(item) for item in await attachment_cursor.fetchall()),
-        tuple(item["file_path"] for item in await applied_cursor.fetchall()),
-    )
-
-
-async def active_branch_row_async(conn: Any, session_id: str) -> str | None:
-    cursor = await conn.execute(
-        "SELECT active_branch FROM session_state_v1 WHERE session_id = ?",
-        (session_id,),
-    )
-    row = await cursor.fetchone()
-    return row["active_branch"] if row else None
-
-
-async def latest_child_id_async(conn: Any, session_id: str, parent_id: int) -> int | None:
-    cursor = await conn.execute(
-        "SELECT id FROM session_history_v1 WHERE parent_id = ? AND session_id = ? ORDER BY id DESC LIMIT 1",
-        (parent_id, session_id),
-    )
-    row = await cursor.fetchone()
-    return None if row is None else row["id"]
-
-
-async def session_metadata_async(conn: Any, session_id: str) -> SessionMetadata:
-    cursor = await conn.execute("SELECT cwd FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
-    row = await cursor.fetchone()
-    env_cursor = await conn.execute("SELECT key, value FROM session_env_v1 WHERE session_id = ?", (session_id,))
-    env_rows = await env_cursor.fetchall()
-    cwd = row["cwd"] if row is not None else None
-    return SessionMetadata(cwd=cwd, env={row["key"]: row["value"] for row in env_rows})
-
-
-async def history_dag_async(conn: Any, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-    cursor = await conn.execute(
-        "SELECT * FROM session_history_v1 WHERE session_id = ? ORDER BY id",
-        (session_id,),
-    )
-    rows = await cursor.fetchall()
-    file_cursor = await conn.execute(
-        """
-        SELECT history_id, file_path FROM session_history_files_v1
-        WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
-        ORDER BY file_path
-        """,
-        (session_id,),
-    )
-    file_rows = await file_cursor.fetchall()
-    attachment_cursor = await conn.execute(
-        "SELECT * FROM session_history_attachments_v1 WHERE history_id IN "
-        "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
-        (session_id,),
-    )
-    attachment_rows = await attachment_cursor.fetchall()
-    applied_cursor = await conn.execute(
-        "SELECT * FROM session_history_applied_files_v1 WHERE history_id IN "
-        "(SELECT id FROM session_history_v1 WHERE session_id = ?) ORDER BY file_path",
-        (session_id,),
-    )
-    applied_rows = await applied_cursor.fetchall()
-    branch_cursor = await conn.execute(
-        "SELECT history_id, branch_name FROM session_branches_v1 WHERE session_id = ?",
-        (session_id,),
-    )
-    branch_rows = await branch_cursor.fetchall()
-    files_map: dict[int, list[str]] = {}
-    for row in file_rows:
-        files_map.setdefault(row["history_id"], []).append(row["file_path"])
-    attachments_map: dict[int, list[StagedFile]] = {}
-    for row in attachment_rows:
-        attachments_map.setdefault(row["history_id"], []).append(attachment_from_row(row))
-    applied_map: dict[int, list[str]] = {}
-    for row in applied_rows:
-        applied_map.setdefault(row["history_id"], []).append(row["file_path"])
-    entries = [
-        entry_from_row(
-            row,
-            tuple(files_map.get(row["id"], ())),
-            tuple(attachments_map.get(row["id"], ())),
-            tuple(applied_map.get(row["id"], ())),
+    def _node(self, session_id: str, node_id: str) -> Node:
+        rows = self._rows(
+            "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node_id)
         )
-        for row in rows
-    ]
-    branch_map: dict[int, list[str]] = {}
-    for row in branch_rows:
-        branch_map.setdefault(row["history_id"], []).append(row["branch_name"])
-    return entries, branch_map
+        if not rows:
+            raise ValueError(f"unknown node {node_id!r}")
+        return node_from_row(rows[0])
+
+    def get_node(self, session_id: str, node_id: str) -> Node:
+        with self._transaction():
+            self._require(session_id)
+            return self._node(session_id, node_id)
+
+    def get_nodes(self, session_id: str, node_ids: tuple[str, ...]) -> tuple[Node | None, ...]:
+        validate_node_ids(node_ids)
+        with self._transaction():
+            self._require(session_id)
+            found = {}
+            for start in range(0, len(node_ids), SQL_BATCH_SIZE):
+                rows = self._rows(*batch_query(session_id, node_ids[start : start + SQL_BATCH_SIZE]))
+                found.update((row[0], row) for row in rows)
+            return tuple(node_from_row(found[node_id]) if node_id in found else None for node_id in node_ids)
+
+    def list_nodes(
+        self, session_id: str, *, kind: str | None = None, limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[Node]:
+        return self._list_nodes(session_id, None, False, kind, limit, cursor)
+
+    def list_children(
+        self,
+        session_id: str,
+        parent_id: str | None,
+        *,
+        kind: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        cursor: str | None = None,
+    ) -> Page[Node]:
+        return self._list_nodes(session_id, parent_id, True, kind, limit, cursor)
+
+    def _list_nodes(
+        self, session_id: str, parent_id: str | None, children: bool, kind: str | None, limit: int, cursor: str | None
+    ) -> Page[Node]:
+        scope = ("nodes", session_id, parent_id, children, kind)
+        after = cursor_position(cursor, scope, limit) or ""
+        with self._transaction():
+            self._require(session_id)
+            if children and parent_id is not None:
+                self._node(session_id, parent_id)
+            rows = self._rows(*nodes_query(session_id, parent_id, children, kind, after, limit))
+            items = tuple(node_from_row(row) for row in rows[:limit])
+            return Page(items, next_cursor(scope, items[-1].id) if len(rows) > limit else None)
+
+    def list_history(
+        self, session_id: str, from_node: str, *, limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[Node]:
+        scope = ("history", session_id, from_node)
+        with self._transaction():
+            position = cursor_position(cursor, scope, limit) or from_node
+            self._require(session_id)
+            rows = self._rows(HISTORY_SQL, (session_id, position, session_id, limit + 1))
+            if not rows:
+                raise ValueError(f"unknown node {position!r}")
+            items = tuple(node_from_row(row) for row in rows[:limit])
+            token = next_cursor(scope, rows[limit][0]) if len(rows) > limit else None
+            return Page(items, token)
+
+    def close(self) -> None:
+        with self.lock:
+            self.conn.close()
 
 
 class AsyncSQLiteStore(AsyncStore):
-    """SQLite-backed Store using aiosqlite: one file holds many sessions, keyed by session_id.
+    """Native aiosqlite implementation of the same tree contract."""
 
-    The connection opens lazily on first use, since `aiosqlite.connect()` is
-    itself a coroutine and can't run in `__init__`. `lock` (an `asyncio.Lock`,
-    not reentrant) serializes whole operations rather than individual
-    statements - unlike `SyncSQLiteStore`'s `threading.RLock`, so internal
-    helpers here never re-acquire it. Requires the `contree-sdk[async]` extra.
-
-    No in-place schema migrations: tables are named `session_history_v1`,
-    `session_branches_v1`, `session_state_v1`, `session_metadata_v1`,
-    `session_env_v1`, `session_history_files_v1`. A future schema change
-    bumps the suffix (`_v1` -> `_v2`, ...) instead of altering the `_v1`
-    tables in place - old data under the previous suffix is abandoned, not
-    migrated forward. Additive attachment and consumption tables preserve v1 history.
-    """
-
-    def __init__(self, db_path: str | Path) -> None:
-        if not AIOSQLITE_AVAILABLE:
-            raise ImportError('AsyncSQLiteStore requires aiosqlite; install it via `pip install "contree-sdk[async]"`')
-        self.db_path = Path(db_path)
-        self.conn: aiosqlite.Connection | None = None
-        self.connect_lock = Lock()
+    def __init__(self, db_path: str | Path, *, clock: Clock = time.time) -> None:
+        self.db_path = str(db_path)
+        self.clock = clock
         self.lock = Lock()
+        self.conn = None
+        self.closed = False
 
-    async def ensure_connection(self) -> aiosqlite.Connection:
-        if self.conn is not None:
-            return self.conn
-        async with self.connect_lock:
-            if self.conn is not None:
-                return self.conn
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = await aiosqlite.connect(str(self.db_path), timeout=DB_TIMEOUT)
-            conn.row_factory = aiosqlite.Row
-            await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("PRAGMA synchronous=NORMAL")
-            await conn.execute(f"PRAGMA busy_timeout={int(DB_TIMEOUT * 1000)}")
-            await conn.executescript(SCHEMA)
-            self.conn = conn
-            return conn
+    async def _connect(self) -> None:
+        if self.closed:
+            raise RuntimeError("store is closed")
+        if self.conn is None:
+            import aiosqlite
 
-    async def close(self) -> None:
-        if self.conn is not None:
-            await self.conn.close()
-            self.conn = None
+            if self.db_path != ":memory:":
+                from contree_sdk.file_io import run_file_io
+
+                await run_file_io(partial(Path(self.db_path).parent.mkdir, parents=True, exist_ok=True))
+            connection = await aiosqlite.connect(self.db_path, isolation_level=None, timeout=30)
+            try:
+                await connection.execute("PRAGMA foreign_keys=ON")
+                for statement in SCHEMA:
+                    await connection.execute(statement)
+            except BaseException:
+                await shield(connection.close())
+                raise
+            self.conn = connection
+
+    async def _rows(self, sql: str, args: tuple = ()) -> list[tuple]:
+        if self.conn is None:
+            raise RuntimeError("store is not connected")
+        async with self.conn.execute(sql, args) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]
+
+    async def _write(self, sql: str, args: tuple = ()) -> None:
+        if self.conn is None:
+            raise RuntimeError("store is not connected")
+        async with self.conn.execute(sql, args):
+            pass
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[None]:
-        # roll back on ANY exception mid-write (including asyncio.CancelledError, a
-        # BaseException), so a cancelled/failed write never leaves this connection's
-        # next statement silently continuing inside a half-done transaction
-        conn = self.conn
-        if conn is None:
-            raise RuntimeError("transaction() requires an established connection")
-        try:
-            yield
-        except BaseException:
-            await conn.rollback()
-            raise
-
-    @asynccontextmanager
-    async def read_transaction(self) -> AsyncIterator[None]:
-        """Use one read snapshot while retaining a transaction owned by the caller.
-
-        The caller must hold lock throughout this context.
-        """
-        conn = await self.ensure_connection()
-        owned = not conn.in_transaction
-        try:
-            if owned:
-                await conn.execute("BEGIN")
-            yield
-            if owned:
-                await conn.commit()
-        except BaseException:
-            if owned:
-                await conn.rollback()
-            raise
-
-    async def get_entry(self, session_id: str, history_id: int) -> HistoryEntry:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            return await get_entry_row_async(conn, session_id, history_id)
-
-    async def get_session_metadata(self, session_id: str) -> SessionMetadata:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            return await session_metadata_async(conn, session_id)
-
-    async def set_session_cwd(self, session_id: str, cwd: str | None) -> None:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute(
-                """
-                INSERT INTO session_metadata_v1 (session_id, cwd) VALUES (?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET cwd = excluded.cwd,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-                """,
-                (session_id, cwd),
-            )
-            await conn.commit()
-
-    async def set_session_env(self, session_id: str, updates: dict[str, str | None]) -> None:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            for key, value in updates.items():
-                if value is None:
-                    await conn.execute("DELETE FROM session_env_v1 WHERE session_id = ? AND key = ?", (session_id, key))
-                else:
-                    await conn.execute(
-                        """
-                        INSERT INTO session_env_v1 (session_id, key, value) VALUES (?, ?, ?)
-                        ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value
-                        """,
-                        (session_id, key, value),
-                    )
-            await conn.commit()
-
-    async def active_branch(self, session_id: str) -> str | None:
-        conn = await self.ensure_connection()
+    async def _transaction(self, *, write: bool = False) -> AsyncIterator[None]:
         async with self.lock:
-            return await active_branch_row_async(conn, session_id)
+            await self._connect()
+            if self.conn is None:
+                raise RuntimeError("store is not connected")
+            try:
+                await self.conn.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                yield
+                await self.conn.commit()
+            except BaseException:
+                await shield(self.conn.rollback())
+                raise
 
-    async def register_operation(self, record: OperationRecord) -> OperationRecord:
-        conn = await self.ensure_connection()
-        session_id, operation_uuid = record.session_id, record.uuid
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            parent = await get_entry_row_async(conn, record.session_id, record.parent_id)
-            if parent.image_uuid != record.image_uuid:
-                raise ValueError("operation source image does not match its history entry")
-            row = await (
-                await conn.execute(
-                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                    (session_id, operation_uuid),
-                )
-            ).fetchone()
-            saved = validate_registration(record, None if row is None else OperationRecord.from_json(row["payload"]))
-            await conn.execute(
-                "INSERT OR IGNORE INTO session_operations_v1 (session_id, operation_uuid, payload) VALUES (?, ?, ?)",
-                (session_id, operation_uuid, saved.to_json()),
-            )
-            await conn.commit()
-            return saved
-
-    async def get_operation(self, session_id: str, operation_uuid: str) -> OperationRecord:
-        conn = await self.ensure_connection()
-        async with self.lock:
-            row = await (
-                await conn.execute(
-                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                    (session_id, operation_uuid),
-                )
-            ).fetchone()
-            if row is None:
-                raise ValueError("operation is not registered in this session")
-            return OperationRecord.from_json(row["payload"])
-
-    async def list_operations(self, session_id: str, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
-        conn = await self.ensure_connection()
-        async with self.lock:
-            rows = await (
-                await conn.execute(
-                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? ORDER BY operation_uuid",
-                    (session_id,),
-                )
-            ).fetchall()
-            records = (OperationRecord.from_json(row["payload"]) for row in rows)
-            return tuple(record for record in records if not pending_only or record.pending)
-
-    async def finish_operation(
-        self,
-        session_id: str,
-        operation_uuid: str,
-        response_json: str,
-        *,
-        image_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-    ) -> OperationRecord:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            row = await (
-                await conn.execute(
-                    "SELECT payload FROM session_operations_v1 WHERE session_id = ? AND operation_uuid = ?",
-                    (session_id, operation_uuid),
-                )
-            ).fetchone()
-            if row is None:
-                raise ValueError("operation is not registered in this session")
-            record = OperationRecord.from_json(row["payload"])
-            if not record.pending:
-                await conn.commit()
-                return record
-            completed = replace(record, response_json=response_json)
-            if image_uuid is not None:
-                if record.disposable:
-                    raise ValueError("cannot commit a disposable operation")
-                entry = await self._append(
-                    session_id,
-                    image_uuid=image_uuid,
-                    parent_id=record.parent_id,
-                    kind="run",
-                    title=record.title,
-                    operation_uuid=record.uuid,
-                    exit_code=exit_code,
-                    branch=branch or record.branch,
-                    files=record.files,
-                    applied_files=record.files,
-                    expected_tip=record.parent_id if branch is None or branch == record.branch else None,
-                )
-                completed = replace(completed, history_id=entry.id)
-            await conn.execute(
-                "UPDATE session_operations_v1 SET payload = ? WHERE session_id = ? AND operation_uuid = ?",
-                (completed.to_json(), session_id, operation_uuid),
-            )
-            await conn.commit()
-            return completed
-
-    async def append(
-        self,
-        session_id: str,
-        *,
-        image_uuid: str,
-        parent_id: int | None,
-        kind: str = "",
-        title: str = "",
-        operation_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-        files: tuple[str, ...] = (),
-        attachments: tuple[StagedFile, ...] = (),
-        applied_files: tuple[str, ...] = (),
-        expected_tip: int | EllipsisType | None = ...,
-    ) -> HistoryEntry:
-        validate_attachments(attachments)
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            entry = await self._append(
-                session_id,
-                image_uuid=image_uuid,
-                parent_id=parent_id,
-                kind=kind,
-                title=title,
-                operation_uuid=operation_uuid,
-                exit_code=exit_code,
-                branch=branch,
-                files=files,
-                attachments=attachments,
-                applied_files=applied_files,
-                expected_tip=expected_tip,
-            )
-            await conn.commit()
-            return entry
-
-    async def _append(
-        self,
-        session_id: str,
-        *,
-        image_uuid: str,
-        parent_id: int | None,
-        kind: str = "",
-        title: str = "",
-        operation_uuid: str | None = None,
-        exit_code: int | None = None,
-        branch: str | None = None,
-        files: tuple[str, ...] = (),
-        attachments: tuple[StagedFile, ...] = (),
-        applied_files: tuple[str, ...] = (),
-        expected_tip: int | EllipsisType | None = ...,
-    ) -> HistoryEntry:
-        conn = await self.ensure_connection()
-        branch_name = branch or await active_branch_row_async(conn, session_id) or "main"
-        tip_row = await branch_tip_row_async(conn, session_id, branch_name)
-        tip_id = tip_row["history_id"] if tip_row is not None else None
-        if expected_tip is not Ellipsis and tip_id != expected_tip:
-            raise SessionConflictError(f"branch {branch_name!r} changed in session {session_id!r}")
-        if parent_id is not None:
-            await get_entry_row_async(conn, session_id, parent_id)
-        cursor = await conn.execute(
-            """
-            INSERT INTO session_history_v1
-                (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (session_id, image_uuid, parent_id, kind, title, operation_uuid, exit_code),
+    async def _info(self, session_id: str) -> SessionInfo | None:
+        rows = await self._rows(
+            "SELECT id,kind,created,expires FROM tree_sessions WHERE id=? AND (expires IS NULL OR expires>?)",
+            (session_id, self.clock()),
         )
-        new_id = cursor.lastrowid
-        if new_id is None:
-            raise RuntimeError("INSERT into session_history_v1 did not report a row id")
-        for path in files:
-            await conn.execute(
-                "INSERT INTO session_history_files_v1 (history_id, file_path) VALUES (?, ?)",
-                (new_id, path),
-            )
-        await conn.executemany(
-            "INSERT INTO session_history_attachments_v1 "
-            "(history_id, file_path, upload_uuid, uid, gid, mode) VALUES (?, ?, ?, ?, ?, ?)",
-            [(new_id, item.path, item.uuid, item.uid, item.gid, item.mode) for item in attachments],
-        )
-        await conn.executemany(
-            "INSERT INTO session_history_applied_files_v1 (history_id, file_path) VALUES (?, ?)",
-            [(new_id, path) for path in sorted(set(applied_files))],
-        )
-        await conn.execute(
-            """
-            INSERT INTO session_branches_v1 (session_id, branch_name, history_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(session_id, branch_name) DO UPDATE SET history_id = excluded.history_id
-            """,
-            (session_id, branch_name, new_id),
-        )
-        await conn.execute(
-            """
-            INSERT INTO session_state_v1 (session_id, active_branch, updated_at)
-            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%S','now'))
-            ON CONFLICT(session_id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
-            """,
-            (session_id, branch_name),
-        )
-        return await get_entry_row_async(conn, session_id, new_id)
+        return SessionInfo(*rows[0]) if rows else None
 
-    async def tip(self, session_id: str, branch: str | None = None) -> HistoryEntry | None:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            branch_name = branch or await active_branch_row_async(conn, session_id)
-            if branch_name is None:
-                return None
-            row = await branch_tip_row_async(conn, session_id, branch_name)
-            return None if row is None else await get_entry_row_async(conn, session_id, row["history_id"])
+    async def _require(self, session_id: str) -> SessionInfo:
+        info = await self._info(session_id)
+        if info is None:
+            raise ValueError(f"unknown or expired session {session_id!r}")
+        return info
 
-    async def navigate(self, session_id: str, target: int) -> HistoryEntry:
-        if target == 0:
-            raise ValueError("navigation target must not be 0")
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            branch = await active_branch_row_async(conn, session_id)
-            if branch is None:
-                raise ValueError(f"no active session {session_id!r}")
-            if target > 0:
-                current_id = target
-                await get_entry_row_async(conn, session_id, current_id)
-            else:
-                tip_row = await branch_tip_row_async(conn, session_id, branch)
-                if tip_row is None:
-                    raise ValueError(f"no active session {session_id!r}")
-                current_id = tip_row["history_id"]
-                for step in range(-target):
-                    entry = await get_entry_row_async(conn, session_id, current_id)
-                    if entry.parent_id is None:
-                        raise ValueError(f"cannot go back {-target} steps: only {step} ancestors available")
-                    current_id = entry.parent_id
-            await conn.execute(
-                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
-                (current_id, session_id, branch),
-            )
-            await conn.execute(
-                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
-                (session_id,),
-            )
-            entry = await get_entry_row_async(conn, session_id, current_id)
-            await conn.commit()
-            return entry
-
-    async def rollback(self, session_id: str, steps: int = 1) -> HistoryEntry:
-        if steps < 1:
-            raise ValueError("rollback steps must be >= 1")
-        return await self.navigate(session_id, -steps)
-
-    async def navigate_forward(self, session_id: str, steps: int = 1) -> HistoryEntry:
-        if steps < 1:
-            raise ValueError("forward steps must be >= 1")
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            branch = await active_branch_row_async(conn, session_id)
-            if branch is None:
-                raise ValueError(f"no active session {session_id!r}")
-            tip_row = await branch_tip_row_async(conn, session_id, branch)
-            if tip_row is None:
-                raise ValueError(f"no active session {session_id!r}")
-            current_id = tip_row["history_id"]
-            for step in range(steps):
-                child_id = await latest_child_id_async(conn, session_id, current_id)
-                if child_id is None:
-                    raise ValueError(f"cannot go forward {steps} steps: only {step} children available")
-                current_id = child_id
-            await conn.execute(
-                "UPDATE session_branches_v1 SET history_id = ? WHERE session_id = ? AND branch_name = ?",
-                (current_id, session_id, branch),
-            )
-            await conn.execute(
-                "UPDATE session_state_v1 SET updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') WHERE session_id = ?",
-                (session_id,),
-            )
-            entry = await get_entry_row_async(conn, session_id, current_id)
-            await conn.commit()
-            return entry
-
-    async def create_branch(self, session_id: str, name: str, *, from_branch: str | None = None) -> None:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            source = from_branch or await active_branch_row_async(conn, session_id)
-            if source is None:
-                raise ValueError(f"no active session {session_id!r}")
-            row = await branch_tip_row_async(conn, session_id, source)
-            if row is None:
-                raise ValueError(f"source branch {source!r} does not exist")
-            existing = await branch_tip_row_async(conn, session_id, name)
+    async def create_session(self, session_id: str, *, kind: str = "session", ttl: float | None = None) -> SessionInfo:
+        if not isinstance(session_id, str) or not session_id or not isinstance(kind, str) or not kind:
+            raise ValueError("session_id and kind must be nonempty strings")
+        now = self.clock()
+        expires = expiration(ttl, now)
+        async with self._transaction(write=True):
+            existing = await self._info(session_id)
             if existing is not None:
-                raise ValueError(f"branch {name!r} already exists")
-            await conn.execute(
-                "INSERT INTO session_branches_v1 (session_id, branch_name, history_id) VALUES (?, ?, ?)",
-                (session_id, name, row["history_id"]),
-            )
-            await conn.commit()
+                if existing.kind != kind:
+                    raise ValueError("session already exists with another kind")
+                return existing
+            await self._write("DELETE FROM tree_sessions WHERE id=?", (session_id,))
+            await self._write("INSERT INTO tree_sessions VALUES (?,?,?,?)", (session_id, kind, now, expires))
+            return SessionInfo(session_id, kind, now, expires)
 
-    async def switch_branch(self, session_id: str, name: str) -> HistoryEntry:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            row = await branch_tip_row_async(conn, session_id, name)
-            if row is None:
-                raise ValueError(f"branch {name!r} does not exist")
-            await conn.execute(
-                "UPDATE session_state_v1 SET active_branch = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%S','now') "
-                "WHERE session_id = ?",
-                (name, session_id),
-            )
-            entry = await get_entry_row_async(conn, session_id, row["history_id"])
-            await conn.commit()
-            return entry
+    async def get_session(self, session_id: str) -> SessionInfo | None:
+        async with self._transaction():
+            return await self._info(session_id)
 
-    async def list_branches(self, session_id: str) -> list[tuple[str, bool]]:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            active = await active_branch_row_async(conn, session_id)
-            if active is None:
-                return []
-            cursor = await conn.execute(
-                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ? ORDER BY branch_name",
-                (session_id,),
-            )
-            rows = await cursor.fetchall()
-            return [(row["branch_name"], row["branch_name"] == active) for row in rows]
-
-    async def delete_branch(self, session_id: str, name: str) -> None:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            if name == await active_branch_row_async(conn, session_id):
-                raise ValueError("cannot delete the active branch")
-            cursor = await conn.execute(
-                "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-                (session_id, name),
-            )
-            if cursor.rowcount == 0:
-                raise ValueError(f"branch {name!r} does not exist")
-            await conn.commit()
-
-    async def list_sessions(self) -> list[str]:
-        conn = await self.ensure_connection()
-        async with self.lock:
-            cursor = await conn.execute("SELECT session_id FROM session_state_v1 ORDER BY session_id")
-            rows = await cursor.fetchall()
-        return [row["session_id"] for row in rows]
-
-    async def read_session(self, session_id: str) -> HistorySnapshot:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN")
-            active = await active_branch_row_async(conn, session_id)
-            entries, branches = await history_dag_async(conn, session_id)
-            metadata = await session_metadata_async(conn, session_id)
-            snapshot = history_snapshot(session_id, active, entries, branches, metadata)
-            await conn.commit()
-            return snapshot
-
-    async def prune_branches(
-        self, session_id: str, *, prefix: str, keep: Iterable[str] = (), dry_run: bool = False
-    ) -> tuple[str, ...]:
-        retained = validate_prune(prefix, keep)
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            active = await active_branch_row_async(conn, session_id)
-            if active is None:
-                raise ValueError(f"session {session_id!r} not found")
-            cursor = await conn.execute(
-                "SELECT branch_name FROM session_branches_v1 WHERE session_id = ?", (session_id,)
-            )
-            rows = await cursor.fetchall()
-            branches = [(row["branch_name"], row["branch_name"] == active) for row in rows]
-            selected = prune_selection(branches, prefix, retained)
-            if not dry_run:
-                await conn.executemany(
-                    "DELETE FROM session_branches_v1 WHERE session_id = ? AND branch_name = ?",
-                    [(session_id, name) for name in selected],
-                )
-            await conn.commit()
-            return selected
-
-    async def find_session(self, name: str) -> str:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            cursor = await conn.execute(
-                "SELECT session_id FROM session_state_v1 WHERE session_id = ?",
-                (name,),
-            )
-            exact = await cursor.fetchone()
-            if exact is not None:
-                return exact["session_id"]
-            cursor = await conn.execute(
-                "SELECT session_id FROM session_state_v1 WHERE session_id LIKE ? ESCAPE '\\'",
-                (f"%\\_{escape_like(name)}",),
-            )
-            rows = list(await cursor.fetchall())
-        if not rows:
-            raise ValueError(f"session {name!r} not found")
-        if len(rows) > 1:
-            matches = ", ".join(row["session_id"] for row in rows)
-            raise ValueError(f"ambiguous session {name!r}: matches {matches}")
-        return rows[0]["session_id"]
+    async def set_session_ttl(self, session_id: str, ttl: float | None) -> SessionInfo:
+        expires = expiration(ttl, self.clock())
+        async with self._transaction(write=True):
+            info = await self._require(session_id)
+            await self._write("UPDATE tree_sessions SET expires=? WHERE id=?", (expires, session_id))
+            return SessionInfo(info.session_id, info.kind, info.created_at, expires)
 
     async def delete_session(self, session_id: str) -> bool:
-        conn = await self.ensure_connection()
-        async with self.lock, self.transaction():
-            await conn.execute("BEGIN IMMEDIATE")
-            cursor = await conn.execute("SELECT 1 FROM session_state_v1 WHERE session_id = ?", (session_id,))
-            row = await cursor.fetchone()
-            if row is None:
-                await conn.commit()
-                return False
-            await conn.execute(
-                """
-                DELETE FROM session_history_files_v1
-                WHERE history_id IN (SELECT id FROM session_history_v1 WHERE session_id = ?)
-                """,
-                (session_id,),
-            )
-            await conn.execute(
-                "DELETE FROM session_history_attachments_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
-                (session_id,),
-            )
-            await conn.execute(
-                "DELETE FROM session_history_applied_files_v1 WHERE history_id IN "
-                "(SELECT id FROM session_history_v1 WHERE session_id = ?)",
-                (session_id,),
-            )
-            await conn.execute("DELETE FROM session_branches_v1 WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_history_v1 WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_state_v1 WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_metadata_v1 WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_env_v1 WHERE session_id = ?", (session_id,))
-            await conn.execute("DELETE FROM session_operations_v1 WHERE session_id = ?", (session_id,))
-            await conn.commit()
-            return True
+        async with self._transaction(write=True):
+            found = bool(await self._rows("SELECT id FROM tree_sessions WHERE id=?", (session_id,)))
+            await self._write("DELETE FROM tree_sessions WHERE id=?", (session_id,))
+            return found
 
-    async def history_dag(self, session_id: str) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        conn = await self.ensure_connection()
-        async with self.lock, self.read_transaction():
-            return await history_dag_async(conn, session_id)
+    async def list_sessions(
+        self, *, kind: str | None = None, prefix: str = "", limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[SessionInfo]:
+        scope = ("sessions", kind, prefix)
+        after = cursor_position(cursor, scope, limit) or ""
+        async with self._transaction():
+            rows = await self._rows(*sessions_query(kind, prefix, after, self.clock(), limit))
+            items = tuple(SessionInfo(*row) for row in rows[:limit])
+            return Page(items, next_cursor(scope, items[-1].session_id) if len(rows) > limit else None)
+
+    async def append(self, session_id: str, node: Node) -> None:
+        payload = encode_data(node.data)
+        async with self._transaction(write=True):
+            await self._require(session_id)
+            rows = await self._rows(
+                "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node.id)
+            )
+            if rows:
+                if rows[0] != (node.id, node.parent_id, node.kind, payload):
+                    raise NodeConflictError("node identity already has different contents")
+                return
+            if node.parent_id is None:
+                if await self._rows("SELECT id FROM tree_nodes WHERE session_id=? AND parent IS NULL", (session_id,)):
+                    raise NodeConflictError("tree already has a root")
+            elif not await self._rows(
+                "SELECT id FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node.parent_id)
+            ):
+                raise ValueError("parent does not exist in this session")
+            await self._write(
+                "INSERT INTO tree_nodes VALUES (?,?,?,?,?)", (session_id, node.id, node.parent_id, node.kind, payload)
+            )
+
+    async def _node(self, session_id: str, node_id: str) -> Node:
+        rows = await self._rows(
+            "SELECT id,parent,kind,data FROM tree_nodes WHERE session_id=? AND id=?", (session_id, node_id)
+        )
+        if not rows:
+            raise ValueError(f"unknown node {node_id!r}")
+        return node_from_row(rows[0])
+
+    async def get_node(self, session_id: str, node_id: str) -> Node:
+        async with self._transaction():
+            await self._require(session_id)
+            return await self._node(session_id, node_id)
+
+    async def get_nodes(self, session_id: str, node_ids: tuple[str, ...]) -> tuple[Node | None, ...]:
+        validate_node_ids(node_ids)
+        async with self._transaction():
+            await self._require(session_id)
+            found = {}
+            for start in range(0, len(node_ids), SQL_BATCH_SIZE):
+                rows = await self._rows(*batch_query(session_id, node_ids[start : start + SQL_BATCH_SIZE]))
+                found.update((row[0], row) for row in rows)
+            return tuple(node_from_row(found[node_id]) if node_id in found else None for node_id in node_ids)
+
+    async def list_nodes(
+        self, session_id: str, *, kind: str | None = None, limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[Node]:
+        return await self._list_nodes(session_id, None, False, kind, limit, cursor)
+
+    async def list_children(
+        self,
+        session_id: str,
+        parent_id: str | None,
+        *,
+        kind: str | None = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+        cursor: str | None = None,
+    ) -> Page[Node]:
+        return await self._list_nodes(session_id, parent_id, True, kind, limit, cursor)
+
+    async def _list_nodes(
+        self, session_id: str, parent_id: str | None, children: bool, kind: str | None, limit: int, cursor: str | None
+    ) -> Page[Node]:
+        scope = ("nodes", session_id, parent_id, children, kind)
+        after = cursor_position(cursor, scope, limit) or ""
+        async with self._transaction():
+            await self._require(session_id)
+            if children and parent_id is not None:
+                await self._node(session_id, parent_id)
+            rows = await self._rows(*nodes_query(session_id, parent_id, children, kind, after, limit))
+            items = tuple(node_from_row(row) for row in rows[:limit])
+            return Page(items, next_cursor(scope, items[-1].id) if len(rows) > limit else None)
+
+    async def list_history(
+        self, session_id: str, from_node: str, *, limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> Page[Node]:
+        scope = ("history", session_id, from_node)
+        async with self._transaction():
+            position = cursor_position(cursor, scope, limit) or from_node
+            await self._require(session_id)
+            rows = await self._rows(HISTORY_SQL, (session_id, position, session_id, limit + 1))
+            if not rows:
+                raise ValueError(f"unknown node {position!r}")
+            items = tuple(node_from_row(row) for row in rows[:limit])
+            token = next_cursor(scope, rows[limit][0]) if len(rows) > limit else None
+            return Page(items, token)
+
+    async def close(self) -> None:
+        async with self.lock:
+            self.closed = True
+            if self.conn is not None:
+                await self.conn.close()
+                self.conn = None

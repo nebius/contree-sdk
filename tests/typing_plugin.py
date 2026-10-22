@@ -16,7 +16,12 @@ def pytest_collect_file(file_path: Path, parent: pytest.Collector) -> pytest.Fil
     return None
 
 
-class TypingFile(pytest.File):
+class TypingFile(pytest.Module):
+    def _getobj(self):
+        from types import ModuleType
+
+        return ModuleType(self.path.stem)
+
     def collect(self):
         tomllib = pytest.importorskip("tomllib")
         scenarios = tomllib.loads(self.path.read_text())
@@ -37,6 +42,8 @@ def check_types(root: Path, imports: str, case: dict[str, Any], tmp_path: Path) 
             "-m",
             "ty",
             "check",
+            "--python",
+            sys.executable,
             "--project",
             str(root),
             "--extra-search-path",

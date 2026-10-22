@@ -51,11 +51,11 @@ To resume after Python exits, supply a SQLite store and the same `session_id`.
 History stores image references; the images must remain available on the server.
 See {doc}`sessions` and {doc}`manual-sandbox`.
 
-Commits compare the branch with its position when the operation started.
-A concurrent change raises `SessionConflictError`; results are not merged.
-The completed server image remains available. See
-[Recover a completed result](troubleshooting.md#advanced-a-completed-result-conflicts-with-newer-history)
-for saving it on a new branch without rerunning the command.
+Commits preserve the parent selected when the operation started. Concurrent
+results form sibling nodes; they do not replace each other. Branch names and the
+selected node belong to each Session instance. Pass `node_id` to resume a specific
+position. See [Select a late result](troubleshooting.md#advanced-select-a-late-result)
+for selecting a completed result without rerunning the command.
 
 ## Update integrations and extensions
 

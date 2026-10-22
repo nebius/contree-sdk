@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
+from typing import cast
 
 from contree_client.models import (
     ClosableStreamRepr,
@@ -17,18 +19,20 @@ from contree_client.models import (
 )
 from contree_client.types import ContreeSyncClient
 
-from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.execution import OperationContext, RunRequest, SyncExecutor
-from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, SyncFileTransfer, UploadFileSpec
+from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, StagedFile, SyncFileTransfer, UploadFileSpec
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_operation
 from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCommitPolicy
 from contree_sdk.session.contracts import OperationContract
-from contree_sdk.session.detached import decode_response, encode_response, operation_context, operation_record
+from contree_sdk.session.detached import decode_response, operation_context, operation_record
+from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.operation_sync import Operation
-from contree_sdk.store import HistoryEntry, StagedFile, SyncMemoryStore, SyncStore
-from contree_sdk.store.operations import OperationRecord
+from contree_sdk.session.records import OperationRecord
+from contree_sdk.session.tree import entry_from_node, entry_node, order_entries
+from contree_sdk.store import JSONValue, Node, NodeConflictError, SyncMemoryStore, SyncStore
+from contree_sdk.store.tree import DEFAULT_PAGE_SIZE, MAX_NODE_BATCH_SIZE
 
 
 class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
@@ -40,6 +44,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         *,
         image: str | None = None,
         session_id: str | None = None,
+        node_id: str | None = None,
+        tree_kind: str = "session",
         store: SyncStore | None = None,
         file_transfer: SyncFileTransfer | None = None,
         cwd: str | None = None,
@@ -53,28 +59,16 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.store = store if store is not None else self.create_store()
         self.file_transfer = file_transfer if file_transfer is not None else self.create_file_transfer()
         self.session_id = session_id or new_session_id()
-        metadata = self.store.get_session_metadata(self.session_id)
-        self.cwd = cwd if cwd is not None else metadata.cwd
-        self.env = env if env is not None else dict(metadata.env)
-
-        tip = self.store.tip(self.session_id)
-        if tip is not None:
-            self.image_uuid = tip.image_uuid
-            self.tip_id = tip.id
-        elif image is not None:
-            resolved = self.resolve_image(image)
-            try:
-                entry = self.store.append(
-                    self.session_id, image_uuid=resolved, parent_id=None, kind="init", expected_tip=None
-                )
-            except SessionConflictError:
-                entry = self.store.tip(self.session_id)
-                if entry is None:
-                    raise
-            self.image_uuid = entry.image_uuid
-            self.tip_id = entry.id
-        else:
-            raise ValueError(f"session {self.session_id!r} has no history and no image was given")
+        self.cwd_override = cwd
+        self.env_override = env
+        self.cwd = cwd
+        self.env = dict(env or {})
+        self._active_branch = "main"
+        self._branches: dict[str, str] = {}
+        self._position_version = 0
+        self.tip_id = ""
+        self.image_uuid = ""
+        self._initialize(image, node_id, tree_kind)
 
     def upload_file(self, file: UploadFileSpec) -> FileSpec:
         return self.file_transfer.upload(file)
@@ -83,35 +77,54 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         return self.file_transfer.prepare_files(files)
 
     def stage_files(self, files: RunFiles) -> HistoryEntry:
-        """Upload and persist attachments without starting a VM.
-
-        Returns:
-            The new staging history entry, which becomes the branch head.
-
-        """
         parent_id = self.tip_id
-        snapshot = self.store.read_session(self.session_id)
-        branch = snapshot.summary().active_branch
-        attachments = tuple(StagedFile.from_spec(path, spec) for path, spec in (self.build_files(files) or {}).items())
-        entry = self.store.stage_files(
-            self.session_id,
-            attachments,
-            branch=branch,
-            expected_tip=parent_id,
+        version = self._position_version
+        image_uuid, cwd, env = self.image_uuid, self.cwd, dict(self.env)
+        branch = self._active_branch
+        attachments = tuple(
+            (StagedFile.from_spec(path, spec) for path, spec in (self.build_files(files) or {}).items())
         )
-        tip = self.store.tip(self.session_id)
-        if tip is not None:
-            self.refresh_from_entry(tip)
+        if not attachments:
+            raise ValueError("staging requires files")
+        node = entry_node(
+            parent_id=parent_id,
+            image_uuid=image_uuid,
+            kind="stage",
+            created_at=time.time(),
+            attachments=attachments,
+            cwd=cwd,
+            env=env,
+        )
+        self.store.append(self.session_id, node)
+        entry = entry_from_node(self.session_id, node)
+        if self._branches.get(branch) == parent_id:
+            self._branches[branch] = node.id
+        if self.tip_id == parent_id and self._position_version == version:
+            self._branches[self._active_branch] = node.id
+            self.refresh_from_entry(entry)
         return entry
 
-    def pending_files(self) -> tuple[StagedFile, ...]:
-        """Read unapplied attachments at this session object's current history position.
-
-        Returns:
-            Attachments ordered by destination path.
-
-        """
-        return self.store.pending_files(self.session_id, history_id=self.tip_id)
+    def pending_files(self, node_id: str | None = None) -> tuple[StagedFile, ...]:
+        node_id = self.tip_id if node_id is None else node_id
+        pending = {}
+        seen = set()
+        cursor = None
+        while True:
+            page = self.store.list_history(
+                self.session_id, node_id, limit=1 if cursor is None else DEFAULT_PAGE_SIZE, cursor=cursor
+            )
+            for node in page.items:
+                for item in cast("list[dict]", node.data.get("attachments", [])):
+                    attachment = StagedFile(**item)
+                    if attachment.path not in seen:
+                        pending[attachment.path] = attachment
+                        seen.add(attachment.path)
+                seen.update(cast("list[str]", node.data.get("applied_files", [])))
+                if node.data.get("staging_complete") is True:
+                    return tuple(pending[path] for path in sorted(pending))
+            cursor = page.next_cursor
+            if cursor is None:
+                return tuple(pending[path] for path in sorted(pending))
 
     def spawn(
         self,
@@ -192,7 +205,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         context = operation.context
         if context is None or context.session_id != self.session_id:
             raise ValueError("detach requires an operation spawned by this session")
-        record = self.store.register_operation(self.create_operation_record(operation))
+        record = self._register_operation(self.create_operation_record(operation))
         operation.context = replace(context, detached=True)
         return record
 
@@ -218,7 +231,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             An unentered handle. Use wait_operation to reuse a stored final result.
 
         """
-        record = self.store.get_operation(self.session_id, operation_uuid)
+        record = self.get_operation(operation_uuid)
         self.check_operation_endpoint(record)
         context = self.restore_operation_context(record)
         operation = self.create_operation(InstanceSpawnResponse(uuid=record.uuid), context)
@@ -236,40 +249,67 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             raise ValueError("registered operation belongs to a different endpoint")
 
     def list_operations(self, *, pending_only: bool = True) -> tuple[OperationRecord, ...]:
-        """Read this session's durable operations.
+        records = []
+        cursor = None
+        while True:
+            page = self.store.list_nodes(
+                self.session_id, kind="operation-pending", limit=MAX_NODE_BATCH_SIZE, cursor=cursor
+            )
+            pending = [
+                OperationRecord.from_dict(cast("dict[str, JSONValue]", node.data["record"])) for node in page.items
+            ]
+            completed = (
+                self.store.get_nodes(self.session_id, tuple(record.node_id for record in pending)) if pending else ()
+            )
+            for record, node in zip(pending, completed, strict=True):
+                if node is not None:
+                    record = OperationRecord.from_dict(cast("dict[str, JSONValue]", node.data["record"]))
+                if not pending_only or record.pending:
+                    records.append(record)
+            cursor = page.next_cursor
+            if cursor is None:
+                return tuple(sorted(records, key=lambda record: record.uuid))
 
-        Returns:
-            Records in UUID order, including completed ones when requested.
-
-        """
-        return self.store.list_operations(self.session_id, pending_only=pending_only)
-
-    def _finish_detached(self, operation: OperationContract, *, branch: str | None = None) -> OperationRecord:
-        record = self.store.get_operation(self.session_id, operation.uuid)
+    def _finish_detached(self, operation: OperationContract) -> OperationRecord:
+        record = self.get_operation(operation.uuid)
         self.check_operation_endpoint(record)
         if not record.pending:
             return record
         response = operation.response
         if response is None:
-            raise ValueError("operation has no response yet; call wait() or status() first")
+            raise ValueError("operation has no response; wait first")
         image_uuid = None
         exit_code = None
+        context = self.restore_operation_context(record)
         if response.status == OperationStatus.SUCCESS:
             result = instance_result(response)
-            context = self.restore_operation_context(record)
             if not record.disposable and self.commit_policy.should_commit(context, result):
-                image_uuid = require_str(response.result_image_uuid, "operation succeeded but reported no result image")
+                image_uuid = require_str(response.result_image_uuid, "operation returned no result image")
                 exit_code = exit_code_of(result)
         elif response.status not in {OperationStatus.FAILED, OperationStatus.CANCELLED}:
             raise ValueError("operation is not complete")
-        return self.store.finish_operation(
-            self.session_id,
-            record.uuid,
-            encode_response(response),
+        node_id = record.node_id
+        completed = replace(record, response=response.to_dict(), history_id=node_id if image_uuid else None)
+        node = entry_node(
+            node_id=node_id,
+            parent_id=record.parent_id,
             image_uuid=image_uuid,
+            kind="run" if image_uuid else "operation-result",
+            created_at=record.created_at,
+            title=record.title,
+            operation_uuid=record.uuid,
             exit_code=exit_code,
-            branch=branch,
+            files=record.files,
+            applied_files=record.files,
+            cwd=context.session_cwd,
+            env=dict(context.session_env),
+            payload={"record": completed.to_dict(), "staging_complete": image_uuid is not None},
         )
+        try:
+            self.store.append(self.session_id, node)
+        except NodeConflictError:
+            return self.get_operation(record.uuid)
+        return completed
 
     def wait_operation(
         self,
@@ -281,15 +321,17 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         """Wait and finish once, without switching the session's active branch.
 
         Completed outcomes are replayed locally. Transport errors remain pending.
-        A tip conflict can be retried with a new branch name. The first completed
-        outcome wins if callers use different policies concurrently.
+        Late results retain their original parent without replacing newer local
+        positions. The first completed outcome wins across concurrent policies.
 
         Returns:
             The stored process result, including nonzero exit codes.
 
         """
-        record = self.store.get_operation(self.session_id, operation_uuid)
+        version = self._position_version
+        record = self.get_operation(operation_uuid)
         self.check_operation_endpoint(record)
+        was_pending = record.pending
         if record.pending:
             operation = self.restore_operation(operation_uuid)
             with owned_operation(operation):
@@ -303,10 +345,19 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
                         except Exception as save_error:
                             raise error from save_error
                     raise
-            record = self._finish_detached(operation, branch=branch)
-        tip = self.store.tip(self.session_id)
-        if tip is not None:
-            self.refresh_from_entry(tip)
+            record = self._finish_detached(operation)
+        if branch is not None and record.history_id is not None:
+            self._branches[branch] = record.history_id
+        if was_pending and record.history_id is not None:
+            entry = self.get_entry(record.history_id)
+            if self._branches.get(record.branch) == record.parent_id:
+                self._branches[record.branch] = entry.id
+            if (
+                self.tip_id == record.parent_id
+                and self._active_branch == record.branch
+                and self._position_version == version
+            ):
+                self.refresh_from_entry(entry)
         return instance_result(decode_response(record))
 
     def commit_result(
@@ -316,55 +367,65 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         title: str | None = None,
         branch: str | None = None,
         files: tuple[str, ...] | None = None,
+        data: dict[str, JSONValue] | None = None,
     ) -> HistoryEntry | None:
-        """Apply the session commit policy to a completed operation.
-
-        Returns:
-            The new entry, or None for a disposable request or a rejected result.
-            Rejection leaves branches, pending files, and session position unchanged.
-
-        Raises:
-            ValueError: The context, response, or accepted result image is missing.
-
-        """
         context = operation.context
         if context is None or context.session_id != self.session_id:
-            raise ValueError("commit_result requires an operation spawned by this session")
-        response = operation.response
-        if response is None:
-            raise ValueError("operation has no response yet; call wait() or status() before commit_result()")
+            raise ValueError("operation does not belong to this session")
         if context.detached:
             if files is not None or (title is not None and title != context.request.title):
-                raise ValueError("detached operation metadata is fixed at registration")
-            record = self._finish_detached(operation, branch=branch)
+                raise ValueError("detached metadata is fixed at registration")
+            record = self._finish_detached(operation)
             instance_result(decode_response(record))
-            tip = self.store.tip(self.session_id)
-            if tip is not None:
-                self.refresh_from_entry(tip)
-            return None if record.history_id is None else self.store.get_entry(self.session_id, record.history_id)
+            if record.history_id is None:
+                return None
+            entry = self.get_entry(record.history_id)
+            if self._branches.get(record.branch) == record.parent_id:
+                self._branches[record.branch] = entry.id
+            if (
+                self.tip_id == record.parent_id
+                and self._active_branch == record.branch
+                and self._position_version == context.position_version
+            ):
+                self.refresh_from_entry(entry)
+            return entry
+        response = operation.response
+        if response is None:
+            raise ValueError("operation has no response; wait first")
         result = instance_result(response)
         if context.request.disposable or not self.commit_policy.should_commit(context, result):
             return None
-        result_image_uuid = require_str(response.result_image_uuid, "operation succeeded but reported no result image")
-        entry = self.store.append(
-            self.session_id,
-            image_uuid=result_image_uuid,
+        node = entry_node(
+            node_id=context.node_id,
             parent_id=context.parent_id,
-            expected_tip=context.parent_id if branch is None or branch == context.branch else None,
+            image_uuid=require_str(response.result_image_uuid, "operation returned no result image"),
             kind="run",
-            title=title or "",
+            created_at=context.created_at,
+            title=title if title is not None else context.request.title,
             operation_uuid=operation.uuid,
             exit_code=exit_code_of(result),
-            branch=branch or context.branch,
             files=files if files is not None else context.files,
             applied_files=context.files,
+            payload={"staging_complete": True},
+            user=data,
+            cwd=context.session_cwd,
+            env=dict(context.session_env),
         )
-        tip = (
-            self.store.switch_branch(self.session_id, branch) if branch is not None else self.store.tip(self.session_id)
-        )
-        if tip is not None:
-            self.tip_id = tip.id
-            self.image_uuid = tip.image_uuid
+        self.store.append(self.session_id, node)
+        entry = entry_from_node(self.session_id, node)
+        if context.branch is not None and self._branches.get(context.branch) == context.parent_id:
+            self._branches[context.branch] = node.id
+        if branch is not None:
+            self._branches[branch] = node.id
+            self._active_branch = branch
+            self.refresh_from_entry(entry)
+        elif (
+            self.tip_id == context.parent_id
+            and self._active_branch == context.branch
+            and (self._position_version == context.position_version)
+        ):
+            self._branches[self._active_branch] = node.id
+            self.refresh_from_entry(entry)
         return entry
 
     def run(
@@ -416,7 +477,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
 
     def set_cwd(self, cwd: str | None) -> None:
         self.cwd = cwd
-        self.store.set_session_cwd(self.session_id, cwd)
+        self._save_configuration()
 
     def set_env(self, updates: dict[str, str | None]) -> None:
         for key, value in updates.items():
@@ -424,35 +485,77 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
                 self.env.pop(key, None)
             else:
                 self.env[key] = value
-        self.store.set_session_env(self.session_id, updates)
+        self._save_configuration()
 
     def create_branch(self, name: str, *, from_branch: str | None = None) -> None:
-        self.store.create_branch(self.session_id, name, from_branch=from_branch)
+        if not name or name in self._branches:
+            raise ValueError("branch name is empty or already exists")
+        if from_branch is not None and from_branch not in self._branches:
+            raise ValueError("unknown source branch")
+        self._branches[name] = self._branches[from_branch] if from_branch else self.tip_id
 
     def switch_branch(self, name: str) -> None:
-        entry = self.store.switch_branch(self.session_id, name)
+        if name not in self._branches:
+            raise ValueError("unknown local branch")
+        entry = self.get_entry(self._branches[name])
+        self._active_branch = name
+        self._position_version += 1
         self.refresh_from_entry(entry)
 
     def list_branches(self) -> list[tuple[str, bool]]:
-        return self.store.list_branches(self.session_id)
+        return [(name, name == self._active_branch) for name in sorted(self._branches)]
 
     def delete_branch(self, name: str) -> None:
-        self.store.delete_branch(self.session_id, name)
+        if name == self._active_branch:
+            raise ValueError("cannot delete the selected local branch")
+        if name not in self._branches:
+            raise ValueError("unknown local branch")
+        del self._branches[name]
 
     def rollback(self, steps: int = 1) -> None:
-        entry = self.store.rollback(self.session_id, steps)
-        self.refresh_from_entry(entry)
+        if steps < 0:
+            raise ValueError("steps must be nonnegative")
+        node = self.store.get_node(self.session_id, self.tip_id)
+        for _ in range(steps):
+            if node.parent_id is None:
+                raise ValueError("cannot roll back beyond the root")
+            node = self.store.get_node(self.session_id, node.parent_id)
+        self.navigate(node.id)
 
-    def navigate(self, target: int) -> None:
-        entry = self.store.navigate(self.session_id, target)
+    def navigate(self, node_id: str) -> None:
+        entry = self.get_entry(node_id)
+        self._position_version += 1
+        self._branches[self._active_branch] = entry.id
         self.refresh_from_entry(entry)
 
     def navigate_forward(self, steps: int = 1) -> None:
-        entry = self.store.navigate_forward(self.session_id, steps)
-        self.refresh_from_entry(entry)
+        if steps < 0:
+            raise ValueError("steps must be nonnegative")
+        node_id = self.tip_id
+        for _ in range(steps):
+            children = []
+            cursor = None
+            while True:
+                page = self.store.list_children(self.session_id, node_id, cursor=cursor)
+                children.extend(node for node in page.items if node.data.get("image_uuid"))
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            if len(children) != 1:
+                raise ValueError("forward requires exactly one continuation; navigate to an explicit node")
+            node_id = children[0].id
+        self.navigate(node_id)
 
-    def history(self) -> tuple[list[HistoryEntry], dict[int, list[str]]]:
-        return self.store.history_dag(self.session_id)
+    def history(self) -> tuple[list[HistoryEntry], dict[str, list[str]]]:
+        entries = [
+            entry_from_node(self.session_id, node)
+            for node in self._all_nodes()
+            if node.data.get("image_uuid") and node.kind != "operation-pending"
+        ]
+        names = {}
+        for name, node_id in self._branches.items():
+            names.setdefault(node_id, []).append(name)
+        return (order_entries(entries), names)
 
     def create_store(self) -> SyncStore:  # noqa: PLR6301 - public extension contract
         """Create the default store when none was supplied.
@@ -539,8 +642,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         request = self.prepare_request(request)
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
         parent_id = self.tip_id
-        branch = self.store.active_branch(self.session_id)
-        staged = self.store.pending_files(self.session_id, history_id=parent_id)
+        position_version = self._position_version
+        session_cwd, session_env = self.cwd, dict(self.env)
+        branch = self._active_branch
+        staged = self.pending_files(parent_id)
         files = {item.path: item.as_spec() for item in staged}
         files.update(self.build_files(request.files) or {})
         stdin = None
@@ -555,6 +660,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             branch,
             tuple(files or ()),
             tuple(StagedFile.from_spec(path, spec) for path, spec in files.items()),
+            position_version=position_version,
+            session_cwd=session_cwd,
+            session_env=session_env,
         )
         response = self.submit_request(request, image_uuid, files=files or None, stdin=stdin)
         try:
@@ -630,3 +738,94 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         if not context.request.disposable:
             self.commit_result(operation, title=context.request.title, branch=branch)
         return result
+
+    def _all_nodes(self, *, kind: str | None = None) -> list[Node]:
+        result = []
+        cursor = None
+        while True:
+            page = self.store.list_nodes(self.session_id, kind=kind, cursor=cursor)
+            result.extend(page.items)
+            cursor = page.next_cursor
+            if cursor is None:
+                return result
+
+    def _initialize(self, image: str | None, node_id: str | None, tree_kind: str) -> None:
+        info = self.store.get_session(self.session_id)
+        if info is None:
+            if image is None:
+                raise ValueError("unknown session; provide an image to create it")
+            self.store.create_session(self.session_id, kind=tree_kind)
+        roots = self.store.list_children(self.session_id, None).items
+        if not roots:
+            if image is None:
+                raise ValueError("session has no root image")
+            root = entry_node(
+                parent_id=None,
+                image_uuid=self.resolve_image(image),
+                kind="init",
+                created_at=time.time(),
+                cwd=self.cwd,
+                env=self.env,
+            )
+            try:
+                self.store.append(self.session_id, root)
+            except NodeConflictError:
+                roots = self.store.list_children(self.session_id, None).items
+                if not roots:
+                    raise
+        if node_id is None:
+            nodes = self._all_nodes()
+            entries = [
+                node
+                for node in nodes
+                if isinstance(node.data.get("image_uuid"), str) and node.kind != "operation-pending"
+            ]
+            parents = {node.parent_id for node in entries}
+            leaves = [node for node in entries if node.id not in parents]
+            if len(leaves) != 1:
+                raise ValueError("session has multiple continuations; provide node_id explicitly")
+            node = leaves[0]
+        else:
+            node = self.store.get_node(self.session_id, node_id)
+        self.refresh_from_entry(entry_from_node(self.session_id, node))
+        if self.cwd_override is None:
+            self.cwd = cast("str | None", node.data.get("cwd"))
+        if self.env_override is None:
+            self.env = dict(cast("dict[str, str]", node.data.get("env", {})))
+        self._branches = {"main": self.tip_id}
+
+    def get_entry(self, node_id: str) -> HistoryEntry:
+        return entry_from_node(self.session_id, self.store.get_node(self.session_id, node_id))
+
+    def get_operation(self, operation_uuid: str) -> OperationRecord:
+        pending = self.store.get_node(self.session_id, "operation-pending:" + operation_uuid)
+        record = OperationRecord.from_dict(cast("dict[str, JSONValue]", pending.data["record"]))
+        try:
+            completed = self.store.get_node(self.session_id, record.node_id)
+        except ValueError:
+            return record
+        return OperationRecord.from_dict(cast("dict[str, JSONValue]", completed.data["record"]))
+
+    def _register_operation(self, record: OperationRecord) -> OperationRecord:
+        node = Node(
+            id="operation-pending:" + record.uuid,
+            parent_id=record.parent_id,
+            kind="operation-pending",
+            data={"record": record.to_dict(), "operation_uuid": record.uuid},
+        )
+        self.store.append(self.session_id, node)
+        return self.get_operation(record.uuid)
+
+    def _save_configuration(self) -> None:
+        node = entry_node(
+            parent_id=self.tip_id,
+            image_uuid=self.image_uuid,
+            kind="config",
+            created_at=time.time(),
+            cwd=self.cwd,
+            env=self.env,
+        )
+        self.store.append(self.session_id, node)
+        self._branches[self._active_branch] = node.id
+        self._position_version += 1
+        self.refresh_from_entry(entry_from_node(self.session_id, node))

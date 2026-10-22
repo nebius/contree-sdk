@@ -131,13 +131,13 @@ def test_set_cwd_and_set_env_persist_through_store(client: ContreeClient):
 
     assert session.cwd == "/app"
     assert session.env == {"FOO": "1", "BAR": "2"}
-    metadata = store.get_session_metadata("s1")
-    assert metadata.cwd == "/app"
-    assert metadata.env == {"FOO": "1", "BAR": "2"}
+    metadata = (store.get_node("s1", session.tip_id)).data
+    assert metadata["cwd"] == "/app"
+    assert metadata["env"] == {"FOO": "1", "BAR": "2"}
 
     session.set_env({"BAR": None})
     assert session.env == {"FOO": "1"}
-    assert store.get_session_metadata("s1").env == {"FOO": "1"}
+    assert store.get_node("s1", session.tip_id).data["env"] == {"FOO": "1"}
 
     resumed = ContreeSession(client, store=store, session_id="s1")
     assert resumed.cwd == "/app"
@@ -167,7 +167,6 @@ def test_cancelled_operation_with_partial_result_is_not_committed(client):
 
 
 def test_stale_operation_does_not_rewrite_history(client):
-    from contree_sdk.exceptions import SessionConflictError
 
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
@@ -178,10 +177,12 @@ def test_stale_operation_does_not_rewrite_history(client):
     second.wait()
     committed = session.commit_result(first)
     assert committed is not None
-    with pytest.raises(SessionConflictError):
-        session.commit_result(second)
+    sibling = session.commit_result(second)
+    assert sibling is not None
+    assert sibling.parent_id == committed.parent_id
+    assert sibling.id != committed.id
     entries, _ = session.history()
-    assert len(entries) == 2
+    assert len(entries) == 3
     assert session.tip_id == committed.id
 
 
@@ -194,5 +195,6 @@ def test_commit_after_branch_switch_preserves_active_branch(client):
     session.switch_branch("other")
     operation.wait()
     entry = session.commit_result(operation)
+    assert entry is not None
     assert session.image_uuid == "img-uuid-0"
-    assert (session.store.tip(session.session_id, "main")) == entry
+    assert "main" in (session.history())[1][entry.id]

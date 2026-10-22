@@ -18,6 +18,7 @@ def main() -> None:
                 shell="sort /input.txt > /result.txt",
                 files={"/input.txt": b"pear\napple\n"},
             )
+            baseline_node = session.tip_id
             session.create_branch("reverse")
             session.switch_branch("reverse")
             session.run(shell="sort -r /input.txt > /result.txt")
@@ -25,9 +26,9 @@ def main() -> None:
             print((session.read_file("/result.txt")).decode(), end="")
             session.switch_branch("main")
 
-        # Reopen local history and read the unchanged baseline image.
+        # Reopen the saved node. Local branch selection is not shared through Store.
         with SyncSQLiteStore("workflow.db") as store:
-            resumed = ContreeSession(client, store=store, session_id=session_id)
+            resumed = ContreeSession(client, store=store, session_id=session_id, node_id=baseline_node)
             print("Baseline:")
             print((resumed.read_file("/result.txt")).decode(), end="")
 

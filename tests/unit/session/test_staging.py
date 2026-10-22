@@ -7,9 +7,9 @@ from contree_client.models import FileResponse, OperationStatus
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import ContreeAsyncSession, ContreeSession
-from contree_sdk.exceptions import FailedOperationError, SessionConflictError
-from contree_sdk.files import UploadedFile, UploadFileSpec
-from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, StagedFile, SyncMemoryStore, SyncSQLiteStore
+from contree_sdk.exceptions import FailedOperationError
+from contree_sdk.files import StagedFile, UploadedFile, UploadFileSpec
+from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, SyncMemoryStore, SyncSQLiteStore
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
@@ -97,18 +97,18 @@ async def test_explicit_files_override_staging_without_consuming_disposable_bran
 async def test_failed_operation_retains_staging(staging_session, status):
     session = staging_session
     await call(session, "stage_files", {"/input": uploaded("staged")})
-    before = await call(session.store, "read_session", session.session_id)
+    before = await call(session.store, "list_nodes", session.session_id)
     complete(session, status=status)
     error = InterruptedError if status == OperationStatus.CANCELLED else FailedOperationError
     with pytest.raises(error):
         await call(session, "run", shell="cat /input", disposable=False)
-    assert await call(session.store, "read_session", session.session_id) == before
+    assert await call(session.store, "list_nodes", session.session_id) == before
 
 
 async def test_upload_and_spawn_errors_do_not_change_staging(staging_session):
     session = staging_session
     await call(session, "stage_files", {"/input": uploaded("staged")})
-    before = await call(session.store, "read_session", session.session_id)
+    before = await call(session.store, "list_nodes", session.session_id)
     # Queue both outcomes before consuming the first one.
     session.client.mock("ensure_file", error=OSError("upload failed"))
     await call(session, "upload_file", UploadFileSpec(source=b"data", path="/not-staged"))
@@ -117,7 +117,7 @@ async def test_upload_and_spawn_errors_do_not_change_staging(staging_session):
     session.client.mock("spawn_instance", error=OSError("spawn failed"))
     with pytest.raises(OSError, match="spawn failed"):
         await call(session, "run", shell="cat /input", disposable=False)
-    assert await call(session.store, "read_session", session.session_id) == before
+    assert await call(session.store, "list_nodes", session.session_id) == before
 
 
 async def test_file_record_override_does_not_disable_consumption(staging_session):
@@ -139,8 +139,8 @@ async def test_parallel_edit_causes_commit_conflict_and_can_be_saved_on_new_bran
     operation = await call(session, "spawn", shell="cat /input", disposable=False)
     await call(session, "stage_files", {"/input": uploaded("replacement")})
     await call(operation, "wait")
-    with pytest.raises(SessionConflictError):
-        await call(session, "commit_result", operation)
+    saved = await call(session, "commit_result", operation)
+    assert saved.parent_id == first.id
     assert (await call(session, "pending_files"))[0].uuid == "replacement"
     await call(session, "commit_result", operation, branch="completed")
     assert await call(session, "pending_files") == ()
@@ -186,30 +186,34 @@ async def test_upload_keeps_its_original_branch_when_active_branch_changes(stagi
 
     monkeypatch.setattr(session, "build_files", during_upload)
     staged = await call(session, "stage_files", {"/main": uploaded("main")})
-    assert (await call(session.store, "tip", "session", "main")).id == staged.id
-    assert session.tip_id == (await call(session.store, "tip", "session", "feature")).id
+    assert "main" in (await call(session, "history"))[1][staged.id]
+    assert "feature" in (await call(session, "history"))[1][session.tip_id]
     assert [item.path for item in await call(session, "pending_files")] == ["/feature"]
 
 
-async def test_upload_captures_expected_tip_before_other_edits(staging_session, monkeypatch):
+async def test_upload_keeps_source_when_another_actor_appends(staging_session, monkeypatch):
     session = staging_session
+    root = session.tip_id
+    other = type(session)(session.client, session_id=session.session_id, node_id=root, store=session.store)
     original = session.build_files
-    replacement = StagedFile("/input", "newer")
     if isinstance(session, ContreeAsyncSession):
 
         async def during_upload(files):
-            entry = await session.store.stage_files("session", [replacement])
-            await session.refresh_from_entry(entry)
+            newer = await other.stage_files({"/input": uploaded("newer")})
+            await session.navigate(newer.id)
             return await original(files)
 
     else:
 
         def during_upload(files):
-            entry = session.store.stage_files("session", [replacement])
-            session.refresh_from_entry(entry)
+            newer = other.stage_files({"/input": uploaded("newer")})
+            session.navigate(newer.id)
             return original(files)
 
     monkeypatch.setattr(session, "build_files", during_upload)
-    with pytest.raises(SessionConflictError):
-        await call(session, "stage_files", {"/input": uploaded("stale")})
-    assert await call(session, "pending_files") == (replacement,)
+    saved = await call(session, "stage_files", {"/input": uploaded("stale")})
+    assert saved.parent_id == root
+    assert saved.id != session.tip_id
+    assert (await call(session, "pending_files"))[0].uuid == "newer"
+    children = await call(session.store, "list_children", session.session_id, root)
+    assert len(children.items) == 2

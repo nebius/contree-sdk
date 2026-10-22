@@ -19,6 +19,7 @@ async def main() -> None:
                 shell="sort /input.txt > /result.txt",
                 files={"/input.txt": b"pear\napple\n"},
             )
+            baseline_node = session.tip_id
             await session.create_branch("reverse")
             await session.switch_branch("reverse")
             await session.run(shell="sort -r /input.txt > /result.txt")
@@ -26,9 +27,9 @@ async def main() -> None:
             print((await session.read_file("/result.txt")).decode(), end="")
             await session.switch_branch("main")
 
-        # Reopen local history and read the unchanged baseline image.
+        # Reopen the saved node. Local branch selection is not shared through Store.
         async with AsyncSQLiteStore("workflow.db") as store:
-            resumed = ContreeAsyncSession(client, store=store, session_id=session_id)
+            resumed = ContreeAsyncSession(client, store=store, session_id=session_id, node_id=baseline_node)
             print("Baseline:")
             print((await resumed.read_file("/result.txt")).decode(), end="")
 

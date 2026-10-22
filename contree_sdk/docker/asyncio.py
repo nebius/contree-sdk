@@ -11,7 +11,6 @@ from pathlib import Path
 
 from contree_client.types import ContreeAsyncClient
 
-from contree_sdk.cache import AsyncCache, AsyncMemoryCache
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.store import AsyncMemoryStore, AsyncStore
@@ -40,14 +39,12 @@ class ContreeAsyncDockerBuilder:
         client: ContreeAsyncClient,
         *,
         store: AsyncStore | None = None,
-        cache: AsyncCache | None = None,
         http_fetch_async: Callable[[str, str, Iterable[tuple[str, str]]], Awaitable[AsyncFetchResponse]] | None = None,
         parser: DockerfileParser | None = None,
         session_factory: Callable[..., ContreeAsyncSession] | None = None,
     ) -> None:
         self.client = client
         self.store = store if store is not None else AsyncMemoryStore()
-        self.cache = cache if cache is not None else AsyncMemoryCache()
         self.http_fetch_async = http_fetch_async or default_http_fetch_async
         self.parser = parser if parser is not None else DockerfileParser()
         self.session_factory = session_factory if session_factory is not None else ContreeAsyncSession
@@ -149,7 +146,6 @@ class ContreeAsyncDockerBuilder:
         return self.context_class(
             client=self.client,
             store=self.store,
-            cache=self.cache,
             local=await to_thread(LocalContext.from_dir, request.context_dir),
             http_fetch_async=self.http_fetch_async,
             session_factory=self.session_factory,

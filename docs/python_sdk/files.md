@@ -266,7 +266,8 @@ assert len(doc_api.sync.calls_for("spawn_instance")) == 1
 attached = doc_api.sync.calls_for("spawn_instance")[0].kwargs["files"]["/work/config.ini"]
 assert (attached.uuid, attached.uid, attached.gid, attached.mode) == ("uploaded-file", 1000, 1000, "0640")
 with SyncSQLiteStore("staging.db") as reopened:
-    assert reopened.pending_files("edit-demo") == pending
+    restored = ContreeSession(doc_api.sync, session_id="edit-demo", store=reopened, node_id=staged.id)
+    assert restored.pending_files() == pending
 ```
 -->
 
@@ -316,7 +317,8 @@ assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
 attached = doc_api.async_client.calls_for("spawn_instance")[0].kwargs["files"]["/work/config.ini"]
 assert (attached.uuid, attached.uid, attached.gid, attached.mode) == ("uploaded-file", 1000, 1000, "0640")
 async with AsyncSQLiteStore("staging-async.db") as reopened:
-    assert await reopened.pending_files("edit-demo") == pending
+    restored = ContreeAsyncSession(doc_api.async_client, session_id="edit-demo", store=reopened, node_id=staged.id)
+    assert await restored.pending_files() == pending
 ```
 -->
 
@@ -332,20 +334,18 @@ those explicit replacements. A disposable run, failed operation, cancelled opera
 or failed commit leaves the source staging available. Nonzero command exit codes
 follow the session's normal commit behavior.
 
-Concurrent changes to the target branch raise `SessionConflictError`. The operation
-still has its result and context, so it can be committed to a new branch with
-`commit_result(operation, branch="result")`. Do not retry a stale commit against
-the changed branch without choosing which history to retain.
+Concurrent operations retain their original parent. Their results become siblings;
+a late result does not replace a newer local selection. Use
+`commit_result(operation, branch="result")` to select its result explicitly.
 
 `read_file()` reads the current image; staged attachments appear there only after a
 committed run. For `LazySession`, pending attachments enter the VM at startup and
 are consumed when its snapshot commits. Stage inputs before starting that VM.
 
-Custom integrations can use `store.stage_files(session_id, attachments, branch=...)`
-with public `StagedFile` values for already uploaded content. Store-level
-`pending_files()` accepts a history ID or exact branch name. Both native sync and
-async stores provide these methods. The store does not verify whether an uploaded
-UUID still exists on the server.
+Staging and pending-file resolution belong to Session. Store persists their nodes
+without interpreting file attachments. Rollback changes only the local selection;
+pass `node_id=staged.id` to resume that position in another process. Stored file
+references do not guarantee that the uploaded UUID still exists on the server.
 
 ## Advanced: prepare directory trees and stream large files
 

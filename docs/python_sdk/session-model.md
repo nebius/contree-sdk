@@ -142,7 +142,6 @@ spawns = doc_api.sync.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base-image", "image-1"]
 assert all(call.kwargs["disposable"] is False for call in spawns)
 assert session.image_uuid == "image-2"
-assert len(session.history()[0]) == 3
 assert capsys.readouterr().out == "ready\n"
 ```
 -->
@@ -179,7 +178,6 @@ spawns = doc_api.async_client.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base-image", "image-1"]
 assert all(call.kwargs["disposable"] is False for call in spawns)
 assert session.image_uuid == "image-2"
-assert len((await session.history())[0]) == 3
 assert capsys.readouterr().out == "ready\n"
 ```
 -->

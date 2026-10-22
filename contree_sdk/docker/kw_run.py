@@ -52,7 +52,7 @@ class RunKeyword(DockerKeyword):
         # using the process environment, so `self.parts` is sent verbatim.
         contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(self.parts))}"
         chain = ctx.chain(contribution)
-        branch_name = f"layer:{ctx.short_hash(chain)}"
+        branch_name = f"layer:{chain}"
 
         if ctx.try_cache_hit(branch_name) is not None:
             ctx.parent_hash = chain
@@ -60,8 +60,6 @@ class RunKeyword(DockerKeyword):
             return
 
         require_session(ctx.session)
-        if ctx.store.tip(ctx.session_id, branch=branch_name) is not None:
-            ctx.store.delete_branch(ctx.session_id, branch_name)
         result = ctx.run_operation(self.build_request(ctx), branch=branch_name)
         check_success(result, self.parts, self.shell_form)
 
@@ -71,7 +69,7 @@ class RunKeyword(DockerKeyword):
     async def execute_async(self, ctx: AsyncBuildContext) -> None:
         contribution = f"RUN shell={self.shell_form} parts={json.dumps(list(self.parts))}"
         chain = ctx.chain(contribution)
-        branch_name = f"layer:{ctx.short_hash(chain)}"
+        branch_name = f"layer:{chain}"
 
         if await ctx.try_cache_hit(branch_name) is not None:
             ctx.parent_hash = chain
@@ -79,8 +77,6 @@ class RunKeyword(DockerKeyword):
             return
 
         require_session_async(ctx.session)
-        if await ctx.store.tip(ctx.session_id, branch=branch_name) is not None:
-            await ctx.store.delete_branch(ctx.session_id, branch_name)
         result = await ctx.run_operation(self.build_request(ctx), branch=branch_name)
         check_success(result, self.parts, self.shell_form)
 

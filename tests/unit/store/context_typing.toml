@@ -1,7 +1,7 @@
 imports = '''
 from typing_extensions import assert_type
 from contree_sdk.store import (
-    SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore,
+    Node, Page, SessionInfo, SyncStore, AsyncStore, SyncMemoryStore, AsyncMemoryStore, SyncSQLiteStore, AsyncSQLiteStore,
 )
 '''
 
@@ -37,4 +37,40 @@ async def use(base: AsyncStore, memory: AsyncMemoryStore, sqlite: AsyncSQLiteSto
         assert_type(entered_sqlite, AsyncSQLiteStore)
     async with custom as entered_custom:
         assert_type(entered_custom, CustomStore)
+'''
+
+[[cases]]
+name = "sync_tree_values_and_pages"
+code = '''
+def use(store: SyncStore, node: Node):
+    assert_type(store.create_session("s", kind="session"), SessionInfo)
+    assert_type(store.append("s", node), None)
+    assert_type(store.get_node("s", node.id), Node)
+    assert_type(store.get_nodes("s", (node.id,)), tuple[Node | None, ...])
+    assert_type(store.list_sessions(kind="session"), Page[SessionInfo])
+    assert_type(store.list_nodes("s", kind="run"), Page[Node])
+    assert_type(store.list_children("s", node.id), Page[Node])
+    assert_type(store.list_history("s", node.id), Page[Node])
+'''
+
+[[cases]]
+name = "async_tree_values_and_pages"
+code = '''
+async def use(store: AsyncStore, node: Node):
+    assert_type(await store.create_session("s", kind="session"), SessionInfo)
+    assert_type(await store.append("s", node), None)
+    assert_type(await store.get_node("s", node.id), Node)
+    assert_type(await store.get_nodes("s", (node.id,)), tuple[Node | None, ...])
+    assert_type(await store.list_sessions(kind="session"), Page[SessionInfo])
+    assert_type(await store.list_nodes("s", kind="run"), Page[Node])
+    assert_type(await store.list_children("s", node.id), Page[Node])
+    assert_type(await store.list_history("s", node.id), Page[Node])
+'''
+
+[[cases]]
+name = "append_requires_a_node"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+def use(store: SyncStore):
+    store.append("s", {"command": "echo hi"})
 '''

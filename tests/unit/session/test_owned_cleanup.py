@@ -7,10 +7,8 @@ import pytest
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import ContreeAsyncSession, ContreeSession, RunRequest
-from contree_sdk.cache import AsyncMemoryCache, SyncMemoryCache
 from contree_sdk.docker.context import AsyncBuildContext, BuildContext
 from contree_sdk.docker.local_context import LocalContext
-from contree_sdk.exceptions import SessionConflictError
 from contree_sdk.session import AsyncOperation, Operation
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 from tests.unit.session.test_detached import call
@@ -64,9 +62,7 @@ async def test_owned_wait_joins_its_reader(cancel_wait, cancel_fails, workflow, 
         elif workflow == "execute":
             await session.execute(request)
         else:
-            context = AsyncBuildContext(
-                client, session.store, AsyncMemoryCache(), LocalContext(tmp_path), session=session
-            )
+            context = AsyncBuildContext(client, session.store, LocalContext(tmp_path), session=session)
             await context.run_operation(request, branch="layer")
 
     task = asyncio.create_task(wait())
@@ -79,7 +75,7 @@ async def test_owned_wait_joins_its_reader(cancel_wait, cancel_fails, workflow, 
         assert closed.is_set()
         assert handles[-1].consumer_task.done()
         if record is not None:
-            assert (await session.store.get_operation(session.session_id, record.uuid)).pending
+            assert (await session.get_operation(record.uuid)).pending
         assert len((await session.history())[0]) == 1
     finally:
         task.cancel()
@@ -134,7 +130,7 @@ def test_sync_owned_wait_calls_shutdown_before_returning(cancel_fails, workflow,
         elif workflow == "execute":
             session.execute(request)
         else:
-            context = BuildContext(client, session.store, SyncMemoryCache(), LocalContext(tmp_path), session=session)
+            context = BuildContext(client, session.store, LocalContext(tmp_path), session=session)
             context.run_operation(request, branch="layer")
 
     try:
@@ -143,7 +139,7 @@ def test_sync_owned_wait_calls_shutdown_before_returning(cancel_fails, workflow,
         assert release.is_set()
         assert not handles[-1].consumer_thread.is_alive()
         if record is not None:
-            assert session.store.get_operation(session.session_id, record.uuid).pending
+            assert session.get_operation(record.uuid).pending
         assert len(session.history()[0]) == 1
     finally:
         release.set()
@@ -192,7 +188,7 @@ async def test_repeated_cancellation_waits_for_reader_cleanup():
         with pytest.raises(asyncio.CancelledError):
             await task
         assert handles[-1].consumer_task.done()
-        assert (await session.store.get_operation(session.session_id, record.uuid)).pending
+        assert (await session.get_operation(record.uuid)).pending
     finally:
         release.set()
         task.cancel()
@@ -283,13 +279,13 @@ async def test_completed_handle_is_closed_before_commit(asynchronous, workflow, 
 
     def fail_commit(*args, **kwargs):
         assert closed == ["op-1"]
-        raise SessionConflictError("concurrent history change")
+        raise OSError("store write failed")
 
     async def fail_async_commit(*args, **kwargs):
         fail_commit(*args, **kwargs)
 
     if commit_fails:
-        method = "finish_operation" if workflow == "detached" else "append"
+        method = "append"
         monkeypatch.setattr(session.store, method, fail_async_commit if asynchronous else fail_commit)
 
     async def run():
@@ -301,16 +297,14 @@ async def test_completed_handle_is_closed_before_commit(asynchronous, workflow, 
         if workflow == "execute":
             return await call(session, "execute", request)
         context = (
-            AsyncBuildContext(
-                session.client, session.store, AsyncMemoryCache(), LocalContext(tmp_path), session=session
-            )
+            AsyncBuildContext(session.client, session.store, LocalContext(tmp_path), session=session)
             if isinstance(session, ContreeAsyncSession)
-            else BuildContext(session.client, session.store, SyncMemoryCache(), LocalContext(tmp_path), session=session)
+            else BuildContext(session.client, session.store, LocalContext(tmp_path), session=session)
         )
         return await call(context, "run_operation", request, branch="layer")
 
     if commit_fails:
-        with pytest.raises(SessionConflictError, match="concurrent history change"):
+        with pytest.raises(OSError, match="store write failed"):
             await run()
     else:
         await run()

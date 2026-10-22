@@ -48,15 +48,18 @@ def reference_html(tmp_path_factory):
     ("page", "object_name"),
     [
         ("session", "contree_sdk.session.ContreeSession.run"),
+        ("session", "contree_sdk.session.HistoryEntry"),
+        ("session", "contree_sdk.session.OperationRecord"),
+        ("files", "contree_sdk.files.StagedFile"),
+        ("cache", "contree_sdk.scope.StoreScope"),
         ("sandbox", "contree_sdk.sandbox.SandboxSessionContext.__enter__"),
         ("execution", "contree_sdk.execution.AsyncExecutor.execute"),
         ("store", "contree_sdk.store.AsyncSQLiteStore.append"),
         ("docker", "contree_sdk.docker.ContreeDockerBuilder.build"),
         ("langchain", "contree_sdk.langchain.ContreeAsyncSandbox.aexecute"),
         ("harbor", "contree_sdk.harbor.runtime.ContreeAsyncRuntime.stop"),
-        ("cache", "contree_sdk.cache.SyncMemoryCache.get"),
+        ("store", "contree_sdk.store.SyncMemoryStore.get_node"),
         ("files", "contree_sdk.files.SyncFileTransfer.read_file"),
-        ("exceptions", "contree_sdk.exceptions.SessionConflictError"),
     ],
 )
 def test_reference_has_linkable_python_objects(reference_html, page, object_name):

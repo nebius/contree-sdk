@@ -271,8 +271,16 @@ raise `ValueError`.
 
 ## Concurrent callers
 
-Use {doc}`sessions` to keep branches across Python restarts.
+Each Session owns its position and branch names. Objects using the same Store
+and `session_id` can select different nodes without affecting each other.
+Concurrent operations from one parent create separate children. No result moves
+another client's position or overwrites its history.
 
-Objects using the same Store and `session_id` share the active branch. Serialize
-branch changes and dependent commands. Conflicting saves raise
-`SessionConflictError`; the SDK does not merge files. See {doc}`troubleshooting`.
+Within one Session, a result advances the selected position only if that position
+still matches its captured source and navigation has not changed. Late results
+remain available by their entry IDs. Explicit `branch=` selects a local branch
+for a normal commit. The SDK does not merge filesystem changes.
+
+After restarting, select a saved `node_id`; a tree with multiple continuations
+requires an explicit choice. `navigate_forward()` also requires a unique child.
+See {doc}`sessions` for persistence and {doc}`reference/store` for the contract.

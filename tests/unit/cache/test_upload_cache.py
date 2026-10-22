@@ -10,9 +10,10 @@ import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
-from contree_sdk.cache import AsyncCache, AsyncSQLiteCache, CacheScope, SyncSQLiteCache
 from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
 from contree_sdk.files import AsyncClientFileTransfer, ClientFileTransfer, UploadedFile, UploadFileSpec
+from contree_sdk.scope import StoreScope
+from contree_sdk.store import AsyncSQLiteStore, AsyncStore, SyncSQLiteStore
 from contree_sdk.upload_cache import AsyncCachedFileTransfer, CachedFileTransfer
 
 
@@ -22,15 +23,15 @@ async def call(obj, method, *args, **kwargs):
 
 
 def components(cache, *, endpoint="https://one.invalid", ttl=10):
-    if isinstance(cache, AsyncCache):
+    if isinstance(cache, AsyncStore):
         client = ContreeAsyncClient(base_url=endpoint)
         client.mock("ensure_file", FileResponse(uuid="upload", sha256="a" * 64, size=4))
         return client, AsyncCachedFileTransfer(
-            AsyncClientFileTransfer(client), cache, scope=CacheScope.from_client(client), ttl=ttl
+            AsyncClientFileTransfer(client), cache, scope=StoreScope.from_client(client), ttl=ttl
         )
     client = ContreeClient(base_url=endpoint)
     client.mock("ensure_file", FileResponse(uuid="upload", sha256="a" * 64, size=4))
-    return client, CachedFileTransfer(ClientFileTransfer(client), cache, scope=CacheScope.from_client(client), ttl=ttl)
+    return client, CachedFileTransfer(ClientFileTransfer(client), cache, scope=StoreScope.from_client(client), ttl=ttl)
 
 
 async def test_reuse_content_expiry_permissions_and_sources(cache_case, tmp_path):
@@ -57,7 +58,10 @@ async def test_reuse_content_expiry_permissions_and_sources(cache_case, tmp_path
     path.write_bytes(b"diff")  # Same length; content determines the fingerprint.
     await call(transfer, "upload", file)
     assert len(client.calls_for("ensure_file")) == 3
-    assert await call(transfer.cache, "invalidate", namespace="uploads") == 2
+    trees = (await call(transfer.store, "list_sessions", kind="upload-cache")).items
+    assert len(trees) == 2
+    for tree in trees:
+        await call(transfer.store, "delete_session", tree.session_id)
     assert len(await call(transfer.sources, "sources")) == 2
     await call(transfer, "upload", file)
     assert len(client.calls_for("ensure_file")) == 4
@@ -96,7 +100,7 @@ async def test_snapshot_is_stable_and_removed_on_success_or_failure(cache_case, 
         source.write_bytes(b"after")
         assert Path(file.source).read_bytes() == b"before"
 
-    if isinstance(cache, AsyncCache):
+    if isinstance(cache, AsyncStore):
 
         async def upload(file):
             inspect_upload(file)
@@ -111,7 +115,9 @@ async def test_snapshot_is_stable_and_removed_on_success_or_failure(cache_case, 
     monkeypatch.setattr(transfer.transfer, "upload", upload)
     await call(transfer, "upload", UploadFileSpec(path="/data", source=source))
     assert not observed[0].exists()
-    assert (await call(transfer.cache, "entries", namespace="uploads"))[0].key == hashlib.sha256(b"before").hexdigest()
+    tree = (await call(transfer.store, "list_sessions", kind="upload-cache")).items[0]
+    root = await call(transfer.store, "get_node", tree.session_id, "root")
+    assert root.data["fingerprint"] == hashlib.sha256(b"before").hexdigest()
 
     def fail(file):
         observed.append(Path(file.source))
@@ -121,17 +127,17 @@ async def test_snapshot_is_stable_and_removed_on_success_or_failure(cache_case, 
     with pytest.raises(RuntimeError, match="upload failed"):
         await call(transfer, "upload", UploadFileSpec(path="/data", source=source))
     assert not observed[-1].exists()
-    assert len(await call(transfer.cache, "entries", namespace="uploads")) == 1
+    assert len((await call(transfer.store, "list_sessions", kind="upload-cache")).items) == 1
 
 
 async def test_sources_survive_sqlite_reopen_and_separate_uuid_prefixes(tmp_path):
     path = tmp_path / "cache.db"
-    scope = CacheScope.from_client(ContreeClient())
-    with SyncSQLiteCache(path) as cache:
+    scope = StoreScope.from_client(ContreeClient())
+    with SyncSQLiteStore(path) as cache:
         sources = SyncFileSources(cache, scope)
         sources.record("a", "hash", "https://example.invalid/file", kind="url")
         sources.record("ab", "hash", str(tmp_path / "local"))
-    async with AsyncSQLiteCache(path) as cache:
+    async with AsyncSQLiteStore(path) as cache:
         sources = AsyncFileSources(cache, scope)
         assert len(await sources.sources("a")) == 1
         assert (await sources.sources("a"))[0].kind == "url"
@@ -140,9 +146,9 @@ async def test_sources_survive_sqlite_reopen_and_separate_uuid_prefixes(tmp_path
 
 
 async def test_cancelled_upload_removes_snapshot(tmp_path, monkeypatch):
-    from contree_sdk.cache import AsyncMemoryCache
+    from contree_sdk.store import AsyncMemoryStore
 
-    client, transfer = components(AsyncMemoryCache())
+    client, transfer = components(AsyncMemoryStore())
     source = tmp_path / "original"
     source.write_bytes(b"data")
     started = asyncio.Event()
@@ -160,7 +166,7 @@ async def test_cancelled_upload_removes_snapshot(tmp_path, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert not paths[0].exists()
-    assert await transfer.cache.entries(namespace="uploads") == ()
+    assert (await transfer.store.list_sessions(kind="upload-cache")).items == ()
     assert not client.calls_for("ensure_file")
 
 
@@ -168,9 +174,9 @@ async def test_cancelled_snapshot_copy_is_joined_and_cleaned(tmp_path, monkeypat
     import threading
 
     import contree_sdk.upload_cache as module
-    from contree_sdk.cache import AsyncMemoryCache
+    from contree_sdk.store import AsyncMemoryStore
 
-    _, transfer = components(AsyncMemoryCache())
+    _, transfer = components(AsyncMemoryStore())
     source = tmp_path / "original"
     source.write_bytes(b"data")
     original = module.snapshot_upload
@@ -197,4 +203,4 @@ async def test_cancelled_snapshot_copy_is_joined_and_cleaned(tmp_path, monkeypat
     finally:
         release.set()
     assert not Path(snapshots[0].file.source).exists()
-    assert await transfer.cache.entries(namespace="uploads") == ()
+    assert (await transfer.store.list_sessions(kind="upload-cache")).items == ()

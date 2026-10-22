@@ -2,7 +2,6 @@ imports = '''
 from typing_extensions import assert_type
 from contree_client.testing import ContreeClient, ContreeAsyncClient
 from contree_sdk import sync_import_image, async_import_image, sync_build_image, async_build_image
-from contree_sdk.cache import SyncMemoryCache, AsyncMemoryCache
 from contree_sdk.store import SyncMemoryStore, AsyncMemoryStore
 from contree_sdk.docker import ContreeDockerBuilder, ContreeAsyncDockerBuilder
 '''
@@ -11,8 +10,8 @@ from contree_sdk.docker import ContreeDockerBuilder, ContreeAsyncDockerBuilder
 name = "sync_helpers_return_image_uuid"
 code = '''
 client = ContreeClient()
-assert_type(sync_import_image("alpine:latest", client=client, cache=SyncMemoryCache()), str)
-assert_type(sync_build_image(".", client=client, storage=SyncMemoryStore(), cache=SyncMemoryCache()), str)
+assert_type(sync_import_image("alpine:latest", client=client, store=SyncMemoryStore()), str)
+assert_type(sync_build_image(".", client=client, store=SyncMemoryStore()), str)
 '''
 
 [[cases]]
@@ -20,8 +19,8 @@ name = "async_helpers_return_image_uuid"
 code = '''
 async def use():
     client = ContreeAsyncClient()
-    assert_type(await async_import_image("alpine:latest", client=client, cache=AsyncMemoryCache()), str)
-    assert_type(await async_build_image(".", client=client, storage=AsyncMemoryStore(), cache=AsyncMemoryCache()), str)
+    assert_type(await async_import_image("alpine:latest", client=client, store=AsyncMemoryStore()), str)
+    assert_type(await async_build_image(".", client=client, store=AsyncMemoryStore()), str)
 '''
 
 [[cases]]
@@ -39,10 +38,10 @@ sync_import_image(".", client_type=ContreeAsyncClient)
 '''
 
 [[cases]]
-name = "sync_import_rejects_wrong_cache"
+name = "sync_import_rejects_wrong_storage"
 errors = [{ line = 1, code = "invalid-argument-type" }]
 code = '''
-sync_import_image(".", cache=AsyncMemoryCache())
+sync_import_image(".", store=AsyncMemoryStore())
 '''
 
 [[cases]]
@@ -60,17 +59,10 @@ sync_build_image(".", client_type=ContreeAsyncClient)
 '''
 
 [[cases]]
-name = "sync_build_rejects_wrong_cache"
-errors = [{ line = 1, code = "invalid-argument-type" }]
-code = '''
-sync_build_image(".", cache=AsyncMemoryCache())
-'''
-
-[[cases]]
 name = "sync_build_rejects_wrong_storage"
 errors = [{ line = 1, code = "invalid-argument-type" }]
 code = '''
-sync_build_image(".", storage=AsyncMemoryStore())
+sync_build_image(".", store=AsyncMemoryStore())
 '''
 
 [[cases]]
@@ -97,11 +89,11 @@ async def use():
 '''
 
 [[cases]]
-name = "async_import_rejects_wrong_cache"
+name = "async_import_rejects_wrong_storage"
 errors = [{ line = 2, code = "invalid-argument-type" }]
 code = '''
 async def use():
-    await async_import_image(".", cache=SyncMemoryCache())
+    await async_import_image(".", store=SyncMemoryStore())
 '''
 
 [[cases]]
@@ -121,19 +113,11 @@ async def use():
 '''
 
 [[cases]]
-name = "async_build_rejects_wrong_cache"
-errors = [{ line = 2, code = "invalid-argument-type" }]
-code = '''
-async def use():
-    await async_build_image(".", cache=SyncMemoryCache())
-'''
-
-[[cases]]
 name = "async_build_rejects_wrong_storage"
 errors = [{ line = 2, code = "invalid-argument-type" }]
 code = '''
 async def use():
-    await async_build_image(".", storage=SyncMemoryStore())
+    await async_build_image(".", store=SyncMemoryStore())
 '''
 
 [[cases]]

@@ -167,20 +167,18 @@ assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
 
 ## Branches and commit policy
 
-Completion targets the branch recorded at spawn time. Switching to another branch
-during execution does not redirect the result. Completion also does not switch
-the active branch. If its original tip changed, completion raises
-`SessionConflictError` and leaves the operation pending.
-
-Retry `wait_operation(uuid, branch="recovered")` to retain the result on a new
-branch. That branch must not exist. The result still descends from the original
-parent entry. An explicit retry does not rerun the remote command.
+Completion keeps the parent captured at spawn time. Switching branches or
+continuing other work does not redirect or reject the result. The completed
+entry is another child of its original parent. Obtain its ID from
+`session.get_operation(uuid).history_id` and use `navigate()` to select it.
+Waiting can advance the local position when it still matches the source;
+replaying an already completed result does not undo a later rollback.
 
 The default `ApiSuccessCommitPolicy` retains every successful non-disposable
 result, including nonzero exit codes. Pass `commit_policy=ZeroExitCommitPolicy()`
 when resuming to retain only exit code zero. See {doc}`customization` for custom
 policies. Concurrent completion calls share the first stored decision. A later
-policy change, branch override, or rollback cannot cause a second commit.
+policy change or rollback cannot cause a second commit.
 
 Disposable and policy-rejected results remain readable without a history entry.
 Final API failures and cancellation remain readable as the same exceptions.
@@ -206,7 +204,7 @@ same atomic completion path. Use `wait_operation()` to replay a stored response.
 
 `list_operations()` returns pending records. Set `pending_only=False` to include
 completed records. `OperationRecord.history_id` identifies a retained result;
-`response_json` stores the final API response. Records include the effective
+`response` stores the final API response as a JSON object. Records include the effective
 command environment and output, but not client credentials. A different client
 endpoint is rejected before the UUID is used.
 
@@ -225,14 +223,12 @@ registration error. A process crash between remote submission and registration
 can leave an unregistered remote operation. Registration does not promise exactly
 one remote submission. Retrying submission can start another operation.
 
-Within a registered operation, native stores atomically write the final response,
-history entry, branch pointer, and applied file paths. SQLite transactions roll
-back all these writes on error or cancellation. Two processes completing the same
-record receive the same final outcome. Deleting a session removes its registry
-records as well as its history; it does not cancel remote operations.
+A pending node stores the original context and the identity reserved for its
+result. Completion appends one immutable node containing the final response and
+optional retained image. An identical write can be retried. If concurrent
+collectors disagree on commit policy, the first saved completion is retained.
+Deleting the tree removes both records; it does not cancel the remote operation.
 
-Custom stores implement `register_operation`, `get_operation`, `list_operations`,
-and `finish_operation` from `SyncStore` or `AsyncStore`. Completion must be atomic
-and idempotent. Do not implement it as an unlocked lookup followed by `append()`.
-The base implementations raise `NotImplementedError` instead of providing an
-unsafe fallback. See {doc}`reference/store` for the public contracts.
+Custom stores need only the tree contract, including atomic and idempotent
+`append()`. They do not implement a second operation registry API. See
+{doc}`reference/store` for the guarantees required across processes.

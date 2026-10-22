@@ -10,8 +10,10 @@ from contree_sdk.session.contracts import (
 )
 from contree_sdk.session.lazy_async import AsyncLazySession
 from contree_sdk.session.lazy_sync import LazySession
+from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.operation_async import AsyncOperation, AsyncSubprocessHandle
 from contree_sdk.session.operation_sync import Operation, SubprocessHandle
+from contree_sdk.session.records import OperationRecord
 from contree_sdk.session.snapshot_policy import (
     AbstractSnapshotPolicy,
     CommandCountSnapshotPolicy,
@@ -36,11 +38,13 @@ __all__ = [
     "CompositeSnapshotPolicy",
     "ContreeAsyncSession",
     "ContreeSession",
+    "HistoryEntry",
     "IdleSnapshotPolicy",
     "LazySession",
     "Operation",
     "OperationContext",
     "OperationContract",
+    "OperationRecord",
     "PendingRun",
     "RunRequest",
     "SnapshotEvent",

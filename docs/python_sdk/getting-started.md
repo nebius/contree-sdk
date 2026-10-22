@@ -107,7 +107,7 @@ or `ContreeAsyncSession`; see [Save after every command](session-model.md#save-a
 These classes start a separate VM for each command and save by default.
 Use `disposable=True` to leave the session image unchanged.
 
-Local history uses a memory store by default. Supply `storage` and `session_id`
+Local history uses a memory store by default. Supply `store` and `session_id`
 to resume a session later.
 
 Save a checkpoint before an experiment, give it a branch, and return to the

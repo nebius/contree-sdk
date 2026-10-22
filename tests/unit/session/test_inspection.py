@@ -113,8 +113,8 @@ async def test_cold_read_and_branch_changes_need_no_vm(setup):
         await invoke(lazy.inspect)
 
 
-@pytest.mark.parametrize("failure", ["missing_image", "failed", "wait", "conflict"])
-async def test_failed_snapshot_does_not_inspect_stale_image(setup, failure):
+@pytest.mark.parametrize("failure", ["missing_image", "failed", "wait", "store"])
+async def test_failed_snapshot_does_not_inspect_stale_image(setup, failure, monkeypatch):
     _, client, base, lazy = setup
     try:
         await invoke(lazy.run, "write")
@@ -125,7 +125,11 @@ async def test_failed_snapshot_does_not_inspect_stale_image(setup, failure):
         elif failure == "wait":
             client.wait_error = OSError("snapshot failed")
         else:
-            await invoke(base.store.append, base.session_id, image_uuid="external", parent_id=base.tip_id)
+
+            def fail(*args, **kwargs):
+                raise OSError("store unavailable")
+
+            monkeypatch.setattr(base.store, "append", fail)
         with pytest.raises(RuntimeError):
             await invoke(lazy.read_file, "/data")
         assert not client.calls_for("inspect_image_download")

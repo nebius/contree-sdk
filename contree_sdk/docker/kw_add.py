@@ -1,7 +1,7 @@
 """`ADD [--chown=...] [--chmod=...] SRC... DEST` - file/dir/URL variant of COPY.
 
 URL sources are fetched via the injectable `ctx.http_fetch`/`ctx.http_fetch_async`
-callable and cached by URL (see `contree_sdk.cache.SyncCache`/`AsyncCache`):
+callable and cached by URL (see `contree_sdk.store.SyncStore`/`AsyncStore`):
 a rebuild sends the previous response's `ETag`/`Last-Modified` back as
 `If-None-Match`/`If-Modified-Since`, so an upstream that hasn't changed
 answers `304 Not Modified` and the previously-uploaded file uuid is reused
@@ -22,6 +22,7 @@ from typing import IO, Any, ClassVar
 
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.file_io import run_file_io
+from contree_sdk.reuse import async_lookup_result, async_remember_result, lookup_result, remember_result
 
 from .context import AsyncBuildContext, BuildContext, PendingFile
 from .keyword import DockerKeyword
@@ -143,7 +144,7 @@ def write_url_chunk(handle: IO[bytes], chunk: bytes, digest: Any) -> None:
 
 
 def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
-    cached = ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
+    cached = lookup_result(ctx.store, ctx.cache_namespace(URL_CACHE_NAMESPACE), url)
     status, headers, body = ctx.http_fetch(url, "GET", conditional_headers_for(cached))
     with tempfile.TemporaryFile() as content:
         digest = hashlib.sha256()
@@ -176,10 +177,11 @@ def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
         content.seek(0)
         stored = ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
-    ctx.cache.set(
+    remember_result(
+        ctx.store,
+        ctx.cache_namespace(URL_CACHE_NAMESPACE),
         url,
         {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
-        namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE),
         ttl=ctx.upload_cache_ttl,
     )
     ctx.file_sources.record(file_uuid, sha256, url, kind="url")
@@ -205,7 +207,7 @@ def stage_urls(
 
 
 async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
-    cached = await ctx.cache.get(url, namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE))
+    cached = await async_lookup_result(ctx.store, ctx.cache_namespace(URL_CACHE_NAMESPACE), url)
     status, headers, body = await ctx.http_fetch_async(url, "GET", conditional_headers_for(cached))
     with tempfile.TemporaryFile() as content:
         digest = hashlib.sha256()
@@ -238,10 +240,11 @@ async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
         await run_file_io(content.seek, 0)
         stored = await ctx.client.ensure_file(content, sha256=sha256)
     file_uuid = str(stored.uuid)
-    await ctx.cache.set(
+    await async_remember_result(
+        ctx.store,
+        ctx.cache_namespace(URL_CACHE_NAMESPACE),
         url,
         {"uuid": file_uuid, "sha256": sha256, "etag": etag, "last_modified": last_modified},
-        namespace=ctx.cache_namespace(URL_CACHE_NAMESPACE),
         ttl=ctx.upload_cache_ttl,
     )
     await ctx.file_sources.record(file_uuid, sha256, url, kind="url")

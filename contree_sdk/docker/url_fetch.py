@@ -7,7 +7,7 @@ dependency. The status code lets callers issue conditional GETs
 (`If-None-Match`/`If-Modified-Since`) and recognize a `304 Not Modified`
 response (empty body) without treating it as an error. Deduplication against
 a previously-uploaded file happens one layer up, in
-`contree_sdk.cache.SyncCache`/`AsyncCache`, keyed by the URL and validated by
+`contree_sdk.store.SyncStore`/`AsyncStore`, keyed by the URL and validated by
 the response `ETag`/`Last-Modified`.
 """
 

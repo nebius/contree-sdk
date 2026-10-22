@@ -9,7 +9,6 @@ from contree_client.profiles import Profile
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import async_build_image, async_import_image, sync_build_image, sync_import_image
-from contree_sdk.cache import AsyncMemoryCache, SyncMemoryCache
 from contree_sdk.docker import ContreeAsyncDockerBuilder, ContreeDockerBuilder
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.images import image_cache_directory
@@ -147,10 +146,10 @@ async def test_import_failure_is_not_cached_and_borrowed_client_remains_open(mod
         client.mock("wait_operation", replace(response, result_image_uuid=None))
         error = FailedOperationError
     helper = async_import_image if mode else sync_import_image
-    cache = AsyncMemoryCache() if mode else SyncMemoryCache()
+    cache = AsyncMemoryStore() if mode else SyncMemoryStore()
     with pytest.raises(error):
-        await invoke(helper, "alpine:latest", client=client, cache=cache)
-    assert not await invoke(cache.entries)
+        await invoke(helper, "alpine:latest", client=client, store=cache)
+    assert not (await invoke(cache.list_sessions)).items
     assert client.closed == client.opened == 0
     assert len(client.calls_for("cancel_operation")) == (outcome == "timeout")
 
@@ -165,7 +164,7 @@ async def test_build_persists_layers_and_uploads_without_rebuilding(mode, api, p
     assert not second.calls_for("ensure_file")
     assert second.calls_for("update_image_tag")[0].args == ("built", "app")
     assert first.closed == second.closed == 1
-    assert (tmp_path / "xdg/contree/builds.sqlite3").is_file()
+    assert not (tmp_path / "xdg/contree/builds.sqlite3").exists()
     assert (tmp_path / "xdg/contree/images.sqlite3").is_file()
 
 
@@ -187,7 +186,6 @@ async def test_build_scopes_default_history_by_connection(mode, api, profile, co
 
 async def test_build_custom_components_and_builder_remain_caller_owned(mode, api, context):
     client = api()
-    cache = AsyncMemoryCache() if mode else SyncMemoryCache()
     store = AsyncMemoryStore() if mode else SyncMemoryStore()
     base = ContreeAsyncDockerBuilder if mode else ContreeDockerBuilder
 
@@ -196,15 +194,14 @@ async def test_build_custom_components_and_builder_remain_caller_owned(mode, api
             assert marker == "custom"
             super().__init__(client, **kwargs)
 
-    options = {"marker": "custom", "store": None, "cache": None}
+    options = {"marker": "custom", "store": None}
     helper = async_build_image if mode else sync_build_image
     assert (
         await invoke(
             helper,
             context,
             client=client,
-            storage=store,
-            cache=cache,
+            store=store,
             builder_type=CustomBuilder,
             builder_kwargs=options,
             session_id="custom-build",
@@ -212,10 +209,12 @@ async def test_build_custom_components_and_builder_remain_caller_owned(mode, api
         == "built"
     )
     assert client.closed == client.opened == 0
-    assert options == {"marker": "custom", "store": None, "cache": None}
-    assert await invoke(store.read_session, "custom-build")
-    await invoke(cache.set, "after", "usable")
-    assert await invoke(cache.get, "after") == "usable"
+    assert options == {"marker": "custom", "store": None}
+    assert await invoke(store.get_session, "custom-build")
+    kinds = {info.kind for info in (await invoke(store.list_sessions)).items}
+    assert {"docker-build", "upload-cache", "file-sources"} <= kinds
+    await invoke(store.create_session, "after", kind="custom")
+    assert (await invoke(store.get_session, "after")).kind == "custom"
 
 
 async def test_build_failure_closes_owned_client(mode, api, profile, context):
@@ -296,7 +295,7 @@ async def test_sync_and_async_helpers_share_persistent_cache(profile, context):
 
 
 @pytest.mark.parametrize("action", ["import", "build"])
-@pytest.mark.parametrize("component", ["client", "cache"])
+@pytest.mark.parametrize("component", ["client", "store"])
 async def test_helpers_reject_wrong_component_mode(mode, action, component, context):
     helpers = {
         (False, "import"): sync_import_image,
@@ -306,7 +305,7 @@ async def test_helpers_reject_wrong_component_mode(mode, action, component, cont
     }
     wrong = {
         "client": TrackingClient() if mode else TrackingAsyncClient(),
-        "cache": SyncMemoryCache() if mode else AsyncMemoryCache(),
+        "store": SyncMemoryStore() if mode else AsyncMemoryStore(),
     }
     with pytest.raises(TypeError, match=component):
         await invoke(

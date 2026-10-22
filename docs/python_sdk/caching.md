@@ -6,9 +6,9 @@ Choose a lifetime shorter than the server's upload retention period. The cache
 cannot detect uploads removed from the server before expiry; invalidate them
 explicitly when necessary.
 
-## Enable upload caching through the factory
+## Reuse uploads through the factory
 
-Pass a cache to the sandbox factory. These examples select `ContreeSession` or
+The sandbox factory reuses uploads through its Store. These examples select `ContreeSession` or
 `ContreeAsyncSession` because startup `files=` attachments need independent
 operations. The factory constructs the cached transfer and its connection scope.
 For the default lazy sandbox, see {doc}`files` for writing files through stdin.
@@ -25,11 +25,11 @@ doc_api.complete()
 
 ```python
 from contree_sdk import ContreeSession, create_sandbox_session
-from contree_sdk.cache import SyncMemoryCache
+from contree_sdk.store import SyncMemoryStore
 
 
-with SyncMemoryCache() as cache:
-    with create_sandbox_session(image="tag:alpine:latest", session_type=ContreeSession, cache=cache) as sandbox:
+with SyncMemoryStore() as store:
+    with create_sandbox_session(image="tag:alpine:latest", session_type=ContreeSession, store=store) as sandbox:
         sandbox.run("cat", args=["/input.txt"], files={"/input.txt": b"hello"})
         sandbox.run("wc", args=["-c", "/input.txt"], files={"/input.txt": b"hello"})
 ```
@@ -56,12 +56,12 @@ doc_api.complete()
 
 ```python
 from contree_sdk import ContreeAsyncSession, create_sandbox_session
-from contree_sdk.cache import AsyncMemoryCache
+from contree_sdk.store import AsyncMemoryStore
 
 
-async with AsyncMemoryCache() as cache:
+async with AsyncMemoryStore() as store:
     async with create_sandbox_session(
-        image="tag:alpine:latest", session_type=ContreeAsyncSession, cache=cache
+        image="tag:alpine:latest", session_type=ContreeAsyncSession, store=store
     ) as sandbox:
         await sandbox.run("cat", args=["/input.txt"], files={"/input.txt": b"hello"})
         await sandbox.run("wc", args=["-c", "/input.txt"], files={"/input.txt": b"hello"})
@@ -77,8 +77,8 @@ assert len(doc_api.async_client.calls_for("spawn_instance")) == 2
 
 ::::
 
-The factory's default `cache_ttl` is 60 seconds. The caller owns the supplied cache.
-Replace it with a SQLite cache to retain entries across Python restarts.
+The factory's default `cache_ttl` is 60 seconds. The caller owns the supplied Store.
+Use a SQLite Store to retain history and reusable results across Python restarts.
 
 ## Advanced: construct a cached transfer
 
@@ -108,7 +108,8 @@ from contree_client import profiles
 from contree_client.sync import ContreeClient
 
 from contree_sdk import ContreeSession
-from contree_sdk.cache import CacheScope, SyncSQLiteCache
+from contree_sdk.store import SyncSQLiteStore
+from contree_sdk.scope import StoreScope
 from contree_sdk.files import ClientFileTransfer
 from contree_sdk.upload_cache import CachedFileTransfer
 
@@ -116,21 +117,21 @@ from contree_sdk.upload_cache import CachedFileTransfer
 Path("input.txt").write_text("hello")
 with (
     ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
-    SyncSQLiteCache("uploads.db") as cache,
+    SyncSQLiteStore("uploads.db") as store,
 ):
-    scope = CacheScope.from_client(client, profile="work")
-    transfer = CachedFileTransfer(ClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeSession(client, image="tag:alpine:latest", file_transfer=transfer)
+    scope = StoreScope.from_client(client, profile="work")
+    transfer = CachedFileTransfer(ClientFileTransfer(client), store, scope=scope, ttl=3600)
+    session = ContreeSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
     session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 
-    uploads = transfer.cache.entries(namespace="uploads")
+    uploads = transfer.store.list_sessions(kind="upload-cache").items
     assert len(uploads) == 1
     assert uploads[0].expires_at is not None
-    sources = transfer.sources.sources(uploads[0].value["uuid"])
+    sources = transfer.sources.sources()
     assert sources[0].source == str(Path("input.txt").resolve())
 
-    assert transfer.cache.invalidate(namespace="uploads") == 1
+    assert transfer.store.delete_session(uploads[0].session_id)
     assert transfer.sources.sources() == sources
 ```
 
@@ -162,7 +163,8 @@ from contree_client import profiles
 from contree_client.asyncio import ContreeAsyncClient
 
 from contree_sdk import ContreeAsyncSession
-from contree_sdk.cache import AsyncSQLiteCache, CacheScope
+from contree_sdk.store import AsyncSQLiteStore
+from contree_sdk.scope import StoreScope
 from contree_sdk.files import AsyncClientFileTransfer
 from contree_sdk.upload_cache import AsyncCachedFileTransfer
 
@@ -170,19 +172,19 @@ from contree_sdk.upload_cache import AsyncCachedFileTransfer
 await asyncio.to_thread(Path("input.txt").write_text, "hello")
 async with (
     ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resolve_profile()) as client,
-    AsyncSQLiteCache("uploads.db") as cache,
+    AsyncSQLiteStore("uploads.db") as store,
 ):
-    scope = CacheScope.from_client(client, profile="work")
-    transfer = AsyncCachedFileTransfer(AsyncClientFileTransfer(client), cache, scope=scope, ttl=3600)
-    session = ContreeAsyncSession(client, image="tag:alpine:latest", file_transfer=transfer)
+    scope = StoreScope.from_client(client, profile="work")
+    transfer = AsyncCachedFileTransfer(AsyncClientFileTransfer(client), store, scope=scope, ttl=3600)
+    session = ContreeAsyncSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
     await session.run("cat", args=["/input"], files={"/input": Path("input.txt")})
     await session.run("wc", args=["-c", "/input"], files={"/input": Path("input.txt")})
 
-    uploads = await transfer.cache.entries(namespace="uploads")
+    uploads = (await transfer.store.list_sessions(kind="upload-cache")).items
     assert len(uploads) == 1
-    sources = await transfer.sources.sources(uploads[0].value["uuid"])
+    sources = await transfer.sources.sources()
     assert sources[0].source == str(Path("input.txt").resolve())
-    assert await transfer.cache.invalidate(namespace="uploads") == 1
+    assert await transfer.store.delete_session(uploads[0].session_id)
     assert await transfer.sources.sources() == sources
 ```
 
@@ -196,83 +198,26 @@ assert len(doc_api.async_client.calls_for("spawn_instance")) == 2
 
 ::::
 
-`CacheScope.from_client()` separates the endpoint, project, credential, and optional
+`StoreScope.from_client()` separates the endpoint, project, credential, and optional
 profile name. It stores a digest, not the credential. Credential rotation creates
 a new scope. Construct the transfer again when switching connection settings.
-The caller owns the client, underlying transfer, and cache.
+The caller owns the client, underlying transfer, and Store.
 
 `SyncFileSources` and `AsyncFileSources` also provide `record()`, `sources()`, and
 `forget()`. Records can identify local paths or URLs (`kind="url"`). Multiple
-sources can refer to the same UUID. They use a separate permanent namespace, so
-upload expiry and upload invalidation preserve them. SQLite retains them across
-restarts. Removing the database or clearing their namespace removes these records.
-Source records describe provenance; they do not prove that a remote upload still
-exists or that the local file still contains those bytes. Operation state belongs
-in the session store, separately from these caches.
+sources can refer to the same UUID. They use separate typed trees. Source records
+describe provenance; they do not prove that a remote upload still exists or that
+the local file still contains those bytes.
 
-## Advanced: enumerate and invalidate cache entries
+## Enumerate retained trees
 
-All native caches store detached JSON values. Memory and SQLite have the same
-contract. `get_entry()` distinguishes a missing entry from a stored JSON `null`.
-`entries()` returns live entries sorted by key. Prefixes are literal and case
-sensitive. Delete and invalidation counts include expired records still stored.
+Upload reuse uses trees with `kind="upload-cache"`. Call
+`store.list_sessions(kind="upload-cache", limit=100)` and follow `next_cursor`
+to enumerate them. `delete_session(tree.session_id)` invalidates one tree.
+Source records use separate `file-sources` trees, so deleting reusable upload
+results preserves provenance. Retention for source trees follows the Store's
+policy for `ttl=None`; it is not a universal promise of permanent storage.
 
-::::{tab} Sync
-
-<!--
-name: test_cache_contract
--->
-
-```python
-from contree_sdk.cache import SyncMemoryCache
-
-
-now = [100.0]
-cache = SyncMemoryCache(clock=lambda: now[0])
-cache.set("images/base", {"uuid": "base"}, namespace="completion", ttl=10)
-cache.set("images/final", None, namespace="completion")
-assert [entry.key for entry in cache.entries(namespace="completion", prefix="images/")] == [
-    "images/base",
-    "images/final",
-]
-now[0] = 110
-assert cache.get_entry("images/base", namespace="completion") is None
-assert cache.get_entry("images/final", namespace="completion").value is None
-assert cache.invalidate(namespace="completion", prefix="images/") == 2
-```
-
-::::
-
-::::{tab} Async
-
-<!--
-name: async test_cache_contract_async
--->
-
-```python
-from contree_sdk.cache import AsyncMemoryCache
-
-
-now = [100.0]
-cache = AsyncMemoryCache(clock=lambda: now[0])
-await cache.set("images/base", {"uuid": "base"}, namespace="completion", ttl=10)
-await cache.set("images/final", None, namespace="completion")
-assert [entry.key for entry in await cache.entries(namespace="completion", prefix="images/")] == [
-    "images/base",
-    "images/final",
-]
-now[0] = 110
-assert await cache.get_entry("images/base", namespace="completion") is None
-assert (await cache.get_entry("images/final", namespace="completion")).value is None
-assert await cache.invalidate(namespace="completion", prefix="images/") == 2
-```
-
-::::
-
-`ttl=None` retains an entry until deletion. `ttl=0` expires it immediately. Negative
-or nonfinite lifetimes raise `ValueError`. Setting a key replaces its value and
-expiry; reading never renews it. Native caches accept an injectable clock for tests.
-
-Use `ScopedSyncCache(cache, scope)` or `ScopedAsyncCache(cache, scope)` when managing
-namespaces directly. Closing a scoped view does not close the underlying cache.
-SQLite uses `cache_v2`; old disposable `cache_v1` records are not reused.
+The same Store can hold user sessions, builds, and upload results. Select
+`kind="session"` when listing user sessions. See {doc}`reference/store` for
+sync/async examples, pagination, immutable nodes, and TTL semantics.

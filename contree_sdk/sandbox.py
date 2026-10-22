@@ -2,7 +2,7 @@
 
 ConTree's stateless execution model differs from a classic stateful sandbox:
 filesystem state passes between executions through images and snapshots. This
-module assembles clients, sessions, storage, caches, and policies to provide a
+module assembles clients, sessions, stores, and policies to provide a
 familiar sandbox workflow without requiring users to connect each component.
 
 The default lazy session reuses a VM between commands. Snapshots preserve files,
@@ -25,12 +25,11 @@ from typing import Any, Generic, Literal, NoReturn, TypeVar, cast, overload
 from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
-from contree_sdk.cache import AsyncCache, CacheScope, SyncCache
-from contree_sdk.cache.models import expiration
 from contree_sdk.connection import ConnectionConfig
 from contree_sdk.connection import profile_from_args as profile_from_args  # noqa: PLC0414 - public re-export
 from contree_sdk.execution import AsyncExecutor, SyncExecutor
 from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, ClientFileTransfer, SyncFileTransfer
+from contree_sdk.scope import StoreScope
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.commit_policy import AbstractCommitPolicy
@@ -38,6 +37,7 @@ from contree_sdk.session.lazy_async import AsyncLazySession
 from contree_sdk.session.lazy_sync import LazySession
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import AsyncMemoryStore, AsyncStore, SyncMemoryStore, SyncStore
+from contree_sdk.store.ttl import expiration
 from contree_sdk.upload_cache import AsyncCachedFileTransfer, CachedFileTransfer
 
 
@@ -58,8 +58,8 @@ class SandboxConfig:
     config_path: str | Path | None = None
     session_type: type[SyncExecutor | AsyncExecutor] | None = None
     session_id: str | None = None
-    storage: SyncStore | AsyncStore | None = None
-    cache: SyncCache | AsyncCache | None = None
+    node_id: str | None = None
+    store: SyncStore | AsyncStore | None = None
     cache_ttl: float = 60
     cwd: str | None = None
     env: dict[str, str] | None = None
@@ -94,10 +94,8 @@ class SandboxConfig:
         ):
             raise TypeError(f"session_type must be a compatible session class for {mode}")
         self.connection().validate(asynchronous=asynchronous)
-        if self.storage is not None and not isinstance(self.storage, AsyncStore if asynchronous else SyncStore):
-            raise TypeError(f"storage must implement the store interface for {mode}")
-        if self.cache is not None and not isinstance(self.cache, AsyncCache if asynchronous else SyncCache):
-            raise TypeError(f"cache must implement the cache interface for {mode}")
+        if self.store is not None and not isinstance(self.store, AsyncStore if asynchronous else SyncStore):
+            raise TypeError(f"store must implement the store interface for {mode}")
         if self.file_transfer is not None and not isinstance(
             self.file_transfer, AsyncFileTransfer if asynchronous else SyncFileTransfer
         ):
@@ -112,6 +110,7 @@ class SandboxConfig:
         arguments = {
             "image": self.image,
             "session_id": self.session_id,
+            "node_id": self.node_id,
             "store": store,
             "file_transfer": transfer,
             "cwd": self.cwd,
@@ -121,8 +120,6 @@ class SandboxConfig:
         kwargs = self.session_kwargs.copy()
         kwargs.pop("client", None)
         kwargs.pop("session", None)
-        kwargs.pop("storage", None)
-        kwargs.pop("cache", None)
         for name in arguments:
             kwargs.pop(name, None)
         return arguments, kwargs
@@ -139,17 +136,14 @@ class SyncSandboxSessionContext(Generic[SyncSessionT]):
     def _create(self) -> SyncExecutor:
         config, stack = self.config, self.stack
         client = config.connection().open_sync(stack)
-        store = cast("SyncStore | None", config.storage)
+        store = cast("SyncStore | None", config.store)
         if store is None:
             store = SyncMemoryStore()
             stack.callback(store.close)
         transfer = cast("SyncFileTransfer | None", config.file_transfer)
         if transfer is None:
             transfer = ClientFileTransfer(client)
-        if config.cache is not None:
-            transfer = CachedFileTransfer(
-                transfer, cast("SyncCache", config.cache), scope=CacheScope.from_client(client), ttl=config.cache_ttl
-            )
+        transfer = CachedFileTransfer(transfer, store, scope=StoreScope.from_client(client), ttl=config.cache_ttl)
         session_type = cast("type[SyncExecutor]", config.session_type or LazySession)
         arguments, kwargs = config.session_arguments(store, transfer)
         if issubclass(session_type, LazySession):
@@ -196,17 +190,14 @@ class AsyncSandboxSessionContext(Generic[AsyncSessionT]):
     async def _create(self) -> AsyncExecutor:
         config, stack = self.config, self.stack
         client = await config.connection().open_async(stack)
-        store = cast("AsyncStore | None", config.storage)
+        store = cast("AsyncStore | None", config.store)
         if store is None:
             store = AsyncMemoryStore()
             stack.push_async_callback(store.close)
         transfer = cast("AsyncFileTransfer | None", config.file_transfer)
         if transfer is None:
             transfer = AsyncClientFileTransfer(client)
-        if config.cache is not None:
-            transfer = AsyncCachedFileTransfer(
-                transfer, cast("AsyncCache", config.cache), scope=CacheScope.from_client(client), ttl=config.cache_ttl
-            )
+        transfer = AsyncCachedFileTransfer(transfer, store, scope=StoreScope.from_client(client), ttl=config.cache_ttl)
         session_type = cast("type[AsyncExecutor]", config.session_type or AsyncLazySession)
         arguments, kwargs = config.session_arguments(store, transfer)
         if issubclass(session_type, AsyncLazySession):
@@ -292,8 +283,7 @@ class SandboxSessionContext(Generic[SyncSessionT, AsyncSessionT]):
 def create_sandbox_session(
     *,
     session_type: None = None,
-    storage: SyncStore | AsyncStore | None = None,
-    cache: SyncCache | AsyncCache | None = None,
+    store: SyncStore | AsyncStore | None = None,
     client: ContreeSyncClient | ContreeAsyncClient | None = None,
     client_type: type[ContreeSyncClient | ContreeAsyncClient] | None = None,
     file_transfer: SyncFileTransfer | AsyncFileTransfer | None = None,
@@ -305,8 +295,7 @@ def create_sandbox_session(
 def create_sandbox_session(
     *,
     session_type: type[SyncSessionT],
-    storage: SyncStore | None = None,
-    cache: SyncCache | None = None,
+    store: SyncStore | None = None,
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
@@ -318,8 +307,7 @@ def create_sandbox_session(
 def create_sandbox_session(
     *,
     session_type: type[AsyncSessionT],
-    storage: AsyncStore | None = None,
-    cache: AsyncCache | None = None,
+    store: AsyncStore | None = None,
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
@@ -343,8 +331,7 @@ def create_sandbox_session(
 def create_sync_sandbox_session(
     *,
     session_type: None = None,
-    storage: SyncStore | None = None,
-    cache: SyncCache | None = None,
+    store: SyncStore | None = None,
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
@@ -356,8 +343,7 @@ def create_sync_sandbox_session(
 def create_sync_sandbox_session(
     *,
     session_type: type[SyncSessionT],
-    storage: SyncStore | None = None,
-    cache: SyncCache | None = None,
+    store: SyncStore | None = None,
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
@@ -381,8 +367,7 @@ def create_sync_sandbox_session(
 def create_async_sandbox_session(
     *,
     session_type: None = None,
-    storage: AsyncStore | None = None,
-    cache: AsyncCache | None = None,
+    store: AsyncStore | None = None,
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
@@ -394,8 +379,7 @@ def create_async_sandbox_session(
 def create_async_sandbox_session(
     *,
     session_type: type[AsyncSessionT],
-    storage: AsyncStore | None = None,
-    cache: AsyncCache | None = None,
+    store: AsyncStore | None = None,
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
@@ -428,8 +412,8 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
     config_path: str | Path | None = None,
     session_type: type[SyncExecutor | AsyncExecutor] | None = None,
     session_id: str | None = None,
-    storage: SyncStore | AsyncStore | None = None,
-    cache: SyncCache | AsyncCache | None = None,
+    node_id: str | None = None,
+    store: SyncStore | AsyncStore | None = None,
     cache_ttl: float = 60,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
@@ -461,7 +445,7 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
 
     Returns:
         A single-use context owning its created client, memory store, and session.
-        Supplied clients, stores, caches, and file transfers remain caller-owned.
+        Supplied clients, stores, and file transfers remain caller-owned.
 
     """
     return context_type(
@@ -475,8 +459,8 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
             config_path=config_path,
             session_type=session_type,
             session_id=session_id,
-            storage=storage,
-            cache=cache,
+            node_id=node_id,
+            store=store,
             cache_ttl=cache_ttl,
             cwd=cwd,
             env=dict(env) if env is not None else None,

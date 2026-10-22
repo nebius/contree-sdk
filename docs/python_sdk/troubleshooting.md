@@ -11,8 +11,8 @@ icon: triangle-exclamation
 | A file from the previous command disappeared          | For explicit `ContreeSession`, check that `disposable=True` was not requested. For a lazy sandbox, check whether an exception discarded unsaved work. |
 | Work disappeared after Python restarted               | Resume the same `session_id` from the same SQLite database.                                                                                           |
 | Explicit async session has no `image_uuid` yet        | Await `ensure_ready()` or a session operation before reading it.                                                                                      |
-| `ValueError` when resuming                            | The store has no history for that session ID and no base image was supplied.                                                                          |
-| `SessionConflictError`                                | Another operation advanced the source branch; see recovery below.                                                                                     |
+| `ValueError` when resuming                            | Supply a base image for a new tree, or `node_id` when existing history has multiple leaves.                                                           |
+| A completed result did not become current             | A newer local selection exists; select the saved result explicitly as shown below.                                                                    |
 | `NotImplementedError` from async sandbox sync methods | Use `aexecute`, `aupload_files`, or `adownload_files`.                                                                                                |
 
 :::{note}
@@ -161,11 +161,11 @@ Commands save by default. Inspect the exit code before continuing. A saved comma
 can have changed files even when its process exits nonzero. Roll back explicitly
 if those changes should not remain selected.
 
-## Advanced: a completed result conflicts with newer history
+## Advanced: select a late result
 
-A completed operation retains its origin. Committing it against a branch that has
-advanced raises `SessionConflictError`. Do not retry the mutating command blindly.
-You can save its completed result on a new branch instead:
+A completed operation retains its original parent. If local navigation or another
+operation changes the selected position, committing the result saves a sibling
+without selecting it. To save and select that result, give it a local branch name:
 
 ::::{tab} Sync
 
@@ -179,17 +179,13 @@ doc_api.complete(wait_for=1)
 
 ```python
 from contree_sdk import ContreeSession, create_sandbox_session
-from contree_sdk.exceptions import SessionConflictError
 
 
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     operation = session.spawn(shell="echo candidate > /value.txt")
     session.run(shell="echo newer > /value.txt")
     operation.wait()
-    try:
-        session.commit_result(operation)
-    except SessionConflictError:
-        session.commit_result(operation, branch="recovered", title="Recovered result")
+    session.commit_result(operation, branch="recovered", title="Recovered result")
     print(session.image_uuid)
 ```
 
@@ -215,17 +211,13 @@ doc_api.complete(wait_for=1)
 
 ```python
 from contree_sdk import ContreeAsyncSession, create_sandbox_session
-from contree_sdk.exceptions import SessionConflictError
 
 
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     operation = await session.spawn(shell="echo candidate > /value.txt")
     await session.run(shell="echo newer > /value.txt")
     await operation.wait()
-    try:
-        await session.commit_result(operation)
-    except SessionConflictError:
-        await session.commit_result(operation, branch="recovered", title="Recovered result")
+    await session.commit_result(operation, branch="recovered", title="Recovered result")
     print(session.image_uuid)
 ```
 

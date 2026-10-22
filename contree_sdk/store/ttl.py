@@ -1,19 +1,10 @@
-"""Cache records and clock-based expiration."""
+"""Expiration helpers for local stores and upload reuse."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from math import isfinite
-from typing import Any
 
 
 Clock = Callable[[], float]
-
-
-@dataclass(frozen=True)
-class CacheEntry:
-    key: str
-    value: Any
-    expires_at: float | None = None
 
 
 def expiration(ttl: float | None, now: float) -> float | None:

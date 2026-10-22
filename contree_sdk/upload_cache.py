@@ -1,4 +1,4 @@
-"""Opt-in upload reuse through the public file-transfer and cache contracts."""
+"""Upload reuse through the public file-transfer and store contracts."""
 
 from __future__ import annotations
 
@@ -14,10 +14,12 @@ from typing import IO
 
 from contree_client.models import FileSpec
 
-from contree_sdk.cache import AsyncCache, CacheScope, ScopedAsyncCache, ScopedSyncCache, SyncCache
-from contree_sdk.cache.models import expiration
 from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
 from contree_sdk.files import AsyncFileTransfer, InputSource, SyncFileTransfer, UploadedFile, UploadFileSpec
+from contree_sdk.reuse import async_lookup_result, async_remember_result, lookup_result, remember_result
+from contree_sdk.scope import StoreScope
+from contree_sdk.store import AsyncStore, SyncStore
+from contree_sdk.store.ttl import expiration
 
 
 UPLOAD_NAMESPACE = "uploads"
@@ -112,9 +114,9 @@ class CachedFileTransfer(SyncFileTransfer):
     def __init__(
         self,
         transfer: SyncFileTransfer,
-        cache: SyncCache,
+        store: SyncStore,
         *,
-        scope: CacheScope,
+        scope: StoreScope,
         ttl: float,
         sources: SyncFileSources | None = None,
     ) -> None:
@@ -122,21 +124,23 @@ class CachedFileTransfer(SyncFileTransfer):
         self.transfer = transfer
         self.max_concurrency = transfer.max_concurrency
         self.on_progress = transfer.on_progress
-        self.cache = ScopedSyncCache(cache, scope)
+        self.store = store
+        self.namespace = scope.namespace(UPLOAD_NAMESPACE)
         self.ttl = ttl
-        self.sources = sources if sources is not None else SyncFileSources(cache, scope)
+        self.sources = sources if sources is not None else SyncFileSources(store, scope)
 
     def upload(self, file: UploadFileSpec) -> FileSpec:
         if isinstance(file.source, UploadedFile):
             return self.transfer.upload(file)
         with upload_snapshot(file) as snapshot:
-            uuid = cached_uuid(self.cache.get(snapshot.sha256, namespace=UPLOAD_NAMESPACE))
+            record = lookup_result(self.store, self.namespace, snapshot.sha256)
+            uuid = cached_uuid(record)
             if uuid is None:
                 result = self.transfer.upload(snapshot.file)
                 uuid = result.uuid
                 if uuid is Ellipsis or not uuid:
                     raise ValueError("upload returned no file UUID")
-                self.cache.set(snapshot.sha256, {"uuid": uuid}, namespace=UPLOAD_NAMESPACE, ttl=self.ttl)
+                remember_result(self.store, self.namespace, snapshot.sha256, {"uuid": uuid}, ttl=self.ttl)
             if snapshot.source is not None:
                 self.sources.record(uuid, snapshot.sha256, snapshot.source)
             return attachment(uuid, file)
@@ -161,9 +165,9 @@ class AsyncCachedFileTransfer(AsyncFileTransfer):
     def __init__(
         self,
         transfer: AsyncFileTransfer,
-        cache: AsyncCache,
+        store: AsyncStore,
         *,
-        scope: CacheScope,
+        scope: StoreScope,
         ttl: float,
         sources: AsyncFileSources | None = None,
     ) -> None:
@@ -171,21 +175,23 @@ class AsyncCachedFileTransfer(AsyncFileTransfer):
         self.transfer = transfer
         self.max_concurrency = transfer.max_concurrency
         self.on_progress = transfer.on_progress
-        self.cache = ScopedAsyncCache(cache, scope)
+        self.store = store
+        self.namespace = scope.namespace(UPLOAD_NAMESPACE)
         self.ttl = ttl
-        self.sources = sources if sources is not None else AsyncFileSources(cache, scope)
+        self.sources = sources if sources is not None else AsyncFileSources(store, scope)
 
     async def upload(self, file: UploadFileSpec) -> FileSpec:
         if isinstance(file.source, UploadedFile):
             return await self.transfer.upload(file)
         async with async_upload_snapshot(file) as snapshot:
-            uuid = cached_uuid(await self.cache.get(snapshot.sha256, namespace=UPLOAD_NAMESPACE))
+            record = await async_lookup_result(self.store, self.namespace, snapshot.sha256)
+            uuid = cached_uuid(record)
             if uuid is None:
                 result = await self.transfer.upload(snapshot.file)
                 uuid = result.uuid
                 if uuid is Ellipsis or not uuid:
                     raise ValueError("upload returned no file UUID")
-                await self.cache.set(snapshot.sha256, {"uuid": uuid}, namespace=UPLOAD_NAMESPACE, ttl=self.ttl)
+                await async_remember_result(self.store, self.namespace, snapshot.sha256, {"uuid": uuid}, ttl=self.ttl)
             if snapshot.source is not None:
                 await self.sources.record(uuid, snapshot.sha256, snapshot.source)
             return attachment(uuid, file)

@@ -6,40 +6,37 @@ import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
-from contree_sdk.cache import AsyncCache, AsyncMemoryCache, SyncMemoryCache
 from contree_sdk.docker import ContreeAsyncDockerBuilder, ContreeDockerBuilder
 from contree_sdk.docker.context import AsyncBuildContext, BuildContext
 from contree_sdk.docker.kw_add import fetch_url, fetch_url_async
 from contree_sdk.docker.kw_copy import upload_files, upload_files_async
 from contree_sdk.docker.local_context import LocalContext
 from contree_sdk.exceptions import DockerBuildError
-from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
+from contree_sdk.store import AsyncMemoryStore, AsyncStore, SyncMemoryStore
 from tests.unit.cache.test_upload_cache import call
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
 def context(cache, tmp_path):
-    if isinstance(cache, AsyncCache):
+    if isinstance(cache, AsyncStore):
         return AsyncBuildContext(
             client=ContreeAsyncClient(),
-            cache=cache,
-            store=AsyncMemoryStore(),
+            store=cache,
             local=LocalContext(tmp_path),
             upload_cache_ttl=10,
         )
     return BuildContext(
         client=ContreeClient(),
-        cache=cache,
-        store=SyncMemoryStore(),
+        store=cache,
         local=LocalContext(tmp_path),
         upload_cache_ttl=10,
     )
 
 
-def builder_for(client, store, cache):
+def builder_for(client, store):
     if isinstance(client, ContreeAsyncClient):
-        return ContreeAsyncDockerBuilder(client, store=store, cache=cache)
-    return ContreeDockerBuilder(client, store=store, cache=cache)
+        return ContreeAsyncDockerBuilder(client, store=store)
+    return ContreeDockerBuilder(client, store=store)
 
 
 async def test_copy_expiry_and_source_records(cache_case, tmp_path):
@@ -117,14 +114,13 @@ async def test_shared_layer_store_does_not_reuse_another_server_image(tmp_path, 
     (tmp_path / "Dockerfile").write_text("FROM tag:base\nCOPY file /file\nRUN true\n")
     (tmp_path / "file").write_bytes(b"data")
     store = AsyncMemoryStore() if asynchronous else SyncMemoryStore()
-    cache = AsyncMemoryCache() if asynchronous else SyncMemoryCache()
     for endpoint in ("https://one.invalid", "https://two.invalid"):
         client = (ContreeAsyncClient if asynchronous else ContreeClient)(base_url=endpoint)
         client.mock("resolve_image", "same-base-uuid")
         client.mock("ensure_file", FileResponse(uuid="file", sha256="hash", size=4))
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="result", exit_code=0))
-        builder = builder_for(client, store, cache)
+        builder = builder_for(client, store)
         assert await call(builder, "build", tmp_path, session_id="shared") == "result"
         assert len(client.calls_for("spawn_instance")) == 1
         assert len(client.calls_for("ensure_file")) == 1

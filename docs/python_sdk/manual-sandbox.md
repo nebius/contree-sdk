@@ -17,14 +17,14 @@ an available image with `sleep`, a POSIX shell, and `cat`.
 | ------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
 | Connection    | Resolve a Profile from explicit arguments, ENV, or INI.      | Supply a Profile or an already configured client.                     |
 | Client        | HTTPX for sync; aiohttp for async.                           | Select a client class or manage the connection yourself.              |
-| Store         | A memory store for session history.                          | Supply SQLite or your own Store implementation.                       |
-| File transfer | A client-backed transfer for uploads and saved-image reads.  | Replace it or wrap it in a cached transfer.                           |
+| Store         | A memory Store for history and reusable uploads.             | Supply SQLite or your own Store implementation.                       |
+| File transfer | A cached client transfer for uploads and saved-image reads.  | Customize the underlying transfer; reuse uses the same Store.         |
 | Base session  | `ContreeSession` or `ContreeAsyncSession`.                   | Extend request preparation, commits, or operation creation.           |
 | Lazy session  | Reuse one VM; snapshot after 10 idle seconds.                | Select a policy or subclass the lazy session.                         |
 | Cleanup       | Finish the session, then close owned storage and the client. | Manage component lifetimes explicitly; borrowed objects remain yours. |
 
-The factory does not enable an upload cache by default. Pass `cache` and
-`cache_ttl` to enable it, or construct the transfer shown in {doc}`caching`.
+The factory reuses uploads through the same Store, with `cache_ttl=60` by default.
+See {doc}`caching` for lifetime and connection-scope details.
 
 ## Build the default components explicitly
 
@@ -46,14 +46,18 @@ from contree_sdk import ContreeSession, LazySession
 from contree_sdk.files import ClientFileTransfer
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.store import SyncMemoryStore
+from contree_sdk.scope import StoreScope
+from contree_sdk.upload_cache import CachedFileTransfer
 
 
 def main() -> None:
     profile = profiles.from_env() or profiles.resolve_profile()
     with ContreeClient.from_profile(profile) as client:
-        with SyncMemoryStore() as storage:
-            transfer = ClientFileTransfer(client)
-            base = ContreeSession(client, image="tag:alpine:latest", store=storage, file_transfer=transfer)
+        with SyncMemoryStore() as store:
+            transfer = CachedFileTransfer(
+                ClientFileTransfer(client), store, scope=StoreScope.from_client(client), ttl=60
+            )
+            base = ContreeSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
             policy = IdleSnapshotPolicy(10)
             with LazySession(base, snapshot_policy=policy) as sandbox:
                 sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
@@ -91,14 +95,18 @@ from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.files import AsyncClientFileTransfer
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.store import AsyncMemoryStore
+from contree_sdk.scope import StoreScope
+from contree_sdk.upload_cache import AsyncCachedFileTransfer
 
 
 async def main() -> None:
     profile = profiles.from_env() or profiles.resolve_profile()
     async with ContreeAsyncClient.from_profile(profile) as client:
-        async with AsyncMemoryStore() as storage:
-            transfer = AsyncClientFileTransfer(client)
-            base = ContreeAsyncSession(client, image="tag:alpine:latest", store=storage, file_transfer=transfer)
+        async with AsyncMemoryStore() as store:
+            transfer = AsyncCachedFileTransfer(
+                AsyncClientFileTransfer(client), store, scope=StoreScope.from_client(client), ttl=60
+            )
+            base = ContreeAsyncSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
             await base.ensure_ready()
             policy = IdleSnapshotPolicy(10)
             async with AsyncLazySession(base, snapshot_policy=policy) as sandbox:
@@ -212,7 +220,7 @@ in a separate VM. Use `disposable=True` to leave the session image unchanged.
 Selecting a lazy subclass retains a shared VM until a snapshot. Snapshots are
 lightweight and can run after every command, but they stop the VM. An unchanged
 filesystem can produce the same image UUID. `session_kwargs`
-configures the selected class; `storage`, `file_transfer`, and `commit_policy`
+configures the selected class; `store`, `file_transfer`, and `commit_policy`
 configure its underlying base session. To supply a custom base session inside a
 lazy wrapper, assemble them directly as above.
 

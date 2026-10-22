@@ -9,7 +9,6 @@ from pathlib import Path
 
 from contree_client.types import ContreeSyncClient
 
-from contree_sdk.cache import SyncCache, SyncMemoryCache
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.session.sync import ContreeSession
 from contree_sdk.store import SyncMemoryStore, SyncStore
@@ -38,14 +37,12 @@ class ContreeDockerBuilder:
         client: ContreeSyncClient,
         *,
         store: SyncStore | None = None,
-        cache: SyncCache | None = None,
         http_fetch: Callable[[str, str, Iterable[tuple[str, str]]], FetchResponse] | None = None,
         parser: DockerfileParser | None = None,
         session_factory: Callable[..., ContreeSession] | None = None,
     ) -> None:
         self.client = client
         self.store = store if store is not None else SyncMemoryStore()
-        self.cache = cache if cache is not None else SyncMemoryCache()
         self.http_fetch = http_fetch or default_http_fetch
         self.parser = parser if parser is not None else DockerfileParser()
         self.session_factory = session_factory if session_factory is not None else ContreeSession
@@ -147,7 +144,6 @@ class ContreeDockerBuilder:
         return self.context_class(
             client=self.client,
             store=self.store,
-            cache=self.cache,
             local=LocalContext.from_dir(request.context_dir),
             http_fetch=self.http_fetch,
             session_factory=self.session_factory,

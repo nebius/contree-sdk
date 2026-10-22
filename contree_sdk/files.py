@@ -7,8 +7,10 @@ from asyncio import create_task, gather, to_thread
 from collections.abc import AsyncGenerator, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import aclosing, closing
+from dataclasses import dataclass
 from inspect import iscoroutinefunction
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from types import EllipsisType
 from typing import Protocol, TypeAlias, TypeVar, cast
 
 from contree_client.models import FileSpec
@@ -23,6 +25,58 @@ from contree_sdk.file_io import (
     write_download_async,
 )
 from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec, prepare_file_tree
+
+
+@dataclass(frozen=True)
+class StagedFile:
+    """An uploaded file and its destination metadata, detached from a local source."""
+
+    path: str
+    uuid: str
+    uid: int | None = 0
+    gid: int | None = 0
+    mode: int | None = 0o644
+
+    def __post_init__(self) -> None:
+        if not self.path or not self.uuid:
+            raise ValueError("staged files require a destination path and upload UUID")
+        object.__setattr__(self, "path", str(PurePosixPath(self.path)))
+
+    @classmethod
+    def from_spec(cls, path: str, spec: FileSpec) -> StagedFile:
+        """Copy a transport attachment, preserving omitted permission fields.
+
+        Returns:
+            A detached attachment with an octal mode converted to an integer.
+
+        Raises:
+            ValueError: The upload UUID is missing or the mode is not octal.
+
+        """
+        if spec.uuid is Ellipsis:
+            raise ValueError("staged files require an upload UUID")
+        mode = None if isinstance(spec.mode, EllipsisType) else spec.mode
+        return cls(
+            path,
+            spec.uuid,
+            None if isinstance(spec.uid, EllipsisType) else spec.uid,
+            None if isinstance(spec.gid, EllipsisType) else spec.gid,
+            int(mode, 8) if isinstance(mode, str) else mode,
+        )
+
+    def as_spec(self) -> FileSpec:
+        """Create a transport attachment without reading or uploading its source.
+
+        Returns:
+            A new FileSpec with the recorded metadata.
+
+        """
+        return FileSpec(
+            uuid=self.uuid,
+            uid=self.uid if self.uid is not None else ...,
+            gid=self.gid if self.gid is not None else ...,
+            mode=self.mode if self.mode is not None else ...,
+        )
 
 
 DataT_co = TypeVar("DataT_co", str, bytes, covariant=True)
@@ -262,6 +316,7 @@ __all__ = [
     "InputSource",
     "Readable",
     "RunFiles",
+    "StagedFile",
     "SyncFileTransfer",
     "TransferProgress",
     "UploadFileSpec",

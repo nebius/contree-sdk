@@ -19,7 +19,6 @@ from contree_sdk import (
     create_sync_sandbox_session,
     profile_from_args,
 )
-from contree_sdk.cache import AsyncMemoryCache, CacheScope, SyncMemoryCache
 from contree_sdk.files import AsyncClientFileTransfer, ClientFileTransfer, UploadFileSpec
 from contree_sdk.session import IdleSnapshotPolicy, ZeroExitCommitPolicy
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
@@ -101,9 +100,10 @@ def test_default_sync_is_lazy_and_commits_once(profile):
         assert first.stdout.as_text() == "first"
         assert second.stdout.as_text() == "second"
         assert len(client.calls_for("spawn_instance")) == 1
-        store = session.session.store
-        session_id = session.session_id
-    assert len(store.history_dag(session_id)[0]) == 2
+        root_id = session.session.tip_id
+    assert session.last_entry is not None
+    assert session.last_entry.parent_id == root_id
+    assert session.session.tip_id == session.last_entry.id
     assert session.phase == "closed"
     assert client.closed == 1
     with pytest.raises(RuntimeError, match="only be entered once"), context:
@@ -127,9 +127,10 @@ async def test_default_async_is_lazy_and_commits_once(profile):
         assert first.stdout.as_text() == "first"
         assert second.stdout.as_text() == "second"
         assert len(client.calls_for("spawn_instance")) == 1
-        store = session.session.store
-        session_id = session.session_id
-    assert len((await store.history_dag(session_id))[0]) == 2
+        root_id = session.session.tip_id
+    assert session.last_entry is not None
+    assert session.last_entry.parent_id == root_id
+    assert session.session.tip_id == session.last_entry.id
     assert session.phase == "closed"
     assert client.closed == 1
     with pytest.raises(RuntimeError, match="only be entered once"):
@@ -150,9 +151,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
             self.label = label
 
     store = AsyncMemoryStore() if asynchronous else SyncMemoryStore()
-    cache = AsyncMemoryCache() if asynchronous else SyncMemoryCache()
     store.close = AsyncMock() if asynchronous else Mock()
-    cache.close = AsyncMock() if asynchronous else Mock()
     policy = IdleSnapshotPolicy(120)
     commit = ZeroExitCommitPolicy()
     selected = CustomAsyncLazy if asynchronous else CustomLazy
@@ -161,8 +160,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
         "profile": profile,
         "client_type": FactoryAsyncClient if asynchronous else FactoryClient,
         "session_type": selected,
-        "storage": store,
-        "cache": cache,
+        "store": store,
         "session_id": "custom",
         "cwd": "/work",
         "env": {"A": "B"},
@@ -192,43 +190,42 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     assert session.session.store is store
     assert options["session_kwargs"] == original_kwargs
     assert isinstance(session.session.file_transfer, (CachedFileTransfer, AsyncCachedFileTransfer))
-    assert session.session.file_transfer.cache.cache is cache
+    assert session.session.file_transfer.store is store
     assert session.session.commit_policy is commit
     assert session.session.cwd == "/work"
     assert session.session.env == {"A": "B"}
     store.close.assert_not_called()
-    cache.close.assert_not_called()
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_cache_reuses_uploads_and_borrowed_client_stays_open(asynchronous):
     if asynchronous:
         client = FactoryAsyncClient()
-        cache = AsyncMemoryCache()
+        cache = AsyncMemoryStore()
         transfer = AsyncClientFileTransfer(client)
     else:
         client = FactoryClient()
-        cache = SyncMemoryCache()
+        cache = SyncMemoryStore()
         transfer = ClientFileTransfer(client)
     client.mock("ensure_file", FileResponse(uuid="upload", sha256="a" * 64, size=4))
     options: dict[str, Any] = {
         "image": "base",
         "client": client,
-        "cache": cache,
+        "store": cache,
         "file_transfer": transfer,
         "session_type": ContreeAsyncSession if asynchronous else ContreeSession,
     }
     file = UploadFileSpec(path="/input", source=b"same")
-    if isinstance(cache, AsyncMemoryCache):
+    if isinstance(cache, AsyncMemoryStore):
         async with create_sandbox_session(**options) as session:
             first = await session.upload_file(file)
             second = await session.upload_file(file)
-        entries = await cache.entries(namespace=CacheScope.from_client(client).namespace("uploads"))
+        entries = (await cache.list_sessions(kind="upload-cache")).items
     else:
         with create_sandbox_session(**options) as session:
             first = session.upload_file(file)
             second = session.upload_file(file)
-        entries = cache.entries(namespace=CacheScope.from_client(client).namespace("uploads"))
+        entries = cache.list_sessions(kind="upload-cache").items
     assert first.uuid == second.uuid == "upload"
     assert len(client.calls_for("ensure_file")) == 1
     assert entries[0].expires_at is not None
@@ -241,8 +238,7 @@ async def test_cache_reuses_uploads_and_borrowed_client_stays_open(asynchronous)
     [
         {"session_type": AsyncLazySession},
         {"client_type": FactoryAsyncClient},
-        {"storage": AsyncMemoryStore()},
-        {"cache": AsyncMemoryCache()},
+        {"store": AsyncMemoryStore()},
         {"file_transfer": AsyncClientFileTransfer(StubAsyncClient())},
         {"client": StubAsyncClient()},
     ],
@@ -259,8 +255,7 @@ def test_sync_rejects_async_components_before_creating_client(profile, options):
     [
         {"session_type": LazySession},
         {"client_type": FactoryClient},
-        {"storage": SyncMemoryStore()},
-        {"cache": SyncMemoryCache()},
+        {"store": SyncMemoryStore()},
         {"file_transfer": ClientFileTransfer(StubClient())},
         {"client": StubClient()},
     ],
@@ -452,7 +447,7 @@ async def test_cancelled_entry_closes_client_and_preserves_borrowed_store(profil
 
     async def run():
         async with create_async_sandbox_session(
-            image="base", profile=profile, client_type=FactoryAsyncClient, session_type=WaitingSession, storage=store
+            image="base", profile=profile, client_type=FactoryAsyncClient, session_type=WaitingSession, store=store
         ):
             pytest.fail("entry must not finish")
 

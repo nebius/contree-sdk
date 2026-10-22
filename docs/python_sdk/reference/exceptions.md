@@ -7,7 +7,7 @@ process exit code is returned in `InstanceResult` by command execution.
 
 ```{eval-rst}
 .. automodule:: contree_sdk.exceptions
-   :members: FailedOperationError, SessionConflictError, DockerBuildError, FileWriteError
+   :members: FailedOperationError, DockerBuildError, FileWriteError
    :inherited-members:
    :undoc-members:
    :member-order: bysource

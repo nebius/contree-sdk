@@ -15,9 +15,9 @@ from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
+from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.sync import ContreeSession
-from contree_sdk.store import HistoryEntry
 
 
 class LazySession(SyncExecutor):

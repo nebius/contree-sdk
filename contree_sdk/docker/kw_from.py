@@ -60,10 +60,10 @@ class FromKeyword(DockerKeyword):
             image_uuid = resolve_or_import(ctx, ref)
 
         from_hash = hashlib.sha256(ctx.cache_namespace(f"FROM:{image_uuid}").encode()).hexdigest()
-        branch_name = f"layer:{ctx.short_hash(from_hash)}"
+        branch_name = f"layer:{from_hash}"
 
         ctx.pending.clear()
-        if ctx.try_cache_hit(branch_name) is not None:
+        if ctx.try_cache_hit(branch_name, kind="use") is not None:
             ctx.parent_hash = from_hash
             return
 
@@ -84,10 +84,10 @@ class FromKeyword(DockerKeyword):
             image_uuid = await resolve_or_import_async(ctx, ref)
 
         from_hash = hashlib.sha256(ctx.cache_namespace(f"FROM:{image_uuid}").encode()).hexdigest()
-        branch_name = f"layer:{ctx.short_hash(from_hash)}"
+        branch_name = f"layer:{from_hash}"
 
         ctx.pending.clear()
-        if await ctx.try_cache_hit(branch_name) is not None:
+        if await ctx.try_cache_hit(branch_name, kind="use") is not None:
             ctx.parent_hash = from_hash
             return
 

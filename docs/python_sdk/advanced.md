@@ -4,7 +4,7 @@ icon: sliders
 
 # Advanced usage
 
-The sandbox and image helpers manage clients, stores, caches, and cleanup.
+The sandbox and image helpers manage clients, stores, and cleanup.
 Use the options below when you need to select components or control their behavior.
 For basic workflows, start with {doc}`getting-started`, {doc}`images`, and
 {doc}`building-images`. Connection settings remain in {ref}`sandbox-connection`;
@@ -15,44 +15,38 @@ save checkpoints, compare branches, roll back experiments, and resume saved work
 
 ## What each component does
 
-| Component                            | Purpose                                                                                                                                 | Read more                                                         |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **Store** (`storage=` in helpers)    | Keeps session history, branches, and references to saved images. Use it to resume work or return to an earlier state.                   | {doc}`sessions` and {doc}`reference/store`                        |
-| **Cache** (`cache=`)                 | Keeps reusable results, such as uploaded-file IDs and imported-image IDs, to avoid repeating work. It does not replace session history. | {doc}`caching`                                                    |
-| **Client** (`client=`)               | Sends requests to ConTree using your endpoint, credentials, and project. One client can serve import, build, and sandbox operations.    | {ref}`shared-image-client`                                        |
-| **Session**                          | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result.               | {doc}`session-model`                                              |
-| **LazySession**                      | Keeps commands in one running VM until a snapshot. This is the default session behind `create_sandbox_session`.                         | {doc}`session-model`                                              |
-| **Operation**                        | Gives access to one remote operation: wait for completion, run subprocesses, read output, or stop it.                                   | {doc}`operation`                                                  |
-| **FileTransfer** (`file_transfer=`)  | Prepares uploads and reads files from saved images. It does not access unsaved files inside a running VM.                               | {doc}`files` and {doc}`reference/files`                           |
-| **Snapshot policy**                  | Decides when a lazy session saves filesystem changes and stops its VM.                                                                  | {doc}`reference/session`                                          |
-| **Commit policy** (`commit_policy=`) | Decides whether a completed operation's result becomes part of session history.                                                         | [Select a commit policy](customization.md#select-a-commit-policy) |
-| **Docker builder**                   | Executes Dockerfile instructions and returns an image UUID. It uses a Store for layer history and a Cache for uploads.                  | {doc}`building-images` and {doc}`reference/docker`                |
+| Component                            | Purpose                                                                                                                              | Read more                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| **Store** (`store=` in helpers)      | Keeps history, uploaded-file references, and imported images in typed trees. Supports resume and result reuse.                       | {doc}`sessions` and {doc}`reference/store`                        |
+| **Client** (`client=`)               | Sends requests to ConTree using your endpoint, credentials, and project. One client can serve import, build, and sandbox operations. | {ref}`shared-image-client`                                        |
+| **Session**                          | Tracks the current image and history. `ContreeSession` runs each command as a separate operation and can save its result.            | {doc}`session-model`                                              |
+| **LazySession**                      | Keeps commands in one running VM until a snapshot. This is the default session behind `create_sandbox_session`.                      | {doc}`session-model`                                              |
+| **Operation**                        | Gives access to one remote operation: wait for completion, run subprocesses, read output, or stop it.                                | {doc}`operation`                                                  |
+| **FileTransfer** (`file_transfer=`)  | Prepares uploads and reads files from saved images. It does not access unsaved files inside a running VM.                            | {doc}`files` and {doc}`reference/files`                           |
+| **Snapshot policy**                  | Decides when a lazy session saves filesystem changes and stops its VM.                                                               | {doc}`reference/session`                                          |
+| **Commit policy** (`commit_policy=`) | Decides whether a completed operation's result becomes part of session history.                                                      | [Select a commit policy](customization.md#select-a-commit-policy) |
+| **Docker builder**                   | Executes Dockerfile instructions and returns an image UUID. It uses Store trees for layer history and uploaded results.              | {doc}`building-images` and {doc}`reference/docker`                |
 
 A memory Store keeps history only for that store instance. A SQLite Store keeps
 it across Python restarts. The filesystem images themselves remain on the ConTree
-server. Clearing a Cache removes reusable records; it does not roll back a session.
+server. Deleting an upload-cache tree removes its reuse records without changing session history.
 
-Sandbox history uses memory by default, and its upload cache is optional. The
-import and build helpers enable persistent caching by default. See
+Sandbox history and upload reuse share a memory Store by default. The
+import and build helpers use a persistent SQLite Store by default. See
 {doc}`manual-sandbox` for component construction and ownership.
 
 ### Bring your own storage
 
-Store and Cache are public interfaces. Memory and SQLite are ready-to-use
-implementations supplied by the SDK. You can implement the same interfaces for
-your own backend:
+`SyncStore` and `AsyncStore` are the public storage interfaces. The SDK includes
+Memory and SQLite implementations. Subclass the matching interface to implement
+Redis or PostgreSQL storage. One Store holds both history and reusable results.
+Tree kinds separate their purposes.
 
-- **Redis cache:** subclass `SyncCache` or `AsyncCache` from `contree_sdk.cache`
-  and implement its methods using Redis. See [Implement cache storage](customization.md#implement-cache-storage)
-  for namespace, value, and expiry rules.
-- **PostgreSQL session history:** subclass `SyncStore` or `AsyncStore` from
-  `contree_sdk.store` and implement its methods using PostgreSQL. See
-  [Implement history storage](customization.md#implement-history-storage) for
-  history, branch, and transaction rules.
+Store contains typed trees of immutable nodes. Session owns the selected position
+and local branch names. See [Implement history storage](customization.md#implement-history-storage)
+for atomic insertion, pagination, and retention requirements.
 
-Pass your instances through `cache=` and `storage=` to the sandbox or build
-helpers. Direct session and builder constructors use `store=` instead of
-`storage=`. Use sync implementations with sync APIs and async implementations
+Pass your Store through `store=` to helpers, sessions, and builders. Use sync implementations with sync APIs and async implementations
 with async APIs. The SDK uses these interfaces, so changing the storage backend
 does not require changing its execution code. Your application owns and closes
 the supplied components.
@@ -191,7 +185,7 @@ a compatible notebook. Complete programs use `asyncio.run(main())`.
 `AsyncLazySession`. An explicitly selected class must match the context mode:
 `session_type=AsyncLazySession` with a synchronous `with` raises `TypeError`
 before creating a client. The same rule applies to `client_type` and supplied
-storage, cache, file transfer, and client objects.
+store, file transfer, and client objects.
 
 ::::{tab} Sync
 
@@ -199,18 +193,16 @@ storage, cache, file transfer, and client objects.
 
 ```python
 from contree_sdk import LazySession, create_sync_sandbox_session
-from contree_sdk.cache import SyncMemoryCache
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.store import SyncSQLiteStore
 
 
-with SyncSQLiteStore("sandbox.db") as storage, SyncMemoryCache() as cache:
+with SyncSQLiteStore("sandbox.db") as store:
     with create_sync_sandbox_session(
         image="tag:alpine:latest",
         session_type=LazySession,
         session_id="work",
-        storage=storage,
-        cache=cache,
+        store=store,
         cache_ttl=60,
         cwd="/",
         env={"LANG": "C.UTF-8"},
@@ -227,18 +219,16 @@ with SyncSQLiteStore("sandbox.db") as storage, SyncMemoryCache() as cache:
 
 ```python
 from contree_sdk import AsyncLazySession, create_async_sandbox_session
-from contree_sdk.cache import AsyncMemoryCache
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.store import AsyncSQLiteStore
 
 
-async with AsyncSQLiteStore("sandbox.db") as storage, AsyncMemoryCache() as cache:
+async with AsyncSQLiteStore("sandbox.db") as store:
     async with create_async_sandbox_session(
         image="tag:alpine:latest",
         session_type=AsyncLazySession,
         session_id="work",
-        storage=storage,
-        cache=cache,
+        store=store,
         cache_ttl=60,
         cwd="/",
         env={"LANG": "C.UTF-8"},
@@ -266,10 +256,11 @@ stops the VM and can return the same image UUID if files have not changed.
 | Argument                      | Purpose                                                                                                                                                                                                                     |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `image`, `session_id`         | Initial image or stored session to resume. At least one is required.                                                                                                                                                        |
-| `storage`                     | Session history store; defaults to a new memory store of the selected mode.                                                                                                                                                 |
-| `cache`, `cache_ttl`          | Optional upload reuse through `CachedFileTransfer`; local entries expire after 60 seconds by default. Choose a TTL no longer than your server's upload retention.                                                           |
+| `node_id`                     | Select a saved node explicitly when resuming, including a tree with multiple continuations.                                                                                                                                 |
+| `store`                       | Session history store; defaults to a new memory store of the selected mode.                                                                                                                                                 |
+| `cache_ttl`                   | Upload reuse through the shared Store expires after 60 seconds by default. Choose a TTL no longer than your server's upload retention.                                                                                      |
 | `cwd`, `env`, `commit_policy` | Configuration of the underlying session.                                                                                                                                                                                    |
-| `file_transfer`               | Replace file I/O; when `cache` is supplied, the cache wraps this transfer.                                                                                                                                                  |
+| `file_transfer`               | Replace file I/O; a cached transfer wraps it using the same Store.                                                                                                                                                          |
 | `session_kwargs`              | Additional constructor arguments for the selected session class, including lazy snapshot options. Factory-managed arguments take priority over duplicates in this mapping.                                                  |
 | `client`                      | Borrow an already configured client. Cannot be combined with connection settings or `client_type`.                                                                                                                          |
 | `client_type`                 | Select a contree-client class. Defaults are HTTPX for sync and aiohttp for async.                                                                                                                                           |
@@ -285,7 +276,7 @@ Each context object permits one entry, including a failed entry. Re-entry,
 nesting, and mixing sync/async entry on that object raise `RuntimeError`; call the
 factory again to get a new context.
 
-The factory closes resources it creates. Supplied clients, storage, caches, and
+The factory closes resources it creates. Supplied clients, storage, and
 file transfers remain caller-owned and must be ready for use. A session's context
 exit runs before the owned client closes. Async cleanup is joined even when the
 caller cancels again; a body exception takes priority over cleanup errors.
@@ -402,15 +393,13 @@ delete server images. Deleting a server image can invalidate saved session histo
 
 ## Assemble the builder yourself
 
-The helpers create a client, a SQLite store for layer history, and a SQLite cache
-for uploads. They scope the build session to the context path and connection,
+The helpers create a client and one SQLite Store for layer history and reusable uploads. They scope the build session to the context path and connection,
 call the Docker builder, and close the resources they created.
 
 Use the builder directly to manage these dependencies and their lifetime yourself.
 The following example keeps a builder inside the client context and uses its
-default memory store and cache. For persistence, pass `store=SyncSQLiteStore(...)`
-and `cache=SyncSQLiteCache(...)`, or their async equivalents, and close them yourself.
-With a helper, the corresponding arguments are `storage=` and `cache=`.
+default memory Store. For persistence, pass `store=SyncSQLiteStore(...)` or its
+async equivalent and close it yourself. Helpers accept the same dependency as `store=`.
 Use `builder_type=` and `builder_kwargs=` to extend a builder through a helper.
 
 ### Rebuild a multi-stage image after changing inputs
@@ -549,7 +538,7 @@ assert len(changed_runs) == 2
 
 The cache comparison uses file content and execution inputs. It does not require
 the server to return a different image UUID for every submission. To retain this
-cache across Python restarts, supply SQLite store and cache components as above.
+cache across Python restarts, supply a SQLite Store as above.
 
 ## Observe a live build
 
@@ -722,9 +711,10 @@ See {doc}`customization` and {doc}`reference/docker`.
 
 ## Upload cache lifetime and scope
 
-COPY and ADD cache uploads separately from layer history. The cache namespaces
-and layer hashes include the endpoint, project, and credential scope. Shared
-cache files and build session IDs therefore do not reuse another server’s UUIDs.
+COPY and ADD keep reusable upload records in the same Store as layer history.
+Tree kinds separate these records. Namespaces and layer hashes include the
+endpoint, project, and credential scope, so shared storage does not reuse another
+server’s UUIDs.
 Local paths and source URLs are retained through the public file-source registry.
 See {doc}`caching` for enumeration and invalidation.
 

@@ -92,10 +92,10 @@ async def test_custom_policy_receives_effective_context_and_result(session):
     mock_completion(session.client, operation_response())
     operation = await call(session, "spawn", "command")
     result = await call(operation, "wait")
-    before = await call(session.store, "read_session", session.session_id)
+    before = await call(session.store, "list_nodes", session.session_id)
     assert await call(session, "commit_result", operation, branch="rejected") is None
     assert seen == [(operation.context, result)]
-    assert await call(session.store, "read_session", session.session_id) == before
+    assert await call(session.store, "list_nodes", session.session_id) == before
 
 
 async def test_disposable_result_never_invokes_policy_or_commits(session):

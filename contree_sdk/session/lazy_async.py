@@ -16,8 +16,8 @@ from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
+from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
-from contree_sdk.store import HistoryEntry
 
 
 class AsyncLazySession(AsyncExecutor):

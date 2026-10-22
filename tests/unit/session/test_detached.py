@@ -1,18 +1,21 @@
 """Detached workflows exercise real sessions and stores across reopen boundaries."""
 
+import asyncio
 import inspect
 import io
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 from contree_client.models import FileResponse, InstanceNetworking, InstanceResourcesLimits, OperationStatus
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import ContreeAsyncSession, ContreeSession
-from contree_sdk.exceptions import FailedOperationError, SessionConflictError
+from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.session import ZeroExitCommitPolicy
 from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, SyncMemoryStore, SyncSQLiteStore
@@ -58,15 +61,26 @@ async def reopen(session, tmp_path):
 async def test_reopen_finish_and_replay_without_transport(session, tmp_path):
     record = await call(session, "spawn_detached", "false")
     assert record.pending
+    pending = await call(session.store, "list_nodes", session.session_id, kind="operation-pending")
+    saved = pending.items[0].data["record"]
+    assert isinstance(saved, dict)
+    assert saved["request"]["command"] == "false"
+    assert saved["response"] is None
     assert not session.client.calls_for("follow_operation_events")
     resumed = await reopen(session, tmp_path)
     mock_completion(session.client, operation_response(exit_code=7))
     first = await call(resumed, "wait_operation", record.uuid)
-    final = await call(resumed.store, "get_operation", resumed.session_id, record.uuid)
+    final = await call(resumed, "get_operation", record.uuid)
     assert not final.pending
     assert final.history_id is not None
+    completed = await call(resumed.store, "get_node", resumed.session_id, final.history_id)
+    assert isinstance(completed.data["record"]["response"], dict)
+    # Editing a returned record cannot change a later restore or replay.
+    final.request["command"] = "changed locally"
+    restored = await call(resumed, "get_operation", record.uuid)
+    assert restored.request["command"] == "false"
     assert await call(resumed, "list_operations") == ()
-    assert await call(resumed, "list_operations", pending_only=False) == (final,)
+    assert await call(resumed, "list_operations", pending_only=False) == (restored,)
     second = await call(resumed, "wait_operation", record.uuid)
     assert first == second
     assert len(session.client.calls_for("follow_operation_events")) == 1
@@ -85,24 +99,23 @@ async def test_restored_operation_commits_once_on_original_branch(session):
     second = await call(session, "commit_result", operation)
     assert first == second
     assert first is not None
-    assert await call(session.store, "active_branch", session.session_id) == "other"
+    assert ("other", True) in await call(session, "list_branches")
     assert session.image_uuid == "base"
-    assert (await call(session.store, "tip", session.session_id, "main")).id == first.id
+    assert "main" in (await call(session, "history"))[1][first.id]
     assert len((await call(session, "history"))[0]) == 2
 
 
-async def test_conflict_can_finish_on_new_branch_without_switching(session):
+async def test_late_completion_keeps_its_parent_without_switching(session):
     record = await call(session, "spawn_detached", "write", disposable=False)
     root = session.tip_id
-    newer = await call(session.store, "append", session.session_id, image_uuid="newer", parent_id=root)
+    await call(session, "set_cwd", "/newer")
+    newer = session.tip_id
     mock_completion(session.client, operation_response())
-    with pytest.raises(SessionConflictError):
-        await call(session, "wait_operation", record.uuid)
-    assert (await call(session.store, "get_operation", session.session_id, record.uuid)).pending
-    await call(session, "wait_operation", record.uuid, branch="saved")
-    assert session.tip_id == newer.id
-    assert await call(session.store, "active_branch", session.session_id) == "main"
-    saved = await call(session.store, "tip", session.session_id, "saved")
+    await call(session, "wait_operation", record.uuid)
+    final = await call(session, "get_operation", record.uuid)
+    assert not final.pending
+    assert session.tip_id == newer
+    saved = await call(session, "get_entry", final.history_id)
     assert saved.parent_id == root
     assert saved.image_uuid == "img-uuid-1"
 
@@ -113,7 +126,7 @@ async def test_disposable_and_rejected_results_remain_replayable(session, dispos
     record = await call(session, "spawn_detached", "false", disposable=disposable)
     mock_completion(session.client, operation_response(exit_code=3))
     await call(session, "wait_operation", record.uuid)
-    final = await call(session.store, "get_operation", session.session_id, record.uuid)
+    final = await call(session, "get_operation", record.uuid)
     assert not final.pending
     assert final.history_id is None
     assert len((await call(session, "history"))[0]) == 1
@@ -133,7 +146,7 @@ async def test_final_errors_are_stored_and_replayed(session, status, error):
     for _ in range(2):
         with pytest.raises(error):
             await call(session, "wait_operation", record.uuid)
-    assert not (await call(session.store, "get_operation", session.session_id, record.uuid)).pending
+    assert not (await call(session, "get_operation", record.uuid)).pending
     assert len((await call(session, "history"))[0]) == 1
     assert len(session.client.calls_for("follow_operation_events")) == 1
 
@@ -144,7 +157,7 @@ async def test_transport_error_does_not_complete_registry(session):
     session.client.mock("cancel_operation", None)
     with pytest.raises(OSError, match="status unavailable"):
         await call(session, "wait_operation", record.uuid)
-    assert (await call(session.store, "get_operation", session.session_id, record.uuid)).pending
+    assert (await call(session, "get_operation", record.uuid)).pending
 
 
 async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp_path):
@@ -187,15 +200,13 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
 
 
 async def test_registration_failure_cancels_remote_operation(session, monkeypatch):
-    def fail(record):
+    def fail(*args):
         raise OSError("registry unavailable")
 
-    async def async_fail(record):
-        fail(record)
+    async def async_fail(*args):
+        fail(*args)
 
-    monkeypatch.setattr(
-        session.store, "register_operation", async_fail if isinstance(session, ContreeAsyncSession) else fail
-    )
+    monkeypatch.setattr(session.store, "append", async_fail if isinstance(session, ContreeAsyncSession) else fail)
     session.client.mock("cancel_operation", None)
     with pytest.raises(OSError, match="registry unavailable"):
         await call(session, "spawn_detached", "write", disposable=False)
@@ -228,8 +239,9 @@ with SyncSQLiteStore(sys.argv[1]) as store:
         [sys.executable, "-c", script, str(db)], cwd=Path(__file__).resolve().parents[3], check=True, timeout=10
     )
     with SyncSQLiteStore(db) as store:
-        assert not store.get_operation("session", "op-1").pending
-        assert len(store.history_dag("session")[0]) == 2
+        session = ContreeSession(client, session_id="session", store=store)
+        assert not session.get_operation("op-1").pending
+        assert len(session.history()[0]) == 2
 
 
 @pytest.mark.parametrize("completed", [False, True])
@@ -278,12 +290,11 @@ async def test_success_without_result_image_remains_pending(session):
     mock_completion(session.client, operation_response(result_image_uuid=None))
     with pytest.raises(ValueError, match="no result image"):
         await call(session, "wait_operation", record.uuid)
-    assert (await call(session.store, "get_operation", session.session_id, record.uuid)).pending
+    assert (await call(session, "get_operation", record.uuid)).pending
     assert len((await call(session, "history"))[0]) == 1
 
 
 async def test_custom_serialization_hooks_are_used_for_restore_and_commit(session, monkeypatch):
-    import json
     from dataclasses import replace
 
     encode = session.create_operation_record
@@ -292,14 +303,14 @@ async def test_custom_serialization_hooks_are_used_for_restore_and_commit(sessio
 
     def create_record(operation):
         saved = encode(operation)
-        payload = json.loads(saved.request_json)
+        payload = dict(saved.request)
         payload["application"] = {"label": "custom"}
-        return replace(saved, request_json=json.dumps(payload))
+        return replace(saved, request=payload)
 
     def restore_context(saved):
-        payload = json.loads(saved.request_json)
+        payload = dict(saved.request)
         decoded.append(payload.pop("application"))
-        return decode(replace(saved, request_json=json.dumps(payload)))
+        return decode(replace(saved, request=payload))
 
     monkeypatch.setattr(session, "create_operation_record", create_record)
     monkeypatch.setattr(session, "restore_operation_context", restore_context)
@@ -340,11 +351,82 @@ async def test_registry_error_preserves_primary_operation_failure(session, monke
     record = await call(session, "spawn_detached", "write", disposable=False)
     mock_completion(session.client, operation_response(status=OperationStatus.FAILED))
     session.client.mock("cancel_operation", None)
-    monkeypatch.setattr(
-        session.store, "finish_operation", async_fail if isinstance(session, ContreeAsyncSession) else fail
-    )
+    monkeypatch.setattr(session.store, "append", async_fail if isinstance(session, ContreeAsyncSession) else fail)
     with pytest.raises(FailedOperationError) as raised:
         await call(session, "wait_operation", record.uuid)
     assert isinstance(raised.value.__cause__, OSError)
     assert str(raised.value.__cause__) == "registry write failed"
-    assert (await call(session.store, "get_operation", session.session_id, record.uuid)).pending
+    assert (await call(session, "get_operation", record.uuid)).pending
+
+
+def test_two_connections_wait_for_one_detached_result(tmp_path, monkeypatch):
+    clients = [ContreeClient(), ContreeClient()]
+    for client in clients:
+        client.mock("resolve_image", "base")
+        mock_completion(client, operation_response())
+    clients[0].mock("spawn_instance", spawn_response())
+    with SyncSQLiteStore(tmp_path / "shared.db") as first, SyncSQLiteStore(tmp_path / "shared.db") as second:
+        a = ContreeSession(clients[0], image="base", session_id="shared", store=first)
+        b = ContreeSession(clients[1], session_id="shared", store=second, node_id=a.tip_id)
+        root = a.tip_id
+        record = a.spawn_detached("work", disposable=False)
+        barrier = Barrier(2, timeout=10)
+
+        def synchronize(store):
+            append = store.append
+
+            def save(session_id, node):
+                if node.id == record.node_id:
+                    barrier.wait()
+                append(session_id, node)
+
+            monkeypatch.setattr(store, "append", save)
+
+        synchronize(first)
+        synchronize(second)
+        with ThreadPoolExecutor(2) as workers:
+            fa = workers.submit(a.wait_operation, record.uuid)
+            fb = workers.submit(b.wait_operation, record.uuid)
+            assert fa.result() == fb.result()
+        assert a.tip_id == b.tip_id == record.node_id
+        assert [node.id for node in first.list_children("shared", root, kind="run").items] == [record.node_id]
+        assert a.get_operation(record.uuid) == b.get_operation(record.uuid)
+
+
+async def test_two_async_connections_wait_for_one_detached_result(tmp_path, monkeypatch):
+    clients = [ContreeAsyncClient(), ContreeAsyncClient()]
+    for client in clients:
+        client.mock("resolve_image", "base")
+        mock_completion(client, operation_response())
+    clients[0].mock("spawn_instance", spawn_response())
+    async with AsyncSQLiteStore(tmp_path / "shared.db") as first, AsyncSQLiteStore(tmp_path / "shared.db") as second:
+        a = ContreeAsyncSession(clients[0], image="base", session_id="shared", store=first)
+        await a.ensure_ready()
+        b = ContreeAsyncSession(clients[1], session_id="shared", store=second, node_id=a.tip_id)
+        await b.ensure_ready()
+        root = a.tip_id
+        record = await a.spawn_detached("work", disposable=False)
+        ready = asyncio.Event()
+        waiting = 0
+
+        def synchronize(store):
+            append = store.append
+
+            async def save(session_id, node):
+                nonlocal waiting
+                if node.id == record.node_id:
+                    waiting += 1
+                    if waiting == 2:
+                        ready.set()
+                    await asyncio.wait_for(ready.wait(), timeout=10)
+                await append(session_id, node)
+
+            monkeypatch.setattr(store, "append", save)
+
+        synchronize(first)
+        synchronize(second)
+        results = await asyncio.gather(a.wait_operation(record.uuid), b.wait_operation(record.uuid))
+        assert results[0] == results[1]
+        assert a.tip_id == b.tip_id == record.node_id
+        assert [node.id for node in (await first.list_children("shared", root, kind="run")).items] == [record.node_id]
+        assert await a.get_operation(record.uuid) == await b.get_operation(record.uuid)

@@ -133,11 +133,11 @@ docker://<registry>[:<port>]/<repository>:<tag>
 Replace the angle-bracket placeholders; the port is optional. The repository
 includes its namespace, such as `library/alpine` or `my-team/my-app`.
 
-| Source URL | Meaning |
-| ---------- | ------- |
-| `docker://docker.io/library/alpine:latest` | Official Alpine image on Docker Hub. |
-| `docker://mirror.gcr.io/library/alpine:latest` | The mirror used in the example above. |
-| `docker://ghcr.io/my-team/my-app:v1` | An organization's image on GitHub Container Registry. |
+| Source URL                                             | Meaning                                                            |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `docker://docker.io/library/alpine:latest`             | Official Alpine image on Docker Hub.                               |
+| `docker://mirror.gcr.io/library/alpine:latest`         | The mirror used in the example above.                              |
+| `docker://ghcr.io/my-team/my-app:v1`                   | An organization's image on GitHub Container Registry.              |
 | `docker://registry.example.com:5000/my-team/my-app:v1` | A registry with an explicit port. Replace the host and repository. |
 
 For Docker Hub official images, use the `library/` namespace. Keep the
@@ -164,10 +164,10 @@ described under Configuration below.
 
 Pass either of these references to `create_sandbox_session(image=...)`:
 
-| Reference                                      | Use                                                            |
-| ---------------------------------------------- | -------------------------------------------------------------- |
-| `tag:alpine:latest`                            | ConTree tag passed to the sandbox factory.                     |
-| The returned image UUID                        | The specific imported filesystem, even if its tag later moves. |
+| Reference               | Use                                                            |
+| ----------------------- | -------------------------------------------------------------- |
+| `tag:alpine:latest`     | ConTree tag passed to the sandbox factory.                     |
+| The returned image UUID | The specific imported filesystem, even if its tag later moves. |
 
 The factory does not import missing images; an unknown tag raises `NotFoundError`.
 
@@ -197,6 +197,7 @@ See the complete Sync/Async example in {ref}`shared-image-client`.
 The caller closes a supplied client. Helpers close clients they create themselves.
 
 Pass an `ImageImportRegistry` object instead of a string when the registry needs
-credentials. See {doc}`reference/images` for connection and cache parameters.
+credentials. Pass `store=` to use your own Store for import results.
+See {doc}`reference/images` for connection and retention parameters.
 
 Continue with {doc}`building-images` to build a Docker image from a Dockerfile.

@@ -163,16 +163,14 @@ changing it starts a separate build history.
 
 The default ID derives from the context path and connection scope. Supply a
 stable `session_id=` to keep the same build history after moving the context.
-Avoid concurrent builds that mutate the same build session.
+Concurrent builds retain separate continuations in the same tree.
 
-| Component  | What it records                                           |
-| ---------- | --------------------------------------------------------- |
-| `storage=` | History and branch pointers used to reuse built layers.   |
-| `cache=`   | Uploaded-file and URL-download metadata used by COPY/ADD. |
+The `store=` argument supplies one Store for build history, uploaded files,
+and URL-download metadata. Tree kinds separate these records.
 
-The helpers use SQLite by default in `$XDG_CACHE_HOME/contree/`, with
-`~/.cache/contree/` as the fallback. Build history is stored in `builds.sqlite3`;
-upload metadata is stored in `images.sqlite3`. Set `cache_dir=` to change the directory.
+The helpers use `$XDG_CACHE_HOME/contree/images.sqlite3` by default, with
+`~/.cache/contree/images.sqlite3` as the fallback. Import and build results share
+this database. Set `cache_dir=` to change the directory.
 Keep referenced images and uploaded files
 available on the server. `no_cache=True` disables layer reuse; it does not force
 identical file content to be uploaded again.

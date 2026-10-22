@@ -15,10 +15,6 @@ class DockerBuildError(Exception):
     """A Dockerfile build step failed (nonzero RUN exit code, unresolvable stage/image reference, etc.)."""
 
 
-class SessionConflictError(RuntimeError):
-    """The session branch changed after an operation started."""
-
-
 class FileWriteError(Exception):
     """A file could not be written to the executor's filesystem."""
 

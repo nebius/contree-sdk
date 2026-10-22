@@ -1,16 +1,10 @@
 # Caches and upload sources
 
-Builders use caches for file-upload and URL-download metadata. Layer history lives
-in the build store. See {doc}`../building-images`. All native cache values must be JSON-serializable. See {doc}`../caching` for expiry,
-scoping, upload reuse, and persistent source records.
-
-```{eval-rst}
-.. automodule:: contree_sdk.cache
-   :members: SyncCache, AsyncCache, SyncMemoryCache, AsyncMemoryCache, SyncSQLiteCache, AsyncSQLiteCache, CacheEntry, CacheScope, ScopedSyncCache, ScopedAsyncCache
-   :inherited-members:
-   :undoc-members:
-   :member-order: bysource
-```
+Builders keep layer history, upload results, and URL-download metadata in one
+Store. Helpers and direct builders accept `store=`. Tree kinds
+separate reusable records from user sessions. Node data contains JSON values.
+See {doc}`../building-images`, {doc}`store`, and {doc}`../caching` for retention,
+connection scope, and upload provenance.
 
 ```{eval-rst}
 .. automodule:: contree_sdk.upload_cache
@@ -21,4 +15,9 @@ scoping, upload reuse, and persistent source records.
 ```{eval-rst}
 .. automodule:: contree_sdk.file_sources
    :members: FileSource, SyncFileSources, AsyncFileSources
+```
+
+```{eval-rst}
+.. automodule:: contree_sdk.scope
+   :members: StoreScope
 ```

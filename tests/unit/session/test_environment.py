@@ -45,8 +45,8 @@ async def test_command_overlay_reaches_transport_and_keeps_session_defaults(sess
     assert sent["preserve_env"] is preserve_env
     assert session.env == {"A": "session", "B": "kept"}
     assert env == original
-    metadata = await call(session.store, "get_session_metadata", session.session_id)
-    assert metadata.env == session.env
+    node = await call(session.store, "get_node", session.session_id, session.tip_id)
+    assert node.data["env"] == session.env
     resumed = type(session)(session.client, store=session.store, session_id=session.session_id)
     if isinstance(resumed, ContreeAsyncSession):
         await resumed.ensure_ready()

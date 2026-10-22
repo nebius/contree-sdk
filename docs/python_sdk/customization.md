@@ -170,7 +170,7 @@ that a subclass initializes after `super().__init__()`.
 | Observe operation events                   | Register `add_observer()` before starting the reader           |
 | Upload from another storage service        | Implement `SyncFileTransfer` or `AsyncFileTransfer`            |
 | Store history remotely                     | Implement `SyncStore` or `AsyncStore`                          |
-| Replace build caching                      | Implement `SyncCache` or `AsyncCache`                          |
+| Replace build caching                      | Implement `SyncStore` or `AsyncStore`                          |
 | Add or replace Dockerfile instructions     | Register a `DockerKeyword` with `DockerfileParser`             |
 | Use a session subclass inside builds       | Pass `session_factory=`                                        |
 | Add per-build state                        | Set `context_class` or override `create_context(BuildRequest)` |
@@ -203,64 +203,38 @@ protocols from `contree_sdk.files`.
 
 ## Implement history storage
 
-History implementations inherit `SyncStore` or `AsyncStore`. Their contract includes
-session metadata, history lookup, branch navigation, and atomic append. A custom
-store must preserve these invariants:
+Implement `SyncStore` or `AsyncStore` from `contree_sdk.store`. The same interface
+supports session history and reusable results. The core operation is
+`append(session_id, node)`: save an immutable node with an explicit parent.
 
-- An entry's parent belongs to the same session.
-- `append(expected_tip=...)` compares and updates the branch in one atomic operation.
-- `expected_tip=None` requires a new branch; omitted `expected_tip` disables the comparison.
-- A conflict raises `SessionConflictError` and leaves history and branch pointers unchanged.
-- Metadata and history returned to callers must not expose mutable internal state.
-- Navigation failures leave the previous branch position intact.
-- `read_session()` returns a `HistorySnapshot` from one consistent read of entries,
-  branch heads, and metadata. It raises `ValueError` for an unknown session.
-- `prune_branches()` selects and removes pointers atomically. It preserves the
-  active branch, explicit keep names, all history records, and metadata.
+Preserve these guarantees across all clients of your backend:
 
-`resolve_history()`, `resolve_operation()`, and summary methods have default
-implementations over these public primitives. Override them for a different query
-strategy while preserving their selection and isolation rules. A snapshot remains
-usable after the store closes. Each item in `list_session_summaries()` is consistent;
-the entire list is not one transaction. A concurrent session deletion can raise
-`ValueError` while that list is assembled.
+- A parent belongs to the same live tree; a tree has one root.
+- Repeating an identical node succeeds without a duplicate. Reusing its identity
+  with different contents raises `NodeConflictError` without overwriting data.
+- Reads and writes detach JSON values from caller-owned objects.
+- Tree and node kind filters apply before cursor pagination.
+- `get_nodes()` reads up to 1000 known identities atomically, preserving input
+  order and `None` slots for missing nodes. Implement it as a batch read when
+  network round trips are expensive.
+- TTL and deletion cover the tree. Reads and append do not renew expiry.
 
-Staging and detached operations add atomicity requirements: applied files must
-track the committed entry, and completing a registered operation must update its
-record, history, and branch in one transaction. Repeated completion must reuse the
-first saved outcome. See {doc}`detached-operations` for custom-store requirements.
+See {doc}`reference/store` for the complete contract. Store does not implement
+branch switching, command execution, or Docker hashing. Session handles local
+navigation and serializes its payloads into nodes. Staging records contain
+attachments and applied paths. Detached completion saves its response and result
+in one node, using the identity recorded before collection.
 
-### Persist staged attachments in a custom store
+## Store reusable results
 
-`append()` must save `attachments` and `applied_files` in the same transaction as
-the history entry and branch pointer. `get_entry()` and `read_session()` must
-restore both fields. `HistoryEntry.files` remains an informational list of paths;
-it does not control staging consumption.
+The same Store holds history and reusable results. Implement its contract with
+Redis or PostgreSQL and supply it through `store=` in helpers and
+direct constructors. Tree `kind` distinguishes purposes; the backend does not
+interpret user JSON.
 
-The default `stage_files()` uses `read_session()` and a conditional `append()`.
-It creates a history entry with the same image as its parent. The default
-`pending_files()` walks the selected ancestry through `HistorySnapshot`.
-For each destination, the newest attachment replaces older versions. An applied
-path hides earlier attachments on that ancestry. Attachments added on the same
-entry as an applied path remain pending; consumption applies to its ancestors.
-
-Deleting a session must also remove its attachment and consumption records.
-See {doc}`files` for executable staging and rollback examples.
-
-## Implement cache storage
-
-Cache implementations inherit `SyncCache` or `AsyncCache`. `get()` returns `None`
-for a miss. Implement `get_entry()`, `set()`, `entries()`, `delete()`, and
-`invalidate()`. `set(..., ttl=None)` replaces a value and its expiry. Enumeration
-returns live entries sorted by key; prefixes are literal. Namespace isolation,
-detached JSON values, and expiry are part of the contract for every backend.
-See {doc}`caching` for the full semantics and executable examples.
-
-Stores and caches have a `close()` method and matching context-manager methods.
-The default close is a no-op for implementations without resources. Override it
-for connections or files. Sessions and builders do not close supplied components;
-the application decides their lifetime. Explicit components are retained even when
-they evaluate as false.
+Stores expose `close()` and a matching context manager. Sessions and builders
+leave caller-supplied stores open. See {doc}`caching` for upload reuse and
+{doc}`detached-operations` for operation recovery.
 
 ## Replace an integration backend
 
@@ -395,7 +369,7 @@ no state into the module registry and cannot change another builder's dialect.
 Implement both if the dialect supports both builders.
 
 The `session_factory` receives `client` as its first positional argument, then
-`session_id`, `store`, and `image` as keyword arguments. It returns a `ContreeSession` or `ContreeAsyncSession` implementation.
+`session_id`, `store`, `image`, `node_id`, and `tree_kind` as keyword arguments. It returns a `ContreeSession` or `ContreeAsyncSession` implementation.
 Both fresh layers and cache hits use this factory. Set `context_class` to a
 `BuildContext` or `AsyncBuildContext` subclass when only additional methods or state
 are needed. Override `create_context(BuildRequest)` for a different construction

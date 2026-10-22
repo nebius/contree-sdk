@@ -149,13 +149,13 @@ async def test_set_cwd_and_set_env_persist_through_store(client: ContreeAsyncCli
 
     assert session.cwd == "/app"
     assert session.env == {"FOO": "1", "BAR": "2"}
-    metadata = await store.get_session_metadata("s1")
-    assert metadata.cwd == "/app"
-    assert metadata.env == {"FOO": "1", "BAR": "2"}
+    metadata = (await store.get_node("s1", session.tip_id)).data
+    assert metadata["cwd"] == "/app"
+    assert metadata["env"] == {"FOO": "1", "BAR": "2"}
 
     await session.set_env({"BAR": None})
     assert session.env == {"FOO": "1"}
-    assert (await store.get_session_metadata("s1")).env == {"FOO": "1"}
+    assert (await store.get_node("s1", session.tip_id)).data["env"] == {"FOO": "1"}
 
     resumed = ContreeAsyncSession(client, image="tag:python:3.11", store=store, session_id="s1")
     await resumed.ensure_ready()
@@ -219,7 +219,6 @@ async def test_cancelled_operation_with_partial_result_is_not_committed(client):
 
 
 async def test_stale_operation_does_not_rewrite_history(client):
-    from contree_sdk.exceptions import SessionConflictError
 
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
@@ -230,10 +229,12 @@ async def test_stale_operation_does_not_rewrite_history(client):
     await second.wait()
     committed = await session.commit_result(first)
     assert committed is not None
-    with pytest.raises(SessionConflictError):
-        await session.commit_result(second)
+    sibling = await session.commit_result(second)
+    assert sibling is not None
+    assert sibling.parent_id == committed.parent_id
+    assert sibling.id != committed.id
     entries, _ = await session.history()
-    assert len(entries) == 2
+    assert len(entries) == 3
     assert session.tip_id == committed.id
 
 
@@ -246,8 +247,9 @@ async def test_commit_after_branch_switch_preserves_active_branch(client):
     await session.switch_branch("other")
     await operation.wait()
     entry = await session.commit_result(operation)
+    assert entry is not None
     assert session.image_uuid == "img-uuid-0"
-    assert (await session.store.tip(session.session_id, "main")) == entry
+    assert "main" in (await session.history())[1][entry.id]
 
 
 async def test_pending_run_cannot_spawn_twice(client):

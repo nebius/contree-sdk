@@ -17,9 +17,9 @@ from contree_sdk.execution import RunRequest
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
 from contree_sdk.session.lazy_async import AsyncLazySession
+from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult
-from contree_sdk.store import HistoryEntry
 
 
 def default_vm_request() -> RunRequest:

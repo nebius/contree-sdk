@@ -23,6 +23,7 @@ from contree_client.models import File, FileResponse
 
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.files import UploadFileSpec
+from contree_sdk.reuse import async_lookup_result, async_remember_result, lookup_result, remember_result
 from contree_sdk.upload_cache import async_upload_snapshot, upload_snapshot
 
 from .context import AsyncBuildContext, BuildContext, PendingFile, resolve_stage_ref
@@ -171,15 +172,19 @@ LOCAL_FILE_CACHE_NAMESPACE = "docker.copy"
 
 
 def cached_local_uuid(ctx: BuildContext, sha256: str) -> str | None:
-    cached = ctx.cache.get(sha256, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE))
+    cached = lookup_result(ctx.store, ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), sha256)
     if isinstance(cached, dict) and cached.get("uuid"):
         return str(cached["uuid"])
     return None
 
 
 def record_local_uuid(ctx: BuildContext, sha256: str, file_uuid: str) -> None:
-    ctx.cache.set(
-        sha256, {"uuid": file_uuid}, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), ttl=ctx.upload_cache_ttl
+    remember_result(
+        ctx.store,
+        ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE),
+        sha256,
+        {"uuid": file_uuid},
+        ttl=ctx.upload_cache_ttl,
     )
 
 
@@ -393,15 +398,19 @@ async def resolve_stage_image_async(ctx: AsyncBuildContext, ref: str) -> str:
 
 
 async def cached_local_uuid_async(ctx: AsyncBuildContext, sha256: str) -> str | None:
-    cached = await ctx.cache.get(sha256, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE))
+    cached = await async_lookup_result(ctx.store, ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), sha256)
     if isinstance(cached, dict) and cached.get("uuid"):
         return str(cached["uuid"])
     return None
 
 
 async def record_local_uuid_async(ctx: AsyncBuildContext, sha256: str, file_uuid: str) -> None:
-    await ctx.cache.set(
-        sha256, {"uuid": file_uuid}, namespace=ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), ttl=ctx.upload_cache_ttl
+    await async_remember_result(
+        ctx.store,
+        ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE),
+        sha256,
+        {"uuid": file_uuid},
+        ttl=ctx.upload_cache_ttl,
     )
 
 

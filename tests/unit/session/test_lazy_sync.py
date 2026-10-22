@@ -174,24 +174,23 @@ def test_timeout_kills_only_the_subprocess():
         lazy.close(timeout=2)
 
 
-def test_snapshot_conflict_keeps_response_for_recovery():
+def test_snapshot_preserves_another_actors_continuation():
+    from contree_sdk.store import Node
+
     client = LiveClient()
     base = ContreeSession(client, image="base")
     lazy = LazySession(base)
     lazy.run("one")
-    base.store.append(base.session_id, image_uuid="external", parent_id=base.tip_id)
-    with pytest.raises(RuntimeError):
-        lazy.snapshot(timeout=2)
-    from contree_sdk.exceptions import SessionConflictError
-
-    assert isinstance(lazy.error, SessionConflictError)
-    assert lazy.operation is not None
-    assert lazy.operation.response is not None
-    assert lazy.operation.response.result_image_uuid == "image-op-1"
-    tip = base.store.tip(base.session_id)
-    assert tip is not None
-    assert tip.image_uuid == "external"
-    lazy.abort()
+    root = base.tip_id
+    sibling = Node(parent_id=root, kind="run", data={"image_uuid": "external"})
+    base.store.append(base.session_id, sibling)
+    entry = lazy.snapshot(timeout=2)
+    assert entry is not None
+    assert entry.parent_id == root
+    assert base.image_uuid == "image-op-1"
+    assert (base.store.get_node(base.session_id, sibling.id)) == sibling
+    assert len((base.store.list_children(base.session_id, root)).items) == 2
+    lazy.close(timeout=2)
 
 
 def test_pending_create_excludes_timer_and_close_until_admission_finishes():

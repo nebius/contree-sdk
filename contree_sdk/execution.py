@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import PurePosixPath
 from shlex import quote
@@ -19,8 +20,8 @@ from contree_client.models import (
 )
 
 from contree_sdk.exceptions import FileWriteError
-from contree_sdk.files import InputSource, RunFiles
-from contree_sdk.store.models import StagedFile
+from contree_sdk.files import InputSource, RunFiles, StagedFile
+from contree_sdk.store.tree import new_node_id
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -74,11 +75,19 @@ class OperationContext:
     request: RunRequest
     session_id: str
     image_uuid: str
-    parent_id: int | None
+    parent_id: str | None
     branch: str | None
     files: tuple[str, ...] = ()
     attachments: tuple[StagedFile, ...] = ()
     detached: bool = False
+    node_id: str = field(default_factory=new_node_id)
+    created_at: float = field(default_factory=time.time)
+    position_version: int = 0
+    session_cwd: str | None = None
+    session_env: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "session_env", MappingProxyType(dict(self.session_env)))
 
 
 def _file_write_request(path: str, content: bytes) -> RunRequest:

@@ -1,16 +1,15 @@
-"""Persistent source records, kept separately from expiring upload cache entries."""
+"""Source records kept in a separate namespace from upload store entries."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 
-from contree_sdk.cache import AsyncCache, CacheScope, ScopedAsyncCache, ScopedSyncCache, SyncCache
-from contree_sdk.cache.models import Clock
+from contree_sdk.scope import StoreScope
+from contree_sdk.store import AsyncStore, Node, SyncStore
+from contree_sdk.store.ttl import Clock
 
 
 SourceKind = Literal["path", "url"]
@@ -26,79 +25,120 @@ class FileSource:
     recorded_at: float
 
 
-def source_prefix(file_uuid: str) -> str:
-    return json.dumps(file_uuid) + ":"
-
-
-def source_record(file_uuid: str, sha256: str, source: str, kind: SourceKind, now: float) -> tuple[str, FileSource]:
+def source_record(file_uuid: str, sha256: str, source: str, kind: SourceKind, now: float) -> FileSource:
     if not file_uuid or not source:
         raise ValueError("file UUID and source must not be empty")
     if kind not in {"path", "url"}:
         raise ValueError("source kind must be path or url")
     normalized = str(Path(source).resolve()) if kind == "path" else source
-    suffix = hashlib.sha256(json.dumps([kind, normalized]).encode()).hexdigest()
-    return source_prefix(file_uuid) + suffix, FileSource(file_uuid, sha256, normalized, kind, now)
+    return FileSource(file_uuid, sha256, normalized, kind, now)
 
 
 class SyncFileSources:
-    """Source registry backed by permanent records in a caller-owned cache.
+    """Source registry backed by records with implementation-defined retention in a caller-owned store.
 
     Upload invalidation does not remove source records. A source is provenance,
     not proof that the remote upload still exists or that the local file is unchanged.
     """
 
-    def __init__(self, cache: SyncCache, scope: CacheScope, *, clock: Clock = time.time) -> None:
-        self.cache = ScopedSyncCache(cache, scope)
+    def __init__(self, store: SyncStore, scope: StoreScope, *, clock: Clock = time.time) -> None:
+        self.store = store
+        self.namespace = scope.namespace(SOURCE_NAMESPACE)
         self.clock = clock
 
     def record(self, file_uuid: str, sha256: str, source: str, *, kind: SourceKind = "path") -> FileSource:
-        key, record = source_record(file_uuid, sha256, source, kind, self.clock())
-        self.cache.set(key, asdict(record), namespace=SOURCE_NAMESPACE)
+        record = source_record(file_uuid, sha256, source, kind, self.clock())
+        session_id = self.namespace + "/" + file_uuid
+        self.store.create_session(session_id, kind="file-sources")
+        self.store.append(session_id, Node(id="root", parent_id=None, kind="file", data={"uuid": file_uuid}))
+        self.store.append(session_id, Node(parent_id="root", kind="source", data=asdict(record)))
         return record
 
     def sources(self, file_uuid: str | None = None) -> tuple[FileSource, ...]:
-        entries = self.cache.entries(
-            namespace=SOURCE_NAMESPACE,
-            prefix=source_prefix(file_uuid) if file_uuid is not None else "",
-        )
-        return tuple(
-            sorted(
-                (FileSource(**entry.value) for entry in entries),
-                key=lambda item: (item.file_uuid, item.kind, item.source),
-            )
-        )
+        session_ids = []
+        cursor = None
+        if file_uuid is not None:
+            session_ids = [self.namespace + "/" + file_uuid]
+        else:
+            while True:
+                page = self.store.list_sessions(kind="file-sources", prefix=self.namespace + "/", cursor=cursor)
+                session_ids.extend(info.session_id for info in page.items)
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+        records = {}
+        for session_id in session_ids:
+            if self.store.get_session(session_id) is None:
+                continue
+            cursor = None
+            while True:
+                page = self.store.list_nodes(session_id, kind="source", cursor=cursor)
+                for node in page.items:
+                    record = FileSource(**cast("dict[str, Any]", node.data))
+                    key = (record.file_uuid, record.kind, record.source)
+                    if key not in records or record.recorded_at > records[key].recorded_at:
+                        records[key] = record
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+        return tuple(records[key] for key in sorted(records))
 
     def forget(self, file_uuid: str) -> int:
-        return self.cache.invalidate(namespace=SOURCE_NAMESPACE, prefix=source_prefix(file_uuid))
+        count = len(self.sources(file_uuid))
+        self.store.delete_session(self.namespace + "/" + file_uuid)
+        return count
 
 
 class AsyncFileSources:
-    """Source registry backed by permanent records in a caller-owned cache.
+    """Source registry backed by records with implementation-defined retention in a caller-owned store.
 
     Upload invalidation does not remove source records. A source is provenance,
     not proof that the remote upload still exists or that the local file is unchanged.
     """
 
-    def __init__(self, cache: AsyncCache, scope: CacheScope, *, clock: Clock = time.time) -> None:
-        self.cache = ScopedAsyncCache(cache, scope)
+    def __init__(self, store: AsyncStore, scope: StoreScope, *, clock: Clock = time.time) -> None:
+        self.store = store
+        self.namespace = scope.namespace(SOURCE_NAMESPACE)
         self.clock = clock
 
     async def record(self, file_uuid: str, sha256: str, source: str, *, kind: SourceKind = "path") -> FileSource:
-        key, record = source_record(file_uuid, sha256, source, kind, self.clock())
-        await self.cache.set(key, asdict(record), namespace=SOURCE_NAMESPACE)
+        record = source_record(file_uuid, sha256, source, kind, self.clock())
+        session_id = self.namespace + "/" + file_uuid
+        await self.store.create_session(session_id, kind="file-sources")
+        await self.store.append(session_id, Node(id="root", parent_id=None, kind="file", data={"uuid": file_uuid}))
+        await self.store.append(session_id, Node(parent_id="root", kind="source", data=asdict(record)))
         return record
 
     async def sources(self, file_uuid: str | None = None) -> tuple[FileSource, ...]:
-        entries = await self.cache.entries(
-            namespace=SOURCE_NAMESPACE,
-            prefix=source_prefix(file_uuid) if file_uuid is not None else "",
-        )
-        return tuple(
-            sorted(
-                (FileSource(**entry.value) for entry in entries),
-                key=lambda item: (item.file_uuid, item.kind, item.source),
-            )
-        )
+        session_ids = []
+        cursor = None
+        if file_uuid is not None:
+            session_ids = [self.namespace + "/" + file_uuid]
+        else:
+            while True:
+                page = await self.store.list_sessions(kind="file-sources", prefix=self.namespace + "/", cursor=cursor)
+                session_ids.extend(info.session_id for info in page.items)
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+        records = {}
+        for session_id in session_ids:
+            if await self.store.get_session(session_id) is None:
+                continue
+            cursor = None
+            while True:
+                page = await self.store.list_nodes(session_id, kind="source", cursor=cursor)
+                for node in page.items:
+                    record = FileSource(**cast("dict[str, Any]", node.data))
+                    key = (record.file_uuid, record.kind, record.source)
+                    if key not in records or record.recorded_at > records[key].recorded_at:
+                        records[key] = record
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+        return tuple(records[key] for key in sorted(records))
 
     async def forget(self, file_uuid: str) -> int:
-        return await self.cache.invalidate(namespace=SOURCE_NAMESPACE, prefix=source_prefix(file_uuid))
+        count = len(await self.sources(file_uuid))
+        await self.store.delete_session(self.namespace + "/" + file_uuid)
+        return count

@@ -10,7 +10,6 @@ from contree_sdk.sandbox import (
     SandboxConfig, SandboxSessionContext, SyncSandboxSessionContext,
     AsyncSandboxSessionContext, session_maker,
 )
-from contree_sdk.cache import SyncMemoryCache, AsyncMemoryCache
 from contree_sdk.store import SyncMemoryStore, AsyncMemoryStore
 from contree_sdk.files import ClientFileTransfer, AsyncClientFileTransfer
 
@@ -84,15 +83,15 @@ name = "explicit_factories_accept_matching_components"
 code = '''
 def sync_use():
     with create_sync_sandbox_session(
-        client=ContreeClient(), client_type=ContreeClient, storage=SyncMemoryStore(),
-        cache=SyncMemoryCache(), file_transfer=ClientFileTransfer(ContreeClient()),
+        client=ContreeClient(), client_type=ContreeClient, store=SyncMemoryStore(),
+        file_transfer=ClientFileTransfer(ContreeClient()),
     ) as session:
         assert_type(session, LazySession)
 
 async def async_use():
     async with create_async_sandbox_session(
-        client=ContreeAsyncClient(), client_type=ContreeAsyncClient, storage=AsyncMemoryStore(),
-        cache=AsyncMemoryCache(), file_transfer=AsyncClientFileTransfer(ContreeAsyncClient()),
+        client=ContreeAsyncClient(), client_type=ContreeAsyncClient, store=AsyncMemoryStore(),
+        file_transfer=AsyncClientFileTransfer(ContreeAsyncClient()),
     ) as session:
         assert_type(session, AsyncLazySession)
 '''
@@ -180,10 +179,10 @@ create_sync_sandbox_session(client_type=ContreeAsyncClient)
 '''
 
 [[cases]]
-name = "sync_factory_rejects_async_cache"
+name = "sync_factory_rejects_async_storage"
 errors = [{ line = 1, code = "invalid-argument-type" }]
 code = '''
-create_sync_sandbox_session(cache=AsyncMemoryCache())
+create_sync_sandbox_session(store=AsyncMemoryStore())
 '''
 
 [[cases]]
@@ -211,7 +210,7 @@ create_async_sandbox_session(client_type=ContreeClient)
 name = "async_factory_rejects_sync_storage"
 errors = [{ line = 1, code = "invalid-argument-type" }]
 code = '''
-create_async_sandbox_session(storage=SyncMemoryStore())
+create_async_sandbox_session(store=SyncMemoryStore())
 '''
 
 [[cases]]

@@ -5,7 +5,6 @@ import pytest
 from contree_client.models import FileResponse
 from contree_client.testing import ContreeClient
 
-from contree_sdk.cache import SyncMemoryCache, SyncSQLiteCache
 from contree_sdk.docker import ContreeDockerBuilder
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.store import SyncMemoryStore, SyncSQLiteStore
@@ -28,7 +27,7 @@ def test_simple_build(tmp_path, client: ContreeClient):
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-    builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+    builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
     image = builder.build(tmp_path, session_id="sess")
 
     assert image == "img-uuid-1"
@@ -40,7 +39,7 @@ def test_simple_build(tmp_path, client: ContreeClient):
 
 def test_missing_from_raises(tmp_path, client: ContreeClient):
     write_dockerfile(tmp_path, "RUN echo hi\n")
-    builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+    builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
     with pytest.raises(ValueError, match="FROM"):
         builder.build(tmp_path, session_id="sess")
 
@@ -50,7 +49,7 @@ def test_run_nonzero_exit_raises_docker_build_error(tmp_path, client: ContreeCli
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response(exit_code=1, stdout="", stderr="boom"))
 
-    builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+    builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
     with pytest.raises(DockerBuildError, match="boom"):
         builder.build(tmp_path, session_id="sess")
 
@@ -61,7 +60,7 @@ def test_tag_applied_on_success(tmp_path, client: ContreeClient):
     mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
     client.mock("update_image_tag", None)
 
-    builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+    builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
     builder.build(tmp_path, session_id="sess", tag="myapp:latest")
 
     calls = client.calls_for("update_image_tag")
@@ -70,15 +69,39 @@ def test_tag_applied_on_success(tmp_path, client: ContreeClient):
 
 
 class TestCache:
+    def test_rebuilt_parent_does_not_reuse_old_child(self, tmp_path, client):
+        full = "FROM tag:python:3.11\nRUN echo A\nRUN echo B\n"
+        write_dockerfile(tmp_path, full)
+        for index, image in enumerate(("a-old", "b-old", "a-new", "b-new"), start=1):
+            operation = f"op-{index}"
+            client.mock("spawn_instance", spawn_response(operation))
+            mock_completion(client, operation_response(operation_uuid=operation, result_image_uuid=image))
+
+        store = SyncMemoryStore()
+        first = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        assert first == "b-old"
+
+        write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo A\n")
+        rebuilt = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", no_cache=True)
+        assert rebuilt == "a-new"
+
+        write_dockerfile(tmp_path, full)
+        events = []
+        final = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", on_step=events.append)
+        assert final == "b-new"
+        assert [event.cache_hit for event in events] == [True, True, False]
+        spawns = client.calls_for("spawn_instance")
+        assert len(spawns) == 4
+        assert spawns[-1].args[1] == "a-new"
+
     def test_second_identical_build_is_full_cache_hit(self, tmp_path, client: ContreeClient):
         write_dockerfile(tmp_path, "FROM tag:python:3.11\nRUN echo hi\n")
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        image1 = ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
-        image2 = ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+        image1 = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        image2 = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
         assert image1 == image2
         assert len(client.calls_for("spawn_instance")) == 1
@@ -91,9 +114,8 @@ class TestCache:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
-        ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess", no_cache=True)
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", no_cache=True)
 
         assert len(client.calls_for("spawn_instance")) == 2
 
@@ -110,11 +132,10 @@ class TestCache:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-ok", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
         with pytest.raises(DockerBuildError):
-            ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+            ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
-        image = ContreeDockerBuilder(client, store=store, cache=cache).build(tmp_path, session_id="sess")
+        image = ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess")
 
         assert image == "img-ok"
         assert len(client.calls_for("spawn_instance")) == 2
@@ -127,11 +148,8 @@ class TestOnStep:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
         first_events = []
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", on_step=first_events.append
-        )
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", on_step=first_events.append)
         assert [event.cache_hit for event in first_events] == [False, False]
         assert first_events[0].keyword.startswith("FROM")
         assert first_events[1].image_before == first_events[0].image_after
@@ -140,9 +158,7 @@ class TestOnStep:
         assert all(event.duration >= 0 for event in first_events)
 
         second_events = []
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", on_step=second_events.append
-        )
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", on_step=second_events.append)
         assert [event.cache_hit for event in second_events] == [True, True]
 
     def test_on_step_reports_error_and_reraises(self, tmp_path, client: ContreeClient):
@@ -152,7 +168,7 @@ class TestOnStep:
 
         events = []
         with pytest.raises(DockerBuildError):
-            ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache()).build(
+            ContreeDockerBuilder(client, store=SyncMemoryStore()).build(
                 tmp_path, session_id="sess", on_step=events.append
             )
 
@@ -169,7 +185,7 @@ class TestCopy:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess")
 
         assert len(client.calls_for("spawn_instance")) == 1
@@ -187,7 +203,7 @@ class TestCopy:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -220,7 +236,7 @@ class TestMultistage:
         client.mock("inspect_image_archive", [buf.read()])
         client.mock("ensure_file", FileResponse(uuid="tar-uuid", sha256="tarsha", size=6))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         image = builder.build(tmp_path, session_id="sess-multi")
 
         assert image == "img-final"
@@ -244,14 +260,11 @@ class TestAddUrl:
             return 200, [("ETag", "abc123")], [b"hello world"]
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
-            tmp_path, session_id="sess-add"
-        )
+        ContreeDockerBuilder(client, store=store, http_fetch=fake_http_fetch).build(tmp_path, session_id="sess-add")
         assert calls["n"] == 1
         assert len(client.calls_for("ensure_file")) == 1
 
-        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
+        ContreeDockerBuilder(client, store=store, http_fetch=fake_http_fetch).build(
             tmp_path, session_id="sess-add", no_cache=True
         )
         assert calls["n"] == 2
@@ -274,15 +287,12 @@ class TestAddUrl:
             return 200, [("ETag", "abc123")], [b"hello world"]
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
-            tmp_path, session_id="sess-add"
-        )
+        ContreeDockerBuilder(client, store=store, http_fetch=fake_http_fetch).build(tmp_path, session_id="sess-add")
         assert len(requests) == 1
         assert "If-None-Match" not in requests[0]
         assert len(client.calls_for("ensure_file")) == 1
 
-        ContreeDockerBuilder(client, store=store, cache=cache, http_fetch=fake_http_fetch).build(
+        ContreeDockerBuilder(client, store=store, http_fetch=fake_http_fetch).build(
             tmp_path, session_id="sess-add", no_cache=True
         )
         assert len(requests) == 2
@@ -297,7 +307,7 @@ class TestEnvWorkdirUser:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -314,7 +324,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -327,7 +337,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess", build_args={"VERSION": "2.0"})
 
         call = client.calls_for("spawn_instance")[0]
@@ -339,7 +349,7 @@ class TestRunSubstitution:
         client.mock("spawn_instance", spawn_response())
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
-        builder = ContreeDockerBuilder(client, store=SyncMemoryStore(), cache=SyncMemoryCache())
+        builder = ContreeDockerBuilder(client, store=SyncMemoryStore())
         builder.build(tmp_path, session_id="sess")
 
         call = client.calls_for("spawn_instance")[0]
@@ -353,13 +363,8 @@ class TestArgCacheBusting:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
-        )
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
-        )
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", build_args={"VERSION": "3.11"})
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", build_args={"VERSION": "3.11"})
 
         assert len(client.calls_for("spawn_instance")) == 1
 
@@ -373,13 +378,8 @@ class TestArgCacheBusting:
         mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-2", exit_code=0))
 
         store = SyncMemoryStore()
-        cache = SyncMemoryCache()
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", build_args={"VERSION": "3.11"}
-        )
-        ContreeDockerBuilder(client, store=store, cache=cache).build(
-            tmp_path, session_id="sess", build_args={"VERSION": "3.12"}
-        )
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", build_args={"VERSION": "3.11"})
+        ContreeDockerBuilder(client, store=store).build(tmp_path, session_id="sess", build_args={"VERSION": "3.12"})
 
         assert len(client.calls_for("spawn_instance")) == 2
 
@@ -393,19 +393,14 @@ class TestSqlitePersistence:
         mock_completion(client, operation_response(result_image_uuid="img-uuid-1", exit_code=0))
 
         store_path = tmp_path / "store.db"
-        cache_path = tmp_path / "cache.db"
 
         store1 = SyncSQLiteStore(store_path)
-        cache1 = SyncSQLiteCache(cache_path)
-        ContreeDockerBuilder(client, store=store1, cache=cache1).build(tmp_path, session_id="sess")
+        ContreeDockerBuilder(client, store=store1).build(tmp_path, session_id="sess")
         store1.close()
-        cache1.close()
 
         store2 = SyncSQLiteStore(store_path)
-        cache2 = SyncSQLiteCache(cache_path)
-        ContreeDockerBuilder(client, store=store2, cache=cache2).build(tmp_path, session_id="sess")
+        ContreeDockerBuilder(client, store=store2).build(tmp_path, session_id="sess")
         store2.close()
-        cache2.close()
 
         assert len(client.calls_for("spawn_instance")) == 1
         assert len(client.calls_for("ensure_file")) == 1

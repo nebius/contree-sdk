@@ -12,7 +12,7 @@ the same image UUID. See [Save after every command](../session-model.md#save-aft
 
 ```{eval-rst}
 .. automodule:: contree_sdk.session
-   :members: ContreeSession, ContreeAsyncSession, Operation, AsyncOperation, SubprocessHandle, AsyncSubprocessHandle, PendingRun, AbstractCommitPolicy, ApiSuccessCommitPolicy, ZeroExitCommitPolicy, LazySession, AsyncLazySession, AbstractSnapshotPolicy, SnapshotEvent, IdleSnapshotPolicy, CommandCountSnapshotPolicy, CompositeSnapshotPolicy
+   :members: HistoryEntry, OperationRecord, ContreeSession, ContreeAsyncSession, Operation, AsyncOperation, SubprocessHandle, AsyncSubprocessHandle, PendingRun, AbstractCommitPolicy, ApiSuccessCommitPolicy, ZeroExitCommitPolicy, LazySession, AsyncLazySession, AbstractSnapshotPolicy, SnapshotEvent, IdleSnapshotPolicy, CommandCountSnapshotPolicy, CompositeSnapshotPolicy
    :inherited-members:
    :undoc-members:
    :member-order: bysource
