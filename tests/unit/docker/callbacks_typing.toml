@@ -1,0 +1,96 @@
+imports = '''
+from collections.abc import Iterable
+from typing_extensions import assert_type
+from contree_client.testing import ContreeClient, ContreeAsyncClient
+from contree_sdk import ContreeSession, ContreeAsyncSession
+from contree_sdk.docker import BuildEvent, BuildStepEvent, ContreeDockerBuilder, ContreeAsyncDockerBuilder
+from contree_sdk.docker.url_fetch import FetchResponse, AsyncFetchResponse
+
+def on_event(event: BuildEvent) -> None:
+    pass
+
+async def on_async_event(event: BuildEvent) -> None:
+    pass
+
+def on_step(event: BuildStepEvent) -> None:
+    pass
+
+async def on_async_step(event: BuildStepEvent) -> None:
+    pass
+
+def fetch(method: str, url: str, headers: Iterable[tuple[str, str]]) -> FetchResponse:
+    return 200, [], [b"data"]
+
+async def fetch_async(method: str, url: str, headers: Iterable[tuple[str, str]]) -> AsyncFetchResponse:
+    async def chunks():
+        yield b"data"
+    return 200, [], chunks()
+'''
+
+[[cases]]
+name = "sync_builder_callbacks"
+code = '''
+builder = ContreeDockerBuilder(ContreeClient(), http_fetch=fetch, session_factory=ContreeSession)
+assert_type(builder.build(".", on_event=on_event, on_step=on_step), str)
+'''
+
+[[cases]]
+name = "async_builder_accepts_sync_and_async_callbacks"
+code = '''
+async def use():
+    builder = ContreeAsyncDockerBuilder(
+        ContreeAsyncClient(), http_fetch_async=fetch_async, session_factory=ContreeAsyncSession,
+    )
+    assert_type(await builder.build(".", on_event=on_event, on_step=on_step), str)
+    assert_type(await builder.build(".", on_event=on_async_event, on_step=on_async_step), str)
+'''
+
+[[cases]]
+name = "sync_builder_rejects_async_event_callback"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeDockerBuilder(ContreeClient()).build(".", on_event=on_async_event)
+'''
+
+[[cases]]
+name = "sync_builder_rejects_async_step_callback"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeDockerBuilder(ContreeClient()).build(".", on_step=on_async_step)
+'''
+
+[[cases]]
+name = "sync_builder_rejects_async_fetch"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeDockerBuilder(ContreeClient(), http_fetch=fetch_async)
+'''
+
+[[cases]]
+name = "async_builder_rejects_sync_fetch"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeAsyncDockerBuilder(ContreeAsyncClient(), http_fetch_async=fetch)
+'''
+
+[[cases]]
+name = "sync_builder_rejects_async_session_factory"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeDockerBuilder(ContreeClient(), session_factory=ContreeAsyncSession)
+'''
+
+[[cases]]
+name = "async_builder_rejects_sync_session_factory"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeAsyncDockerBuilder(ContreeAsyncClient(), session_factory=ContreeSession)
+'''
+
+[[cases]]
+name = "async_builder_rejects_wrong_event_callback_parameter"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+async def use():
+    await ContreeAsyncDockerBuilder(ContreeAsyncClient()).build(".", on_event=on_step)
+'''

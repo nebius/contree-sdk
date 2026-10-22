@@ -1,0 +1,55 @@
+imports = '''
+from typing_extensions import assert_type
+from contree_sdk import ContreeSession, ContreeAsyncSession, LazySession, AsyncLazySession
+from contree_sdk.execution import SyncExecutor, AsyncExecutor
+from contree_sdk.langchain.sandbox import ContreeSandbox, ContreeAsyncSandbox
+
+class CustomSync(ContreeSession):
+    pass
+
+class CustomAsync(ContreeAsyncSession):
+    pass
+'''
+
+[[cases]]
+name = "sync_adapter_preserves_executor_type"
+code = '''
+def use(session: CustomSync, lazy: LazySession, executor: SyncExecutor):
+    assert_type(ContreeSandbox(session), ContreeSandbox[CustomSync])
+    assert_type(ContreeSandbox(session).session, CustomSync)
+    assert_type(ContreeSandbox(lazy).session, LazySession)
+    assert_type(ContreeSandbox(executor).session, SyncExecutor)
+'''
+
+[[cases]]
+name = "async_adapter_preserves_executor_type"
+code = '''
+def use(session: CustomAsync, lazy: AsyncLazySession, executor: AsyncExecutor):
+    assert_type(ContreeAsyncSandbox(session), ContreeAsyncSandbox[CustomAsync])
+    assert_type(ContreeAsyncSandbox(session).session, CustomAsync)
+    assert_type(ContreeAsyncSandbox(lazy).session, AsyncLazySession)
+    assert_type(ContreeAsyncSandbox(executor).session, AsyncExecutor)
+'''
+
+[[cases]]
+name = "sync_adapter_rejects_async_executor"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+def use(executor: AsyncExecutor):
+    ContreeSandbox(executor)
+'''
+
+[[cases]]
+name = "async_adapter_rejects_sync_executor"
+errors = [{ line = 2, code = "invalid-argument-type" }]
+code = '''
+def use(executor: SyncExecutor):
+    ContreeAsyncSandbox(executor)
+'''
+
+[[cases]]
+name = "adapter_rejects_unrelated_executor"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+ContreeSandbox(object())
+'''
