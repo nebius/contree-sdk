@@ -218,7 +218,7 @@ class AsyncFileTransfer(ABC):
         async with aclosing(self.iter_file(image_uuid, path)) as chunks:
             return await write_download_async(chunks, destination, path=path, on_progress=self.on_progress)
 
-    async def read_stdin_async(self, source: InputSource) -> str | bytes:  # noqa: PLR6301 - public extension contract
+    async def read_stdin(self, source: InputSource) -> str | bytes:  # noqa: PLR6301 - public extension contract
         if isinstance(source, (str, bytes)):
             return source
         if isinstance(source, Path):

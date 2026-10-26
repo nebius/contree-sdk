@@ -650,7 +650,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         files.update(self.build_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
-            data = read_stdin(request.stdin) if request.stdin is not None else b""
+            data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
             stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
         context = OperationContext(
             request,

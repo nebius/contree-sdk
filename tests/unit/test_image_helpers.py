@@ -122,17 +122,17 @@ async def test_import_refresh_and_zero_ttl(mode, api, profile):
 
 async def test_import_wait_failure_cancels_without_sdk_status_fallback(mode, api):
     client = api()
+    cache = AsyncMemoryStore() if mode else SyncMemoryStore()
     error = APIConnectionError("status polling failed")
     client.mocks["wait_operation"].clear()
     client.mock("wait_operation", error=error)
     helper = async_import_image if mode else sync_import_image
     with pytest.raises(APIConnectionError) as caught:
-        await invoke(helper, "alpine:latest", client=client)
+        await invoke(helper, "alpine:latest", client=client, store=cache)
     assert caught.value is error
     assert not client.calls_for("get_operation_status")
     assert len(client.calls_for("cancel_operation")) == 1
-    namespace = CacheScope.from_client(client).namespace("image-import")
-    assert not await invoke(cache.entries, namespace=namespace)
+    assert not (await invoke(cache.list_sessions)).items
 
 
 @pytest.mark.parametrize("field", ["url", "project", "token"])
