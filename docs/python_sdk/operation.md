@@ -353,7 +353,6 @@ name: test_operation_input
 ```python
 from pathlib import Path
 
-
 assert delivery.eof_sent
 assert delivery.bytes_sent == Path("input.bin").stat().st_size
 assert bytes(stdin_api.sync.received) == Path("input.bin").read_bytes()
@@ -404,7 +403,6 @@ async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:a
 name: test_operation_input_async
 ```python
 from pathlib import Path
-
 
 assert delivery.eof_sent
 assert delivery.bytes_sent == Path("input.bin").stat().st_size

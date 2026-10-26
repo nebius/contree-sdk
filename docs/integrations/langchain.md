@@ -118,7 +118,6 @@ name: test_agent_wiring_sync; fixtures: deepagents_available, sandbox_api, agent
 ```python
 from langchain_core.messages import AIMessage, ToolMessage
 
-
 sandbox_api.command(stdout="2\n")
 model = agent_model_factory(
     responses=[
@@ -177,7 +176,6 @@ assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 3
 name: async test_agent_wiring; fixtures: deepagents_available, sandbox_api, agent_model_factory
 ```python
 from langchain_core.messages import AIMessage, ToolMessage
-
 
 sandbox_api.command(stdout="2\n")
 model = agent_model_factory(

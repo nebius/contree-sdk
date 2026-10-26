@@ -258,7 +258,6 @@ name: test_operation_failure; fixtures: doc_api, capsys
 ```python
 from contree_client.models import OperationStatus
 
-
 doc_api.complete(status=OperationStatus.FAILED)
 ```
 -->
@@ -291,7 +290,6 @@ assert capsys.readouterr().out == "failed operation: operation-1\n"
 name: async test_operation_failure_async; fixtures: doc_api, capsys
 ```python
 from contree_client.models import OperationStatus
-
 
 doc_api.complete(status=OperationStatus.FAILED)
 ```

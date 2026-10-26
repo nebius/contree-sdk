@@ -579,7 +579,6 @@ from dataclasses import replace
 from contree_client.models import EventDataStream
 from tests.unit.session.lazy_clients import event
 
-
 doc_api.complete(stream=False)
 doc_api.sync.mock(
     "follow_operation_events",
@@ -638,7 +637,6 @@ from dataclasses import replace
 
 from contree_client.models import EventDataStream
 from tests.unit.session.lazy_clients import event
-
 
 doc_api.complete(stream=False)
 doc_api.async_client.mock(

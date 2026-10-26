@@ -82,7 +82,6 @@ name: test_build
 assert doc_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 from pathlib import Path
 
-
 source_file = doc_api.sync.calls_for("ensure_file")[0].args[0]
 assert source_file.closed
 assert not Path(source_file.name).exists()

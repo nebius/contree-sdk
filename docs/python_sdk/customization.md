@@ -66,7 +66,6 @@ name: test_custom_policy
 ```python
 import pytest
 
-
 with pytest.raises(ValueError, match="explicit arguments"):
     session.run(shell="echo blocked")
 assert len(doc_api.sync.calls_for("spawn_instance")) == 1
@@ -132,7 +131,6 @@ async with create_sandbox_session(session_type=PolicySession, image="tag:alpine:
 name: test_custom_policy_async
 ```python
 import pytest
-
 
 with pytest.raises(ValueError, match="explicit arguments"):
     await session.run(shell="echo blocked")
@@ -331,7 +329,6 @@ import pytest
 
 from contree_sdk.docker import ContreeAsyncDockerBuilder, ContreeDockerBuilder
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
-
 
 assert parser.parse("BUILDMODE\ttest") == [BuildMode(value="test")]
 with pytest.raises(ValueError, match="unknown"):

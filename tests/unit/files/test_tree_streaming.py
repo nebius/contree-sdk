@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import stat
 import threading
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def test_tree_permissions_exclusions_and_directory_inputs(tmp_path):
     script = tmp_path / "nested" / "run.sh"
     script.write_bytes(b"#!/bin/sh\ntrue\n")
     script.chmod(0o751)
+    source_mode = stat.S_IMODE(script.stat().st_mode)
     (tmp_path / "nested" / "skip.pyc").write_bytes(b"skip")
     (tmp_path / "excluded").mkdir()
     (tmp_path / "excluded" / "file").write_bytes(b"skip")
@@ -34,13 +36,13 @@ def test_tree_permissions_exclusions_and_directory_inputs(tmp_path):
         "/app/nested/run.sh",
         12,
         34,
-        0o751,
+        source_mode,
     )
     overridden = prepare_file_tree(tmp_path, "/app", mode=0o600)
     assert {item.mode for item in overridden} == {0o600}
     implicit = UploadFileSpec.prepare_files({"/app": tmp_path})
     assert [str(item.path) for item in implicit] == ["/app/excluded/file", "/app/nested/run.sh", "/app/nested/skip.pyc"]
-    assert next(item for item in implicit if str(item.path).endswith("run.sh")).mode == 0o751
+    assert next(item for item in implicit if str(item.path).endswith("run.sh")).mode == source_mode
     with pytest.raises(ValueError, match="Duplicate destination"):
         UploadFileSpec.prepare_files([*prepared, UploadFileSpec(path="/app/nested", source=b"conflict")])
     with pytest.raises(ValueError, match="Duplicate destination"):

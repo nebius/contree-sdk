@@ -78,6 +78,7 @@ def download_target(destination: str | Path) -> Iterator[IO[bytes]]:
             handle.close()
             temporary.replace(target)
         finally:
+            handle.close()
             temporary.unlink(missing_ok=True)
 
 
