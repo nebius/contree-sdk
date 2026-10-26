@@ -28,6 +28,7 @@ from contree_sdk.files import (
     RunFiles,
     StagedFile,
     UploadFileSpec,
+    read_stdin_async,
 )
 from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
@@ -39,7 +40,6 @@ from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.operation_async import AsyncOperation
 from contree_sdk.session.records import OperationRecord
 from contree_sdk.session.tree import entry_from_node, entry_node, order_entries
-from contree_sdk.files import InputSource, read_stdin_async
 from contree_sdk.store import AsyncMemoryStore, AsyncStore, HistoryEntry, JSONValue, Node, NodeConflictError, StagedFile
 from contree_sdk.store.tree import DEFAULT_PAGE_SIZE, MAX_NODE_BATCH_SIZE
 

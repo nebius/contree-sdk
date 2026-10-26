@@ -105,8 +105,7 @@ def sync_import_image(  # noqa: PLR0913 - explicit connection and import options
     hour by default. no_cache=True imports again and refreshes the cached result.
     A requested tag is reapplied on cache hits. Timeout or interruption after
     submission requests cancellation of the import operation. Import failure or
-    a missing result image raises FailedOperationError. Imports poll operation
-    status with follow_events=False because image imports do not provide events.
+    a missing result image raises FailedOperationError.
 
     Returns:
         The imported ConTree image UUID.
@@ -150,7 +149,7 @@ def sync_import_image(  # noqa: PLR0913 - explicit connection and import options
                 return cached
         operation_id = active_client.import_image(registry, tag=tag, timeout=timeout)
         try:
-            response = active_client.wait_operation(operation_id, timeout=timeout, follow_events=False)
+            response = active_client.wait_operation(operation_id, timeout=timeout)
         except BaseException:
             with suppress(Exception):
                 active_client.cancel_operation(operation_id)
@@ -186,8 +185,7 @@ async def async_import_image(  # noqa: PLR0913 - explicit connection and import 
     hour by default. no_cache=True imports again and refreshes the cached result.
     A requested tag is reapplied on cache hits. Timeout or interruption after
     submission requests cancellation of the import operation. Import failure or
-    a missing result image raises FailedOperationError. Imports poll operation
-    status with follow_events=False because image imports do not provide events.
+    a missing result image raises FailedOperationError.
 
     Returns:
         The imported ConTree image UUID.
@@ -231,7 +229,7 @@ async def async_import_image(  # noqa: PLR0913 - explicit connection and import 
                 return cached
         operation_id = await active_client.import_image(registry, tag=tag, timeout=timeout)
         try:
-            response = await active_client.wait_operation(operation_id, timeout=timeout, follow_events=False)
+            response = await active_client.wait_operation(operation_id, timeout=timeout)
         except BaseException:
             with suppress(Exception, asyncio.CancelledError):
                 await await_cleanup(active_client.cancel_operation(operation_id))

@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from asyncio import to_thread
 from collections.abc import Iterator
 from dataclasses import dataclass
-from inspect import iscoroutinefunction
-from pathlib import Path
-from typing import Protocol, TypeAlias, TypeVar, cast
+from typing import Protocol, TypeVar
 
 
 DEFAULT_STDIN_CHUNK_SIZE = 64 * 1024

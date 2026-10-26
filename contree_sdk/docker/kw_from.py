@@ -166,7 +166,7 @@ def resolve_or_import(ctx: BuildContext, ref: str) -> str:
     op_uuid = ctx.client.import_image(
         ImageImportRegistry(url=url), tag=tag, timeout=ctx.timeout if ctx.timeout else ...
     )
-    operation = ctx.client.wait_operation(op_uuid, timeout=ctx.timeout if ctx.timeout else None, follow_events=False)
+    operation = ctx.client.wait_operation(op_uuid, timeout=ctx.timeout if ctx.timeout else None)
     return require_str(operation.result_image_uuid, f"image import {tag!r} produced no image")
 
 
@@ -181,7 +181,5 @@ async def resolve_or_import_async(ctx: AsyncBuildContext, ref: str) -> str:
     op_uuid = await ctx.client.import_image(
         ImageImportRegistry(url=url), tag=tag, timeout=ctx.timeout if ctx.timeout else ...
     )
-    operation = await ctx.client.wait_operation(
-        op_uuid, timeout=ctx.timeout if ctx.timeout else None, follow_events=False
-    )
+    operation = await ctx.client.wait_operation(op_uuid, timeout=ctx.timeout if ctx.timeout else None)
     return require_str(operation.result_image_uuid, f"image import {tag!r} produced no image")

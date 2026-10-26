@@ -8,10 +8,10 @@ from collections.abc import AsyncGenerator, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import aclosing, closing
 from dataclasses import dataclass
+from inspect import iscoroutinefunction
 from pathlib import Path, PurePosixPath
 from types import EllipsisType
 from typing import Protocol, TypeAlias, TypeVar, cast
-from inspect import iscoroutinefunction
 
 from contree_client.models import FileSpec
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
@@ -96,26 +96,6 @@ InputSource: TypeAlias = (
 RunFiles: TypeAlias = list[str | Path | UploadFileSpec] | dict[str, str | Path | bytes | UploadFileSpec] | None
 
 
-def read_stdin(source: InputSource) -> str | bytes:
-    if isinstance(source, (str, bytes)):
-        return source
-    if isinstance(source, Path):
-        return source.read_bytes()
-    if iscoroutinefunction(source.read):
-        raise TypeError("an async-readable stdin source requires an async session")
-    return cast("str | bytes", source.read())
-
-
-async def read_stdin_async(source: InputSource) -> str | bytes:
-    if isinstance(source, (str, bytes)):
-        return source
-    if isinstance(source, Path):
-        return await to_thread(source.read_bytes)
-    if iscoroutinefunction(source.read):
-        return cast("str | bytes", await source.read())
-    return cast("str | bytes", await to_thread(source.read))
-
-
 class SyncFileTransfer(ABC):
     """Replace file uploads and downloads without replacing a session.
 
@@ -169,6 +149,15 @@ class SyncFileTransfer(ABC):
         """
         with closing(self.iter_file(image_uuid, path)) as chunks:
             return write_download(chunks, destination, path=path, on_progress=self.on_progress)
+
+    def read_stdin(self, source: InputSource) -> str | bytes:  # noqa: PLR6301 - public extension contract
+        if isinstance(source, (str, bytes)):
+            return source
+        if isinstance(source, Path):
+            return source.read_bytes()
+        if iscoroutinefunction(source.read):
+            raise TypeError("an async-readable stdin source requires an async session")
+        return cast("str | bytes", source.read())
 
 
 class AsyncFileTransfer(ABC):
@@ -228,6 +217,15 @@ class AsyncFileTransfer(ABC):
         """
         async with aclosing(self.iter_file(image_uuid, path)) as chunks:
             return await write_download_async(chunks, destination, path=path, on_progress=self.on_progress)
+
+    async def read_stdin_async(self, source: InputSource) -> str | bytes:  # noqa: PLR6301 - public extension contract
+        if isinstance(source, (str, bytes)):
+            return source
+        if isinstance(source, Path):
+            return await to_thread(source.read_bytes)
+        if iscoroutinefunction(source.read):
+            return cast("str | bytes", await source.read())
+        return cast("str | bytes", await to_thread(source.read))
 
 
 class ClientFileTransfer(SyncFileTransfer):
@@ -312,7 +310,10 @@ class AsyncClientFileTransfer(AsyncFileTransfer):
 __all__ = [
     "AsyncClientFileTransfer",
     "AsyncFileTransfer",
+    "AsyncReadable",
     "ClientFileTransfer",
+    "InputSource",
+    "Readable",
     "RunFiles",
     "StagedFile",
     "SyncFileTransfer",
