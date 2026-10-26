@@ -1,6 +1,8 @@
 """Exercise upload commands against a local shell and the public executor contract."""
 
 import asyncio
+import os
+import shutil
 import subprocess
 
 import pytest
@@ -11,6 +13,19 @@ pytest.importorskip("deepagents")
 
 from contree_sdk import AsyncExecutor, RunRequest, SyncExecutor
 from contree_sdk.langchain import ContreeAsyncSandbox, ContreeSandbox
+
+
+def local_shell():
+    # Git Bash supplies the guest's POSIX tools on Windows CI runners.
+    shell = shutil.which("sh")
+    assert shell is not None, "local guest-command tests require a POSIX shell"
+    return shell
+
+
+def shell_path(path):
+    value = path.as_posix()
+    # MSYS exposes Windows drive roots as /c/, /d/, etc.
+    return f"/{value[0].lower()}{value[2:]}" if path.drive else value
 
 
 def result(code, stdout, stderr):
@@ -29,7 +44,7 @@ class LocalExecutor(SyncExecutor):
         assert isinstance(request.stdin, bytes)
         assert not request.files
         completed = subprocess.run(  # noqa: S603 - generated SDK command; test paths are under tmp_path
-            ["/bin/sh", "-c", request.shell], input=request.stdin, capture_output=True, timeout=5, check=False
+            [local_shell(), "-c", request.shell], input=request.stdin, capture_output=True, timeout=5, check=False
         )
         return result(completed.returncode, completed.stdout, completed.stderr)
 
@@ -45,7 +60,7 @@ class LocalAsyncExecutor(AsyncExecutor):
         assert isinstance(request.stdin, bytes)
         assert not request.files
         process = await asyncio.create_subprocess_exec(
-            "/bin/sh",
+            local_shell(),
             "-c",
             request.shell,
             stdin=asyncio.subprocess.PIPE,
@@ -61,12 +76,13 @@ class LocalAsyncExecutor(AsyncExecutor):
 
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
 async def test_upload_binary_empty_overwrite_and_path_quoting(tmp_path, asynchronous):
-    path = tmp_path / "dir with 'quotes'" / "file; $(echo injected) `echo injected`\n.txt"
+    newline = "" if os.name == "nt" else "\n"
+    path = tmp_path / "dir with 'quotes'" / f"file; $(echo injected) `echo injected`{newline}.txt"
     path.parent.mkdir()
     path.write_bytes(b"old trailing bytes")
     empty = tmp_path / "new parent" / "empty"
     binary = bytes(range(256)) * 8192
-    files = [(str(path), binary), (str(empty), b""), ("relative", b"bad"), ("/nul\x00path", b"bad")]
+    files = [(shell_path(path), binary), (shell_path(empty), b""), ("relative", b"bad"), ("/nul\x00path", b"bad")]
     if asynchronous:
         responses = await ContreeAsyncSandbox(LocalAsyncExecutor()).aupload_files(files)
     else:
@@ -82,7 +98,7 @@ async def test_failed_write_is_reported_and_next_file_is_attempted(tmp_path, asy
     directory = tmp_path / "directory"
     directory.mkdir()
     target = tmp_path / "written"
-    files = [(str(directory), b"bad"), (str(target), b"ok")]
+    files = [(shell_path(directory), b"bad"), (shell_path(target), b"ok")]
     if asynchronous:
         responses = await ContreeAsyncSandbox(LocalAsyncExecutor()).aupload_files(files)
     else:
