@@ -1,4 +1,6 @@
 import inspect
+import shlex
+from pathlib import PurePosixPath
 
 import pytest
 from contree_client.models import InstanceResult, InstanceResultState, StreamRepr
@@ -46,6 +48,16 @@ async def write(writer, path, content):
     pending = writer.write_file(path, content)
     if inspect.isawaitable(pending):
         await pending
+
+
+async def test_write_quotes_guest_paths_and_keeps_content_in_stdin(writer):
+    path = "/dir with 'quotes'/file; $(echo injected) `echo injected`\n.txt"
+    content = bytes(range(256))
+    await write(writer, path, content)
+    request = writer.requests[0]
+    assert shlex.split(request.shell) == ["mkdir", "-p", "--", str(PurePosixPath(path).parent), "&&", "cat", ">", path]
+    assert request.stdin == content
+    assert not request.files
 
 
 @pytest.mark.parametrize("path", ["relative", "", "/bad\x00path"])

@@ -30,7 +30,9 @@ def assert_writes(client, payload, chunk_size):
     assert client.calls_for("follow_operation_events")[0].kwargs == {}
 
 
-@pytest.mark.parametrize("data", [b"", bytes(range(256)) * 8192, "Привет 🌎" * 8192])
+@pytest.mark.parametrize(
+    "data", [b"", bytes(range(256)) * 8192, "Привет 🌎" * 8192], ids=["empty", "binary", "unicode"]
+)
 def test_sync_bounded_input_and_explicit_eof(data):
     client = StdinClient()
     operation = ContreeSession(client, image="base").spawn("cat", stdin_open=True)
@@ -43,7 +45,9 @@ def test_sync_bounded_input_and_explicit_eof(data):
     operation.shutdown()
 
 
-@pytest.mark.parametrize("data", [b"", bytes(range(256)) * 8192, "Привет 🌎" * 8192])
+@pytest.mark.parametrize(
+    "data", [b"", bytes(range(256)) * 8192, "Привет 🌎" * 8192], ids=["empty", "binary", "unicode"]
+)
 async def test_async_bounded_input_and_explicit_eof(data):
     client = AsyncStdinClient()
     operation = await ContreeAsyncSession(client, image="base").spawn("cat", stdin_open=True)
