@@ -5,10 +5,9 @@ from pathlib import Path
 from typing import IO
 from typing_extensions import assert_type
 from contree_client.models import FileSpec
-from contree_sdk.files import AsyncFileTransfer, RunFiles, SyncFileTransfer, UploadFileSpec
-from contree_sdk.stdin import AsyncReadable, Readable
+from contree_sdk.files import AsyncFileTransfer, AsyncReadable, Readable, RunFiles, SyncFileTransfer, UploadFileSpec
 from contree_sdk.execution import RunRequest
-from contree_sdk.utils.file_io import download_target, run_file_io, write_download, write_download_async
+from contree_sdk.file_io import download_target, run_file_io, write_download, write_download_async
 
 class AsyncBytes:
     async def read(self, size: int = -1, /) -> bytes:

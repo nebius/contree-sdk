@@ -334,7 +334,7 @@ def test_sync_client_reconnect_keeps_input_and_events_once(monkeypatch):
 
     client = StdinClient()
     client.ready = False
-    client.mock("operation_terminal", False)
+    monkeypatch.setattr(client, "operation_terminal", lambda operation_id, deadline=None: False)
     cursors = []
     subscriptions = []
 
@@ -371,7 +371,11 @@ async def test_async_client_reconnect_keeps_input_and_events_once(monkeypatch):
 
     client = AsyncStdinClient()
     client.ready = False
-    client.mock("operation_terminal", False)
+
+    async def not_terminal(operation_id, deadline=None):
+        return False
+
+    monkeypatch.setattr(client, "operation_terminal", not_terminal)
     cursors = []
     subscriptions = []
 

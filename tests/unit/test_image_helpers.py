@@ -104,7 +104,7 @@ async def test_import_default_cache_persists_across_calls(mode, api, profile, tm
         assert await invoke(helper, "alpine:latest", profile=profile, client_type=api, tag="base") == "imported"
     first, second = api.instances
     assert first.calls_for("import_image")[0].args[0].url == "docker://docker.io/library/alpine:latest"
-    assert first.calls_for("wait_operation")[0].kwargs == {"timeout": 300, "follow_events": False}
+    assert first.calls_for("wait_operation")[0].kwargs == {"timeout": 300}
     assert not first.calls_for("follow_operation_events")
     assert not second.calls_for("import_image")
     assert second.calls_for("update_image_tag")[0].args == ("imported", "base")
@@ -197,7 +197,7 @@ async def test_build_from_registry_waits_without_events(mode, api, context):
     wait = client.calls_for("wait_operation")
     assert len(wait) == 1
     assert wait[0].args == ("import-1",)
-    assert wait[0].kwargs == {"timeout": 600, "follow_events": False}
+    assert wait[0].kwargs == {"timeout": 600}
 
 
 async def test_build_no_cache_bypasses_layers_but_reuses_uploads(mode, api, profile, context):

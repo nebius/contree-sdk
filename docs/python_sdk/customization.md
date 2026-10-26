@@ -198,7 +198,7 @@ Inject a component with `file_transfer=`. `ClientFileTransfer` and
 subclassed. Import `UploadFileSpec` and `UploadedFile` from `contree_sdk.files`.
 
 Stdin is prepared independently of file transfer. `InputSource`, `Readable`, and
-`AsyncReadable` live in `contree_sdk.stdin`. Strings and bytes pass through; paths
+`AsyncReadable` live in `contree_sdk.session.stdin`. Strings and bytes pass through; paths
 and streams are read locally without closing caller-owned streams. Async sessions
 await async readers and offload blocking reads to a thread.
 

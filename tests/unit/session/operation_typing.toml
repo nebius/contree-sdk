@@ -8,7 +8,7 @@ from contree_sdk.session.contracts import (
 )
 from contree_sdk.session.operation_sync import Operation
 from contree_sdk.session.operation_async import AsyncOperation
-from contree_sdk.stdin import StdinResult
+from contree_sdk.session.stdin import StdinResult
 '''
 
 [[cases]]
