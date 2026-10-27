@@ -20,6 +20,18 @@ class AsyncReader:
         return b"async\x00\xff"
 
 
+def make_session(asynchronous, lazy):
+    if asynchronous:
+        client = LiveAsyncClient()
+        base = ContreeAsyncSession(client, image="base")
+        session = AsyncLazySession(base) if lazy else base
+    else:
+        client = LiveClient()
+        base = ContreeSession(client, image="base")
+        session = LazySession(base) if lazy else base
+    return client, session
+
+
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("lazy", [False, True], ids=["regular", "lazy"])
 @pytest.mark.parametrize("source_kind", ["text", "bytes", "path", "text_stream", "binary_stream", "async_stream"])
@@ -45,9 +57,7 @@ async def test_session_reads_stdin_sources_without_file_transfer(asynchronous, l
         source = AsyncReader()
         expected = b"async\x00\xff"
 
-    client = LiveAsyncClient() if asynchronous else LiveClient()
-    base = (ContreeAsyncSession if asynchronous else ContreeSession)(client, image="base")
-    session = (AsyncLazySession if asynchronous else LazySession)(base) if lazy else base
+    client, session = make_session(asynchronous, lazy)
     operation = None
     try:
         if source_kind == "async_stream" and not asynchronous:
@@ -64,6 +74,7 @@ async def test_session_reads_stdin_sources_without_file_transfer(asynchronous, l
             assert not source.closed
     finally:
         if lazy:
+            assert isinstance(session, (AsyncLazySession, LazySession))
             await invoke(session.abort)
         elif operation is not None:
             await invoke(operation.shutdown)

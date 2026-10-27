@@ -142,14 +142,7 @@ async def test_default_async_is_lazy_and_commits_once(profile):
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_factory_configures_vm_without_a_custom_session(profile, asynchronous):
     api = FactoryAsyncClient if asynchronous else FactoryClient
-    factory = create_async_sandbox_session if asynchronous else create_sync_sandbox_session
     vm = RunRequest(command="sleep", args=("7200",), timeout=3600, hostname="sandbox")
-    context = factory(
-        image="base",
-        profile=profile,
-        client_type=api,
-        session_kwargs={"snapshot_policy": ManualSnapshotPolicy(), "vm_request": vm},
-    )
 
     async def commands(session):
         assert type(session) is (AsyncLazySession if asynchronous else LazySession)
@@ -174,9 +167,21 @@ async def test_factory_configures_vm_without_a_custom_session(profile, asynchron
         assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
 
     if asynchronous:
+        context = create_async_sandbox_session(
+            image="base",
+            profile=profile,
+            client_type=FactoryAsyncClient,
+            session_kwargs={"snapshot_policy": ManualSnapshotPolicy(), "vm_request": vm},
+        )
         async with context as session:
             await commands(session)
     else:
+        context = create_sync_sandbox_session(
+            image="base",
+            profile=profile,
+            client_type=FactoryClient,
+            session_kwargs={"snapshot_policy": ManualSnapshotPolicy(), "vm_request": vm},
+        )
         with context as session:
             await commands(session)
     assert api.instances[-1].closed == 1

@@ -3,9 +3,8 @@
 The Harbor environment runs task commands and file transfers as subprocesses in
 one `AsyncLazySession` VM created by `create_async_sandbox_session`. The integration
 uses the standard SDK session and operation classes. Files and background processes remain available between
-commands. A trial's final stop discards the VM by default; `--no-delete` requests a
-confirmed snapshot and tags the resulting image. An explicit `snapshot()` or an
-idle snapshot stops the current VM and starts the next command from its saved image.
+commands. A trial's final stop completes the active operation and saves its result
+image. An idle snapshot stops the current VM and starts the next command from its saved image.
 Background processes do not survive that boundary.
 
 The backend targets Harbor 0.22.x and requires Python 3.12 or newer. Install with
@@ -20,9 +19,12 @@ The `stage` profile is an example; use a profile pointing at the intended ConTre
 backend. Authentication remains in the host's ConTree profile. Python callers may
 pass `client=ContreeAsyncClient(...)`; injected clients remain caller-owned.
 
-Tasks need a prebuilt OCI image in `[environment].docker_image`. UUID and `tag:`
-references are also accepted. The image must run as root and provide Bash and
-`sleep`. Dockerfile builds, Compose, GPUs, custom mounts, non-root users,
+Tasks need a prebuilt OCI registry image in `[environment].docker_image`, such as
+`docker.io/library/ubuntu:24.04`. Startup imports the image through the SDK's
+cached import helper. Native ConTree UUID and `tag:` references are not supported
+by this adapter. The image must provide Bash and `sleep`. Commands use the image's
+default user unless Harbor supplies a numeric UID or `root`; other user names are
+not supported. Dockerfile builds, Compose, GPUs, custom mounts,
 and restricted networking are not supported. Harbor's standard log mount paths are
 replaced by file transfers. Commands inherit the image's `WORKDIR` and `HOME`
 unless Harbor supplies overrides. Task/trial/command environment precedence is
@@ -48,10 +50,11 @@ so long-running background processes can remain alive through the trial. A trial
 still requires backend support or a task-specific cleanup and snapshot boundary. A command timeout kills that subprocess and waits for its
 exit; an unconfirmed kill fails the VM.
 
-`stop(delete=True)` cancels the VM and does not save its unsnapshotted changes.
-`stop(delete=False)` saves and tags the final image as `harbor-...`; Python callers
-can inspect `final_image_uuid` and `retained_image_tag`. `snapshot()` saves and
-returns the confirmed image UUID while leaving the environment ready to restart.
+`stop()` closes the session, saving the final operation's result image and releasing
+owned resources. Harbor's `delete` argument (`--delete` / `--no-delete`) is accepted
+for compatibility and has no effect. Stopping does not delete images or create
+tags; image retention is managed separately by ConTree. If saving fails, cleanup
+aborts the remaining operation and propagates the error.
 Snapshotting an image with unsupported socket inodes can still fail. Use the
 single-VM default for tasks that require those sockets until cleanup or backend
 snapshot support is available.
@@ -102,5 +105,5 @@ assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) ==
 
 `vm_request` configures the parent VM; each command has its own timeout. Ordinary
 context exit saves a snapshot, while exceptional exit discards unsaved work.
-Harbor enters and exits this context across its `start()` and `stop()` calls,
-using abort for deletion and a confirmed snapshot for retention.
+Harbor enters and exits this context across its `start()` and `stop()` calls.
+Normal shutdown saves the final image; abort is reserved for failure cleanup.

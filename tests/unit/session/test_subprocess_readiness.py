@@ -10,8 +10,12 @@ from contree_sdk.session import AsyncOperation, Operation
 
 @pytest.fixture(params=[False, True], ids=["sync", "async"])
 def operation(request):
-    client = ContreeAsyncClient() if request.param else ContreeClient()
-    handle = (AsyncOperation if request.param else Operation)(client, "op", readiness_timeout=0.01)
+    if request.param:
+        client = ContreeAsyncClient()
+        handle = AsyncOperation(client, "op", readiness_timeout=0.01)
+    else:
+        client = ContreeClient()
+        handle = Operation(client, "op", readiness_timeout=0.01)
     handle.entered = True
     return client, handle
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
 
 
 DEFAULT_STDIN_CHUNK_SIZE = 64 * 1024

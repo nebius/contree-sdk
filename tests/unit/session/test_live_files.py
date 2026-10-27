@@ -23,9 +23,14 @@ async def invoke(function, *args, **kwargs):
 @pytest.fixture(params=[False, True], ids=["sync", "async"])
 def sandbox(request):
     asynchronous = request.param
-    client = LiveAsyncClient() if asynchronous else LiveClient()
-    base = (ContreeAsyncSession if asynchronous else ContreeSession)(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, snapshot_policy=ManualSnapshotPolicy())
+    if asynchronous:
+        client = LiveAsyncClient()
+        base = ContreeAsyncSession(client, image="base")
+        lazy = AsyncLazySession(base, snapshot_policy=ManualSnapshotPolicy())
+    else:
+        client = LiveClient()
+        base = ContreeSession(client, image="base")
+        lazy = LazySession(base, snapshot_policy=ManualSnapshotPolicy())
     client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=3))
     client.mock("apply_instance_file", None)
     client.mock("inspect_instance_download", b"live")
@@ -221,7 +226,9 @@ def test_sync_snapshot_waits_for_live_transfer_without_locking_commands(monkeypa
             finally:
                 release.set()
             assert reading.result(2) == b"data"
-            assert saving.result(2).image_uuid == "image-op-1"
+            saved = saving.result(2)
+            assert saved is not None
+            assert saved.image_uuid == "image-op-1"
     finally:
         lazy.abort()
 
@@ -249,7 +256,9 @@ async def test_async_cancelled_transfer_releases_snapshot_waiter(monkeypatch):
         reading.cancel()
         with pytest.raises(asyncio.CancelledError):
             await reading
-        assert (await saving).image_uuid == "image-op-1"
+        saved = await saving
+        assert saved is not None
+        assert saved.image_uuid == "image-op-1"
         assert lazy.state.transfers == 0
     finally:
         release.set()

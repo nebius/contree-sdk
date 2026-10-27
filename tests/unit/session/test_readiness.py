@@ -34,6 +34,12 @@ def make_client(asynchronous):
     return client
 
 
+def make_lazy(base: ContreeAsyncSession | ContreeSession, **kwargs) -> AsyncLazySession | LazySession:
+    if isinstance(base, ContreeAsyncSession):
+        return AsyncLazySession(base, **kwargs)
+    return LazySession(base, **kwargs)
+
+
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_operation_waits_for_primary_spawn_with_one_reader(asynchronous):
     client = make_client(asynchronous)
@@ -106,7 +112,7 @@ async def test_readiness_timeout_leaves_shared_reader_available(asynchronous):
 async def test_lazy_waits_for_each_vm_before_admitting_commands(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=2)
+    lazy = make_lazy(base, startup_timeout=2)
     try:
         for index in (1, 2):
             running = asyncio.create_task(invoke(asynchronous, lazy.run, "first"))
@@ -132,7 +138,7 @@ async def test_lazy_waits_for_each_vm_before_admitting_commands(asynchronous):
 async def test_lazy_startup_timeout_cancels_vm_without_submitting_command(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=0.02)
+    lazy = make_lazy(base, startup_timeout=0.02)
     try:
         with pytest.raises(TimeoutError, match=r"op-1.*startup timed out"):
             await invoke(asynchronous, lazy.run, "must not run")
@@ -147,7 +153,7 @@ async def test_lazy_startup_timeout_cancels_vm_without_submitting_command(asynch
 async def test_abort_during_startup_releases_waiter_and_worker(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=2)
+    lazy = make_lazy(base, startup_timeout=2)
     running = asyncio.create_task(invoke(asynchronous, lazy.run, "must not run"))
     await until(lambda: lazy.phase == "starting" and "op-1" in client.streams)
     await asyncio.wait_for(invoke(asynchronous, lazy.abort), 2)
@@ -180,7 +186,7 @@ async def test_cancelling_readiness_wait_does_not_cancel_reader():
 async def test_snapshot_requested_during_startup_is_not_lost(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=2)
+    lazy = make_lazy(base, startup_timeout=2)
     running = asyncio.create_task(invoke(asynchronous, lazy.run, "first"))
     try:
         await until(lambda: lazy.phase == "starting" and "op-1" in client.streams)
@@ -203,7 +209,7 @@ async def test_live_upload_also_waits_for_primary_spawn(asynchronous):
     client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=4))
     client.mock("apply_instance_file", None)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=2)
+    lazy = make_lazy(base, startup_timeout=2)
     writing = asyncio.create_task(invoke(asynchronous, lazy.write_file, "/input", b"data"))
     try:
         await until(lambda: client.calls_for("follow_operation_events"))
@@ -221,9 +227,7 @@ async def test_live_upload_also_waits_for_primary_spawn(asynchronous):
 async def test_concurrent_startup_preserves_one_command_snapshot_limit(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(
-        base, startup_timeout=2, snapshot_policy=CommandCountSnapshotPolicy(1)
-    )
+    lazy = make_lazy(base, startup_timeout=2, snapshot_policy=CommandCountSnapshotPolicy(1))
     first = asyncio.create_task(invoke(asynchronous, lazy.run, "first"))
     try:
         await until(lambda: "op-1" in client.streams)
@@ -261,7 +265,7 @@ async def test_cancelled_starting_command_cleans_up_vm():
 async def test_close_during_startup_saves_vm_without_admitting_command(asynchronous):
     client = make_client(asynchronous)
     base = ContreeAsyncSession(client, image="base") if asynchronous else ContreeSession(client, image="base")
-    lazy = (AsyncLazySession if asynchronous else LazySession)(base, startup_timeout=2)
+    lazy = make_lazy(base, startup_timeout=2)
     running = asyncio.create_task(invoke(asynchronous, lazy.run, "must not run"))
     try:
         await until(lambda: "op-1" in client.streams)
@@ -272,6 +276,7 @@ async def test_close_during_startup_saves_vm_without_admitting_command(asynchron
         with pytest.raises(RuntimeError, match="closed"):
             await running
         assert lazy.phase == "closed"
+        assert lazy.last_entry is not None
         assert lazy.last_entry.image_uuid == "image-op-1"
         assert not client.calls_for("operation_subprocess_create")
     finally:

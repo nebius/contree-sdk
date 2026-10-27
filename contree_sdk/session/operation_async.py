@@ -415,20 +415,22 @@ class AsyncOperation(AsyncOperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
-        kwargs = {
-            "args": list(args) if args else ...,
-            "shell": shell,
-            "env": env if env is not None else ...,
-            "cwd": cwd if cwd is not None else ...,
-            "uid": uid if uid is not None else ...,
-            "gid": gid if gid is not None else ...,
-            "stdin": stdin_repr,
-            "truncate_output_at": truncate_output_at if truncate_output_at is not None else ...,
-        }
+        arguments = list(args) if args else ...
         deadline = time.monotonic() + self.readiness_timeout
         while True:
             try:
-                spid = await self.client.operation_subprocess_create(self.uuid, command, **kwargs)
+                spid = await self.client.operation_subprocess_create(
+                    self.uuid,
+                    command,
+                    args=arguments,
+                    shell=shell,
+                    env=env if env is not None else ...,
+                    cwd=cwd if cwd is not None else ...,
+                    uid=uid if uid is not None else ...,
+                    gid=gid if gid is not None else ...,
+                    stdin=stdin_repr,
+                    truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
+                )
                 break
             except (TooEarlyError, ConflictError) as error:
                 remaining = deadline - time.monotonic()
