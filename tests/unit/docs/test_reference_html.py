@@ -31,6 +31,7 @@ def reference_html(tmp_path_factory):
     pytest.importorskip("sphinx")
     pytest.importorskip("myst_parser")
     pytest.importorskip("deepagents")
+    pytest.importorskip("harbor")
     root = Path(__file__).resolve().parents[3]
     output = tmp_path_factory.mktemp("reference-html")
     result = subprocess.run(  # noqa: S603 - fixed module and repository-owned documentation
