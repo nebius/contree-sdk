@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import EventDataStream, FileResponse, OperationEventType, StreamRepr
+
+
+pytest.importorskip("harbor")
+
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
