@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from concurrent.futures import Future
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from functools import partial
 from math import isfinite
+from time import monotonic
 
 from contree_client.models import InstanceResult, OperationEvent
 
@@ -14,13 +17,14 @@ from contree_sdk.execution import RunRequest, SyncExecutor
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
+from contree_sdk.session.inspection import SessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.sync import ContreeSession
 
 
-class LazySession(SyncExecutor):
+class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
     """Share one VM across commands; save one history entry per snapshot.
 
     The supplied session, its client and its store remain caller-owned. Do not
@@ -285,7 +289,7 @@ class LazySession(SyncExecutor):
             self.snapshot_policy.notify(SnapshotEvent.CLOSE)
 
     def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
-        """Drain accepted commands, save their common image, and reopen admission.
+        """Drain commands and inspections, save their common image, and reopen admission.
 
         Snapshots are lightweight and can run after every command. They stop
         the VM. An unchanged filesystem can return the same image UUID.
@@ -376,10 +380,124 @@ class LazySession(SyncExecutor):
             if self.worker is not None:
                 self.worker.join()
 
-    def inspect(self, *, timeout: float | None = None) -> ImageInspector:
+    def inspect(self, *, timeout: float | None = None) -> SessionInspector:
+        """Return a view that selects the current filesystem for each request.
+
+        Live requests do not stop the VM. Cold requests use the saved image;
+        pending staged files start a VM so the view includes those files.
+        timeout limits admission and VM startup waits, not HTTP I/O.
+        Use inspect_snapshot() for a stable image and its image_uuid.
+
+        Returns:
+            A session-bound inspector; creating it starts no VM.
+
+        """
+        with self.condition:
+            self.state.check()
+        return SessionInspector(
+            self.session.client,
+            partial(self.inspection_source, timeout=timeout),
+            partial(self.inspect_snapshot, timeout=timeout),
+            self.session.file_transfer.on_progress,
+        )
+
+    def _inspection_source_locked(self, timeout: float | None) -> ImageInspector | str:
+        deadline = None if timeout is None else monotonic() + timeout
+        while True:
+            self.state.check()
+            started = False
+            if self.state.phase == "cold":
+                if not self.session.pending_files():
+                    return self.session.create_inspector(
+                        require_str(self.session.image_uuid, "session has no resolved image")
+                    )
+                try:
+                    self._start()
+                except BaseException as error:
+                    self.state.fail(error)
+                    self._notify()
+                    raise
+                started = True
+            if self.state.phase == "running":
+                if not started:
+                    try:
+                        self.state.wants_snapshot(self._snapshot_requested())
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                if self.state.phase == "running":
+                    if self.operation is None:
+                        raise RuntimeError("running LazySession has no operation")
+                    try:
+                        self.snapshot_policy.notify(SnapshotEvent.INSPECTION_STARTED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                    self.state.inspecting += 1
+                    return self.operation.uuid
+            self._notify()
+            remaining = None if deadline is None else deadline - monotonic()
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError("LazySession inspection admission is still pending")
+            self.condition.wait(remaining)
+
+    @contextmanager
+    def inspection_source(self, *, timeout: float | None = None) -> Iterator[ImageInspector | str]:
+        """Reserve the current source until the request and its stream close.
+
+        Override this hook to customize source selection. Image inspectors are
+        pinned; operation UUIDs remain protected from automatic snapshot.
+
+        Yields:
+            A saved image inspector or an active operation UUID.
+
+        Raises:
+            RuntimeError: The session fails or closes before inspection starts.
+            TimeoutError: Admission or VM startup exceeds the timeout.
+
+        """
+        try:
+            with self.condition:
+                source = self._inspection_source_locked(timeout)
+        except BaseException:
+            if self.state.error is not None and self.operation is not None:
+                with suppress(Exception):
+                    self.operation.cancel()
+                with suppress(Exception):
+                    self.operation.shutdown()
+            raise
+        try:
+            if isinstance(source, str):
+                with self.condition:
+                    if not self.condition.wait_for(
+                        lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed",
+                        timeout=timeout,
+                    ):
+                        raise TimeoutError("LazySession inspection is waiting for VM startup")
+                    if self.state.error is not None:
+                        raise RuntimeError("LazySession failed before inspection") from self.state.error
+                    if self.state.phase == "closed":
+                        raise RuntimeError("LazySession closed before inspection")
+            yield source
+        finally:
+            if isinstance(source, str):
+                with self.condition:
+                    self.state.inspecting -= 1
+                    try:
+                        if self.state.phase not in {"closed", "failed"}:
+                            self.snapshot_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        raise
+                    finally:
+                        self._notify()
+
+    def inspect_snapshot(self, *, timeout: float | None = None) -> ImageInspector:
         """Save active work and pin the resulting image for inspection.
 
-        Waits for admitted commands and stops the VM even with a manual policy.
+        Waits for admitted commands and inspections, then stops the VM.
         A cold session starts no VM. Later commands cannot change the pinned image.
         timeout limits the snapshot wait; saving continues if the wait ends early.
         A failed snapshot raises instead of returning the previous image.
@@ -400,7 +518,7 @@ class LazySession(SyncExecutor):
             return self.session.create_inspector(image_uuid)
 
     def read_file(self, path: str) -> bytes:
-        """Save active work, then read the file from the resulting image.
+        """Read current files without stopping an active VM.
 
         Returns:
             The complete file as bytes.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from concurrent.futures import Future
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
+from functools import partial
 from math import isfinite
 
 from contree_client.models import InstanceResult, OperationEvent
@@ -14,13 +16,15 @@ from contree_sdk.execution import AsyncExecutor, RunRequest
 from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.base import require_str
+from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
+from contree_sdk.session.inspection import AsyncSessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 
 
-class AsyncLazySession(AsyncExecutor):
+class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
     """Share one VM across commands; save one history entry per snapshot.
 
     The supplied session, its client and its store remain caller-owned. Do not
@@ -290,7 +294,7 @@ class AsyncLazySession(AsyncExecutor):
             self.snapshot_policy.notify(SnapshotEvent.CLOSE)
 
     async def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
-        """Drain accepted commands, save their common image, and reopen admission.
+        """Drain commands and inspections, save their common image, and reopen admission.
 
         Snapshots are lightweight and can run after every command. They stop
         the VM. An unchanged filesystem can return the same image UUID.
@@ -388,10 +392,134 @@ class AsyncLazySession(AsyncExecutor):
             if self.worker is not None:
                 await asyncio.shield(self.worker)
 
-    async def inspect(self, *, timeout: float | None = None) -> AsyncImageInspector:
+    async def inspect(self, *, timeout: float | None = None) -> AsyncSessionInspector:
+        """Return a view that selects the current filesystem for each request.
+
+        Live requests do not stop the VM. Cold requests use the saved image;
+        pending staged files start a VM so the view includes those files.
+        timeout limits admission and VM startup waits, not HTTP I/O.
+        Use inspect_snapshot() for a stable image and its image_uuid.
+
+        Returns:
+            A session-bound inspector; creating it starts no VM.
+
+        """
+        async with self.condition:
+            self.state.check()
+        return AsyncSessionInspector(
+            self.session.client,
+            partial(self.inspection_source, timeout=timeout),
+            partial(self.inspect_snapshot, timeout=timeout),
+            self.session.file_transfer.on_progress,
+        )
+
+    async def _inspection_source_locked(self, timeout: float | None) -> AsyncImageInspector | str:
+        await self.session.ensure_ready()
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+        while True:
+            self.state.check()
+            started = False
+            if self.state.phase == "cold":
+                if not await self.session.pending_files():
+                    return self.session.create_inspector(
+                        require_str(self.session.image_uuid, "session has no resolved image")
+                    )
+                try:
+                    await self._start()
+                except BaseException as error:
+                    self.state.fail(error)
+                    self._notify()
+                    raise
+                started = True
+            if self.state.phase == "running":
+                if not started:
+                    try:
+                        self.state.wants_snapshot(self._snapshot_requested())
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                if self.state.phase == "running":
+                    if self.operation is None:
+                        raise RuntimeError("running LazySession has no operation")
+                    try:
+                        self.snapshot_policy.notify(SnapshotEvent.INSPECTION_STARTED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                    self.state.inspecting += 1
+                    return self.operation.uuid
+            self._notify()
+            remaining = None if deadline is None else deadline - loop.time()
+            try:
+                await asyncio.wait_for(self.condition.wait(), remaining)
+            except asyncio.TimeoutError:
+                raise TimeoutError("LazySession inspection admission is still pending") from None
+
+    async def _release_inspection(self) -> None:
+        async with self.condition:
+            self.state.inspecting -= 1
+            try:
+                if self.state.phase not in {"closed", "failed"}:
+                    self.snapshot_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
+            except BaseException as error:
+                self.state.fail(error)
+                raise
+            finally:
+                self._notify()
+
+    @asynccontextmanager
+    async def inspection_source(self, *, timeout: float | None = None) -> AsyncIterator[AsyncImageInspector | str]:
+        """Reserve the current source until the request and its stream close.
+
+        Override this hook to customize source selection. Image inspectors are
+        pinned; operation UUIDs remain protected from automatic snapshot.
+
+        Yields:
+            A saved image inspector or an active operation UUID.
+
+        Raises:
+            RuntimeError: The session fails or closes before inspection starts.
+            TimeoutError: Admission or VM startup exceeds the timeout.
+
+        """
+        try:
+            async with self.condition:
+                source = await self._inspection_source_locked(timeout)
+        except BaseException:
+            if self.state.error is not None and self.operation is not None:
+                with suppress(Exception):
+                    await self.operation.cancel()
+                with suppress(Exception):
+                    await self.operation.shutdown()
+            raise
+        try:
+            if isinstance(source, str):
+                async with self.condition:
+                    try:
+                        await asyncio.wait_for(
+                            self.condition.wait_for(
+                                lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed"
+                            ),
+                            timeout=timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        raise TimeoutError("LazySession inspection is waiting for VM startup") from None
+                    if self.state.error is not None:
+                        raise RuntimeError("LazySession failed before inspection") from self.state.error
+                    if self.state.phase == "closed":
+                        raise RuntimeError("LazySession closed before inspection")
+            yield source
+        finally:
+            if isinstance(source, str):
+                await await_cleanup(self._release_inspection())
+
+    async def inspect_snapshot(self, *, timeout: float | None = None) -> AsyncImageInspector:
         """Save active work and pin the resulting image for inspection.
 
-        Waits for admitted commands and stops the VM even with a manual policy.
+        Waits for admitted commands and inspections, then stops the VM.
         A cold session starts no VM. Later commands cannot change the pinned image.
         timeout limits the snapshot wait; saving continues if the wait ends early.
         A failed snapshot raises instead of returning the previous image.
@@ -414,7 +542,7 @@ class AsyncLazySession(AsyncExecutor):
             return self.session.create_inspector(image_uuid)
 
     async def read_file(self, path: str) -> bytes:
-        """Save active work, then read the file from the resulting image.
+        """Read current files without stopping an active VM.
 
         Returns:
             The complete file as bytes.

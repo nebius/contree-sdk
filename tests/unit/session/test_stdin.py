@@ -329,7 +329,7 @@ async def test_async_source_error_preserves_original_exception():
 def test_sync_client_reconnect_keeps_input_and_events_once(monkeypatch):
     from dataclasses import replace
 
-    from contree_client.exceptions import SSEStreamError
+    from contree_client.exceptions import APIConnectionError
     from contree_client.sync import ContreeClient
 
     client = StdinClient()
@@ -342,7 +342,7 @@ def test_sync_client_reconnect_keeps_input_and_events_once(monkeypatch):
         cursors.append(kwargs["last_event_id"])
         if kwargs["last_event_id"] is None:
             yield event("spawn")
-            raise SSEStreamError("connection lost", last_event_id=1)
+            raise APIConnectionError("connection lost")
         for index in (2, 3):
             yield replace(client.streams[operation_id].get(timeout=2), id=index)
 
@@ -367,7 +367,7 @@ async def test_async_client_reconnect_keeps_input_and_events_once(monkeypatch):
     from dataclasses import replace
 
     from contree_client.asyncio import ContreeAsyncClient
-    from contree_client.exceptions import SSEStreamError
+    from contree_client.exceptions import APIConnectionError
 
     client = AsyncStdinClient()
     client.ready = False
@@ -379,7 +379,7 @@ async def test_async_client_reconnect_keeps_input_and_events_once(monkeypatch):
         cursors.append(kwargs["last_event_id"])
         if kwargs["last_event_id"] is None:
             yield event("spawn")
-            raise SSEStreamError("connection lost", last_event_id=1)
+            raise APIConnectionError("connection lost")
         for index in (2, 3):
             yield replace(await asyncio.wait_for(client.streams[operation_id].get(), 2), id=index)
 

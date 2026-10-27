@@ -76,6 +76,7 @@ class DocumentationAPI:
     def download(self, data: bytes) -> None:
         for client in (self.sync, self.async_client):
             client.mock("inspect_image_download", data)
+            client.mock("inspect_instance_download", data)
 
     def command(self, stdout: str = "", exit_code: int = 0) -> None:
         """Set the response returned for commands in a shared sandbox."""

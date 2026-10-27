@@ -13,17 +13,20 @@ LazyPhase = Literal["cold", "starting", "running", "draining", "snapshotting", "
 class LazyState:
     phase: LazyPhase = "cold"
     creating: int = 0
+    inspecting: int = 0
     active: set[int] = field(default_factory=set)
     early_exits: set[int] = field(default_factory=set)
     error: BaseException | None = None
     closing: bool = False
     snapshots: int = 0
     completion_seen: bool = False
+    ready: bool = False
 
     def begin(self) -> None:
         self.phase = "starting"
         self.creating = 0
         self.completion_seen = False
+        self.ready = False
         self.active.clear()
         self.early_exits.clear()
 
@@ -31,6 +34,7 @@ class LazyState:
         self.creating += 1
 
     def created(self, spid: int) -> None:
+        self.ready = True
         self.creating -= 1
         if spid in self.early_exits:
             self.early_exits.remove(spid)
@@ -47,6 +51,8 @@ class LazyState:
             return False
         if error is not None:
             self.fail(error)
+        elif event is not None and event.type == "spawn" and event.spid == 1:
+            self.ready = True
         elif event is None:
             if self.phase != "snapshotting" or not self.completion_seen:
                 self.fail(RuntimeError("LazySession event stream ended without expected completion"))
@@ -69,7 +75,7 @@ class LazyState:
     def wants_snapshot(self, requested: bool) -> bool:
         if self.phase == "running" and requested:
             self.phase = "draining"
-        return self.phase == "draining" and self.creating == 0 and not self.active
+        return self.phase == "draining" and self.creating == 0 and not self.active and self.inspecting == 0
 
     def saved(self) -> None:
         self.snapshots += 1

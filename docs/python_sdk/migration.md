@@ -17,7 +17,15 @@ Update imports, execution, and result handling as follows.
 
 The factory defaults to `LazySession` or `AsyncLazySession`. Commands share a VM.
 Normal context exit saves pending files; an exception discards changes since the
-last snapshot. `inspect()` and `read_file()` save active work automatically.
+last snapshot. File requests through `inspect()` and `read_file()` now read the
+active VM without saving or stopping it. This requires `contree-client>=0.5.1`
+and a server runtime with live inspection support.
+
+`inspect()` returns a session-bound view that selects the current source on each
+request. Use `inspect_snapshot()` for a stable image view and its `image_uuid`.
+Image metadata through `inspect().info()` also requires a snapshot and stops the
+VM. Close file and archive streams when stopping iteration early; snapshot waits
+for accepted live requests to finish.
 Call `snapshot()` before switching branches or rolling back.
 
 Select `session_type=ContreeSession` or `ContreeAsyncSession` for a separate VM

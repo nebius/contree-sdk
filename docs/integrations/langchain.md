@@ -236,8 +236,9 @@ application. The SDK does not choose a provider or supply a model key.
 
 Uploads call `session.write_file(path, content)`. Its default implementation writes
 binary stdin with `cat`, creates parent directories, and requests no snapshot.
-Custom executors can override `write_file` without changing this adapter. Downloads call `session.read_file()`, which saves active lazy-session
-work before reading the resulting image.
+Custom executors can override `write_file` without changing this adapter.
+Downloads call `session.read_file()`. Lazy sessions read the active VM through
+live inspect, so downloads preserve running processes and do not force a snapshot.
 
 | Sync sandbox                    | Async sandbox                          |
 | ------------------------------- | -------------------------------------- |

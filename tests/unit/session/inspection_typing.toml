@@ -5,7 +5,7 @@ from contree_client.models import DirectoryList, GrepResult, Image
 from contree_client.types import ContreeSyncClient, ContreeAsyncClient
 from contree_sdk import (
     ImageInspector, AsyncImageInspector, ContreeSession, ContreeAsyncSession,
-    LazySession, AsyncLazySession, create_sandbox_session,
+    LazySession, AsyncLazySession, SessionInspector, AsyncSessionInspector, create_sandbox_session,
 )
 from contree_sdk.files import SyncFileTransfer, AsyncFileTransfer
 '''
@@ -15,22 +15,23 @@ name = "sessions_return_matching_inspectors"
 code = '''
 def sync_use(base: ContreeSession, lazy: LazySession):
     assert_type(base.inspect(), ImageInspector)
-    assert_type(lazy.inspect(timeout=1), ImageInspector)
+    assert_type(lazy.inspect(timeout=1), SessionInspector)
+    assert_type(lazy.inspect_snapshot(timeout=1), ImageInspector)
     with create_sandbox_session(image="base") as session:
-        assert_type(session.inspect(), ImageInspector)
+        assert_type(session.inspect(), SessionInspector)
 
 async def async_use(base: ContreeAsyncSession, lazy: AsyncLazySession):
     assert_type(await base.inspect(), AsyncImageInspector)
-    assert_type(await lazy.inspect(timeout=1), AsyncImageInspector)
+    assert_type(await lazy.inspect(timeout=1), AsyncSessionInspector)
+    assert_type(await lazy.inspect_snapshot(timeout=1), AsyncImageInspector)
     async with create_sandbox_session(image="base") as session:
-        assert_type(await session.inspect(), AsyncImageInspector)
+        assert_type(await session.inspect(), AsyncSessionInspector)
 '''
 
 [[cases]]
 name = "sync_inspection_result_types"
 code = '''
-def use(view: ImageInspector):
-    assert_type(view.image_uuid, str)
+def use(view: ImageInspector | SessionInspector):
     assert_type(view.info(), Image)
     assert_type(view.list("/"), DirectoryList)
     assert_type(view.grep(["hello", "world"], path=["/etc"], case="smart"), GrepResult)
@@ -45,8 +46,7 @@ def use(view: ImageInspector):
 [[cases]]
 name = "async_inspection_result_types"
 code = '''
-async def use(view: AsyncImageInspector):
-    assert_type(view.image_uuid, str)
+async def use(view: AsyncImageInspector | AsyncSessionInspector):
     assert_type(await view.info(), Image)
     assert_type(await view.list("/"), DirectoryList)
     assert_type(await view.grep("hello", path="/etc", case="sensitive"), GrepResult)

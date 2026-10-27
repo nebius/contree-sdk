@@ -156,8 +156,9 @@ client's network timeouts to bound its API requests.
 
 The caller retains ownership of the session, client, store, and file transfer.
 Do not mutate the wrapped session while the runtime is active. Live filesystem
-transfer is separate from inspecting a saved image: `session.read_file()` cannot
-observe unsaved VM changes.
+transfer is separate from inspecting a saved image: the wrapped `ContreeAsyncSession`
+reads saved images. `AsyncLazySession.read_file()` supports live inspection of the
+VM it manages; do not use a second wrapper to inspect this runtime's active VM.
 
 Implement `AsyncRuntime` to provide an independent runtime. Pass a callable matching
 `AsyncRuntimeFactory` through `create_runtime(..., factory=...)` to replace the

@@ -10,12 +10,14 @@ from contree_sdk.sandbox import (
     session_maker,
 )
 from contree_sdk.session import AsyncLazySession, ContreeAsyncSession, ContreeSession, LazySession
+from contree_sdk.session.inspection import AsyncSessionInspector, SessionInspector
 
 
 __all__ = [
     "AsyncExecutor",
     "AsyncImageInspector",
     "AsyncLazySession",
+    "AsyncSessionInspector",
     "ContreeAsyncSession",
     "ContreeSession",
     "ImageInspector",
@@ -23,6 +25,7 @@ __all__ = [
     "OperationContext",
     "RunRequest",
     "SandboxSessionContext",
+    "SessionInspector",
     "SyncExecutor",
     "async_build_image",
     "async_import_image",
