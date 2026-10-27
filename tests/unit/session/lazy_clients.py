@@ -34,6 +34,7 @@ class LiveClient(ContreeClient):
         self.processes = 1
         self.streams = {}
         self.auto_exit = True
+        self.auto_ready = True
         self.create_error = None
         self.wait_error = None
         self.result_image = True
@@ -53,6 +54,8 @@ class LiveClient(ContreeClient):
         self.sequence += 1
         operation_id = f"op-{self.sequence}"
         self.streams[operation_id] = queue.Queue()
+        if self.auto_ready:
+            self.streams[operation_id].put(event("spawn"))
         return spawn_response(operation_id)
 
     def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:
@@ -117,6 +120,7 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.processes = 1
         self.streams = {}
         self.auto_exit = True
+        self.auto_ready = True
         self.create_error = None
         self.wait_error = None
         self.result_image = True
@@ -136,6 +140,8 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.sequence += 1
         operation_id = f"op-{self.sequence}"
         self.streams[operation_id] = asyncio.Queue()
+        if self.auto_ready:
+            self.streams[operation_id].put_nowait(event("spawn"))
         return spawn_response(operation_id)
 
     async def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:

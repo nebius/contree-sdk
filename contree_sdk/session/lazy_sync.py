@@ -22,6 +22,7 @@ from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
 from contree_sdk.session.defaults import (
     DEFAULT_IDLE_SNAPSHOT_SECONDS,
+    DEFAULT_READINESS_TIMEOUT,
     DEFAULT_SNAPSHOT_TIMEOUT,
     KEEPALIVE_SLEEP_SECONDS,
 )
@@ -47,10 +48,14 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         *,
         snapshot_policy: AbstractSnapshotPolicy | None = None,
         snapshot_timeout: float = DEFAULT_SNAPSHOT_TIMEOUT,
+        startup_timeout: float = DEFAULT_READINESS_TIMEOUT,
         vm_request: RunRequest | None = None,
     ) -> None:
         if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
+        if not isfinite(startup_timeout) or startup_timeout <= 0:
+            raise ValueError("startup_timeout must be finite and positive")
+        self.startup_timeout = startup_timeout
         self.session = session
         self.session_id = session.session_id
         self.snapshot_policy = (
@@ -61,6 +66,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             raise ValueError("the VM request must be non-disposable")
         self.vm_request = vm_request
         self.state = LazyState()
+        self._startup_admission_pending = False
         self.condition = threading.Condition()
         self.operation: OperationContract | None = None
         self.worker: threading.Thread | None = None
@@ -115,6 +121,9 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
     def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
         """Observe the operation's sole reader without depending on handle.wait()."""
         with self.condition:
+            # The startup waiter owns failure reporting until the primary is ready.
+            if self.state.phase == "starting":
+                return
             previous_phase = self.state.phase
             if self.state.observe(event, error):
                 self.snapshot_policy.notify(SnapshotEvent.COMMAND_FINISHED)
@@ -138,6 +147,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
 
     def _start(self) -> None:
         self.state.begin_start()
+        self._startup_admission_pending = True
         self.snapshot_policy.notify(SnapshotEvent.RESET)
         self._snapshot_future = self.snapshot_policy.should_snapshot()
         self._snapshot_future.add_done_callback(self._policy_ready)
@@ -147,39 +157,45 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             raise ValueError("the keepalive factory must create a bound, non-disposable operation")
         self.operation.add_observer(self.observe)
         self.operation.__enter__()  # noqa: PLC2801 - context spans several commands
-        self.state.finish_start()
+        self._notify()
         if self.worker is None:
             self.worker = threading.Thread(target=self._control, daemon=True, name=f"lazy-{self.session_id}")
             self.worker.start()
 
     def _get_running_operation_locked(self, *, start_vm: bool = True) -> OperationContract | None:
         # Caller holds the condition lock. A cold read returns None to use the saved image.
-        while True:
-            self.state.ensure_usable()
-            if self.state.phase == "cold" and not start_vm:
-                return None
-            started_here = self.state.phase == "cold"
-            if started_here:
-                try:
+        started_here = False
+        try:  # noqa: PLW0717 - one admission boundary records startup/policy failures
+            while True:
+                if started_here and self.state.error is not None:
+                    raise self.state.error  # noqa: TRY301 - preserve the recorded startup failure
+                self.state.ensure_usable()
+                if self.state.phase == "cold" and not start_vm:
+                    return None
+                if self.state.phase == "cold":
+                    started_here = True
                     self._start()
-                except BaseException as error:
-                    self.state.fail(error)
-                    self._notify()
-                    raise
-            if self.state.phase == "running":
-                # Admit the work that started this VM before considering another snapshot.
-                if not started_here:
-                    try:
-                        if self._snapshot_requested():
-                            self.state.request_snapshot()
-                    except BaseException as error:
-                        self.state.fail(error)
-                        self._notify()
-                        raise
                 if self.state.phase == "running":
-                    break
-            self._notify()
-            self.condition.wait()
+                    # The work that started this VM gets its first admission.
+                    if not started_here and self._startup_admission_pending:
+                        self.condition.wait()
+                        continue
+                    if not started_here and self._snapshot_requested():
+                        self.state.request_snapshot()
+                    if self.state.phase == "running":
+                        break
+                self._notify()
+                self.condition.wait()
+        except BaseException as error:
+            if (
+                not self.state.closing
+                and self.state.phase != "closed"
+                and (started_here or (isinstance(error, Exception) and self.state.phase == "running"))
+            ):
+                self.state.fail(error)
+                self._notify()
+            raise
+        self._startup_admission_pending = False
         operation = self.operation
         if operation is None:
             raise RuntimeError("running LazySession has no operation")
@@ -281,6 +297,31 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             self.state.finish_snapshot()
             self._notify()
 
+    def _finish_start(self, operation: OperationContract) -> None:
+        # Wait outside the condition: the shared reader also acquires it.
+        operation.wait_ready(timeout=self.startup_timeout)
+        with self.condition:
+            if self.state.phase != "starting":
+                return
+            self.state.finish_start()
+            self._notify()
+
+    def _snapshot_operation_locked(self) -> OperationContract | None:
+        if self._startup_admission_pending and self.state.phase == "running":
+            return None
+        previous_phase = self.state.phase
+        if self._snapshot_requested():
+            self.state.request_snapshot()
+        if self.state.phase != previous_phase:
+            self.condition.notify_all()
+        if not self.state.ready_to_snapshot():
+            return None
+        operation = self.operation
+        if operation is None:
+            raise RuntimeError("snapshot has no operation")
+        self.state.begin_snapshot()
+        return operation
+
     def _control(self) -> None:
         try:  # noqa: PLW0717 - one failure boundary owns the worker lifecycle
             while True:
@@ -288,24 +329,18 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
                     self._changed.clear()
                     if self.state.phase in {"closed", "failed"}:
                         return
-                    previous_phase = self.state.phase
-                    if self._snapshot_requested():
-                        self.state.request_snapshot()
-                    if self.state.ready_to_snapshot():
-                        operation = self.operation
-                        if operation is None:
-                            raise RuntimeError("snapshot has no operation")  # noqa: TRY301 - fail the worker
-                        self.state.begin_snapshot()
-                    else:
-                        operation = None
-                    if self.state.phase != previous_phase:
-                        self.condition.notify_all()
+                    starting = self.state.phase == "starting"
+                    operation = self.operation if starting else self._snapshot_operation_locked()
                 if operation is None:
                     self._changed.wait()
+                elif starting:
+                    self._finish_start(operation)
                 else:
                     self._save(operation)
         except BaseException as error:
             with self.condition:
+                if self.state.phase == "closed":
+                    return
                 self.state.fail(error)
                 self._notify()
             if self.operation is not None:

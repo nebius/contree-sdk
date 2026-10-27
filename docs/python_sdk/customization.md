@@ -397,6 +397,10 @@ may have no context and cannot be committed to session history.
 
 `wait()` must store the final `OperationResponse` before returning its
 `InstanceResult`. Cancellation and cleanup must preserve the primary exception.
+`wait_ready(timeout=...)` waits for the primary process's `spawn` event, without
+creating a subprocess. It raises if the primary exits or the operation ends
+before readiness is observed. A timeout or cancelled readiness wait leaves the
+operation and its shared event reader running; the owner controls cleanup.
 Use `SubprocessContract` or `AsyncSubprocessContract` when replacing subprocess
 handles. Iteration followed by `wait()` must not wait for a second exit event.
 A stream failure must reach its consumer instead of appearing as successful EOF.
@@ -410,6 +414,12 @@ They receive `(event, None)` for events and `(None, error)` at EOF. Keep them sh
 do not wait for the operation from its own observer. Observer errors fail the reader.
 
 `LazySession` requires `add_observer()` support from a custom operation contract.
+It calls `wait_ready()` before admitting commands or live file transfers, and
+stays in `starting` until the primary is ready. `startup_timeout` bounds each VM's
+readiness wait (default 30 seconds), separately from command and snapshot timeouts.
+Pass it in `session_kwargs` when using a sandbox factory. Startup failure cancels
+the unsaved VM; Harbor supplies its remaining environment startup budget through
+this same option.
 It delegates request policy and operation creation to the wrapped session. Pass
 `vm_request=RunRequest(...)` to configure the main process, VM lifetime, and other
 startup options without subclassing. With the sandbox factories, put `vm_request`

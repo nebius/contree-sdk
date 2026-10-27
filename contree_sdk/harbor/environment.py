@@ -166,6 +166,7 @@ class ConTreeEnvironment(BaseEnvironment):
                 raise
 
     async def _start(self) -> None:
+        startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
         client = self._client
         docker_image = self.task_env_config.docker_image
         if docker_image is None:
@@ -185,6 +186,9 @@ class ConTreeEnvironment(BaseEnvironment):
         policy = (
             ManualSnapshotPolicy() if self._snapshot_idle_sec is None else IdleSnapshotPolicy(self._snapshot_idle_sec)
         )
+        startup_timeout = startup_deadline - asyncio.get_running_loop().time()
+        if startup_timeout <= 0:
+            raise TimeoutError("ConTree environment startup timed out while resolving its image")
         self._sandbox = create_async_sandbox_session(
             image=image,
             session_id=self.session_id,
@@ -197,6 +201,7 @@ class ConTreeEnvironment(BaseEnvironment):
                 ),
                 "snapshot_policy": policy,
                 "snapshot_timeout": self._snapshot_timeout,
+                "startup_timeout": startup_timeout,
             },
         )
         self._lazy = await self._sandbox.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop

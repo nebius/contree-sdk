@@ -79,6 +79,11 @@ class OperationContract(ABC):
     def status(self, *, inflight: bool = False) -> OperationResponse: ...
 
     @abstractmethod
+    def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait for primary-process startup; fail if the operation ends first."""
+        ...
+
+    @abstractmethod
     def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None: ...
 
     @abstractmethod
@@ -149,6 +154,11 @@ class AsyncOperationContract(ABC):
 
     @abstractmethod
     async def status(self, *, inflight: bool = False) -> OperationResponse: ...
+
+    @abstractmethod
+    async def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait for primary-process startup; fail if the operation ends first."""
+        ...
 
     @abstractmethod
     async def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None: ...

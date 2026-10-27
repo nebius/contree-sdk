@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import FileResponse
@@ -6,7 +8,7 @@ from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
 
 from contree_sdk.harbor import ConTreeEnvironment
-from tests.unit.session.lazy_clients import LiveAsyncClient
+from tests.unit.session.lazy_clients import LiveAsyncClient, event
 
 
 @pytest.fixture
@@ -134,10 +136,43 @@ async def test_environment_uses_public_sandbox_factory(backend, monkeypatch):
     await env.start(force_build=False)
     assert len(calls) == 1
     assert calls[0]["client"] is client
+    assert 30 < calls[0]["session_kwargs"]["startup_timeout"] <= env.task_env_config.build_timeout_sec
     assert type(env._lazy) is AsyncLazySession
     assert type(env._session) is ContreeAsyncSession
     assert type(env._lazy.operation).__name__ == "AsyncOperation"
     await env.stop(delete=True)
+
+
+async def test_start_waits_for_primary_before_preflight(backend):
+    client, env = backend
+    client.auto_ready = False
+    starting = asyncio.create_task(env.start(force_build=False))
+    try:
+
+        async def wait_for_stream():
+            while not client.calls_for("follow_operation_events"):
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_stream(), 2)
+        assert env._lazy.phase == "starting"
+        assert not client.calls_for("operation_subprocess_create")
+        client.streams["op-1"].put_nowait(event("spawn"))
+        await asyncio.wait_for(starting, 2)
+        assert len(client.calls_for("operation_subprocess_create")) == 2
+    finally:
+        await env.stop(delete=True)
+
+
+async def test_startup_budget_expiry_cleans_up_without_preflight(backend):
+    client, env = backend
+    client.auto_ready = False
+    env.task_env_config.build_timeout_sec = 0.02
+    with pytest.raises(TimeoutError):
+        await env.start(force_build=False)
+    assert not client.calls_for("operation_subprocess_create")
+    assert client.calls_for("cancel_operation")
+    assert env._lazy is None
+    assert env._sandbox is None
 
 
 @pytest.mark.parametrize("startup_fails", [False, True])

@@ -15,6 +15,7 @@ from contree_client.models import InstanceResult, OperationEvent, OperationRespo
 from contree_client.types import ContreeSyncClient
 
 from contree_sdk.compat import Self
+from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import (
     encode_stdin_chunk,
@@ -144,6 +145,42 @@ class Operation(OperationContract):
     def status(self, *, inflight: bool = False) -> OperationResponse:
         self.response = self.client.get_operation_status(self.uuid, inflight=inflight)
         return self.response
+
+    def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait for the primary spawn using the shared reader, without creating a subprocess.
+
+        None waits indefinitely. Timeout leaves the reader and VM running;
+        the owner decides whether to cancel the operation.
+
+        Raises:
+            ValueError: Timeout is not finite and positive.
+            TimeoutError: The sandbox did not become ready within the timeout.
+            FailedOperationError: The primary exited or the operation ended before readiness.
+
+        """
+        if timeout is not None and (not isfinite(timeout) or timeout <= 0):
+            raise ValueError("timeout must be finite and positive")
+        self._start_reader()
+        with self.changed:
+            if not self.changed.wait_for(
+                lambda: (
+                    1 in self.spawned or 1 in self.exited or self.completion_received or self.terminal_event.is_set()
+                ),
+                timeout=timeout,
+            ):
+                raise TimeoutError(f"operation {self.uuid} sandbox startup timed out")
+            if (
+                1 in self.spawned
+                and 1 not in self.exited
+                and not self.completion_received
+                and not self.terminal_event.is_set()
+            ):
+                return
+        response = self.status()
+        error = (
+            response.error if isinstance(response.error, str) else f"primary process unavailable ({response.status})"
+        )
+        raise FailedOperationError(self.uuid, error) from self.stream_error
 
     def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None:
         value, encoding = encode_stdin_chunk(data)

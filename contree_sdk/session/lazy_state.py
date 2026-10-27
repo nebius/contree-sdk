@@ -20,16 +20,19 @@ class LazyState:
     closing: bool = False
     snapshots: int = 0
     completion_seen: bool = False
+    snapshot_pending: bool = False
 
     def begin_start(self) -> None:
         self.phase = "starting"
         self.creating = 0
         self.completion_seen = False
+        self.snapshot_pending = False
         self.active.clear()
         self.early_exits.clear()
 
     def finish_start(self) -> None:
-        self.phase = "running"
+        self.phase = "draining" if self.closing or self.snapshot_pending else "running"
+        self.snapshot_pending = False
 
     def reserve(self) -> None:
         self.creating += 1
@@ -71,7 +74,9 @@ class LazyState:
         return False
 
     def request_snapshot(self) -> None:
-        if self.phase == "running":
+        if self.phase == "starting":
+            self.snapshot_pending = True
+        elif self.phase == "running":
             self.phase = "draining"
 
     def ready_to_snapshot(self) -> bool:

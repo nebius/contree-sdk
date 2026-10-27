@@ -9,6 +9,7 @@ class StdinClient(LiveClient):
     def __init__(self):
         super().__init__()
         self.ready = True
+        self.auto_ready = False
         self.finish_on_eof = True
         self.write_error: Exception | None = None
         self.received = bytearray()
@@ -40,6 +41,7 @@ class AsyncStdinClient(LiveAsyncClient):
     def __init__(self):
         super().__init__()
         self.ready = True
+        self.auto_ready = False
         self.finish_on_eof = True
         self.write_error: Exception | None = None
         self.received = bytearray()
