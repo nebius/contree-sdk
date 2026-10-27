@@ -854,7 +854,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'async'", specifier = ">=0.20" },
     { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'async'" },
     { name = "contree-client", extras = ["httpx"], specifier = ">=0.5.1" },
-    { name = "contree-client", extras = ["httpx"], marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = ">=0.4.2,<0.5" },
+    { name = "contree-client", extras = ["httpx"], marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = ">=0.5.0,<0.6" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["async"], marker = "extra == 'dev'" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
