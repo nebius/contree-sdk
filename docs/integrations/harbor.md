@@ -1,6 +1,6 @@
 # Harbor on ConTree SDK V2
 
-The Harbor environment runs task commands and file transfers as subprocesses in
+The Harbor environment runs task commands as subprocesses in
 one `AsyncLazySession` VM created by `create_async_sandbox_session`. The integration
 uses the standard SDK session and operation classes. Files and background processes remain available between
 commands. A trial's final stop completes the active operation and saves its result
@@ -31,13 +31,12 @@ unless Harbor supplies overrides. Task/trial/command environment precedence is
 resolved by Harbor and forwarded to each subprocess. The adapter does not parse
 Dockerfiles or add shell fallbacks.
 
-File transfers use the shared lazy session's native live upload/download APIs.
-Directory uploads merge tar archives through the backend file API; downloads
-stream files or archives directly. File contents never enter command stdin/stdout
-or operation events, and transfers do not require a snapshot. The adapter serializes
-Harbor calls on one environment. Command output capture remains capped at 10 MiB
-per stream. This requires the backend live-file feature and its corresponding
-client build; the current development client is supplied as a wheel.
+Downloads use the lazy session's `AsyncSessionInspector`, which reads the live VM
+without a snapshot. Uploads use the SDK file transfer and apply uploaded files
+to the live VM; directory uploads merge with existing contents. The adapter serializes Harbor
+calls on one environment. Command output capture remains capped at 10 MiB per
+stream. Live inspection requires a backend and client that support running-instance
+file APIs.
 
 `--ek operation_timeout=1800` changes the default command timeout (1000 seconds).
 Harbor's task command timeout overrides it. `snapshot_timeout` defaults to 120

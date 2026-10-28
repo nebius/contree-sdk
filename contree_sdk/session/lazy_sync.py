@@ -6,10 +6,12 @@ import threading
 import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future
-from contextlib import closing, contextmanager, suppress
+from contextlib import contextmanager, suppress
+from functools import partial
 from math import isfinite
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from contree_client.exceptions import UnprocessableEntityError
 from contree_client.models import InstanceResult, OperationEvent
@@ -17,7 +19,6 @@ from contree_client.models import InstanceResult, OperationEvent
 from contree_sdk.compat import Self
 from contree_sdk.exceptions import FileWriteError
 from contree_sdk.execution import RunRequest, SyncExecutor
-from contree_sdk.file_io import write_download
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
@@ -27,11 +28,12 @@ from contree_sdk.session.defaults import (
     DEFAULT_SNAPSHOT_TIMEOUT,
     KEEPALIVE_SLEEP_SECONDS,
 )
+from contree_sdk.session.inspection import SessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.sync import ContreeSession
-from contree_sdk.utils.live_files import extract_download, pack_upload, ready_call, ready_stream, validate_remote_path
+from contree_sdk.utils.live_files import pack_upload, ready_call, validate_remote_path
 from contree_sdk.utils.models.file import UploadFileSpec
 
 
@@ -92,7 +94,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             The effective request.
 
         Raises:
-            ValueError: The request needs a disposable VM or unsupported live uploads.
+            ValueError: The request needs a disposable VM or unsupported attachments.
 
         """
         request = self.session.prepare_request(request)
@@ -163,8 +165,11 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             self.worker = threading.Thread(target=self._control, daemon=True, name=f"lazy-{self.session_id}")
             self.worker.start()
 
-    def _get_running_operation_locked(self, *, start_vm: bool = True) -> OperationContract | None:
+    def _get_running_operation_locked(
+        self, *, start_vm: bool = True, timeout: float | None = None
+    ) -> OperationContract | None:
         # Caller holds the condition lock. A cold read returns None to use the saved image.
+        deadline = None if timeout is None else time.monotonic() + timeout
         started_here = False
         try:  # noqa: PLW0717 - one admission boundary records startup/policy failures
             while True:
@@ -179,14 +184,14 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
                 if self.state.phase == "running":
                     # The work that started this VM gets its first admission.
                     if not started_here and self._startup_admission_pending:
-                        self.condition.wait()
+                        self._wait_for_admission(deadline)
                         continue
                     if not started_here and self._snapshot_requested():
                         self.state.request_snapshot()
                     if self.state.phase == "running":
                         break
                 self._notify()
-                self.condition.wait()
+                self._wait_for_admission(deadline)
         except BaseException as error:
             if (
                 not self.state.closing
@@ -201,6 +206,13 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         if operation is None:
             raise RuntimeError("running LazySession has no operation")
         return operation
+
+    def _wait_for_admission(self, deadline: float | None) -> None:
+        remaining = None if deadline is None else deadline - time.monotonic()
+        if remaining is not None and remaining <= 0:
+            raise TimeoutError("LazySession admission is still pending")
+        if not self.condition.wait(remaining) and deadline is not None:
+            raise TimeoutError("LazySession admission is still pending")
 
     def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
         request = self.prepare_request(request)
@@ -399,7 +411,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             self.snapshot_policy.notify(SnapshotEvent.CLOSE)
 
     def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
-        """Drain accepted commands and transfers, save their common image, and reopen admission.
+        """Drain accepted commands and inspections, save their common image, and reopen admission.
 
         Snapshots are lightweight and can run after every command. They stop
         the VM. An unchanged filesystem can return the same image UUID.
@@ -485,48 +497,93 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
             if self.worker is not None:
                 self.worker.join()
 
-    def inspect(self) -> ImageInspector:
-        """Pin the selected saved image without stopping or starting a VM.
+    def inspect(self, *, timeout: float | None = None) -> SessionInspector:
+        """Return a view that selects the current filesystem for each request.
 
         Returns:
-            An inspector borrowing the underlying client and file transfer.
-
-        Raises:
-            RuntimeError: A VM is active, or this session has failed or is closing/closed.
+            A session-bound inspector; creating it starts no VM.
 
         """
         with self.condition:
             self.state.ensure_usable()
-            if self.state.phase != "cold":
-                raise RuntimeError("Live inspection is not supported; call snapshot() before inspect()")
-            image_uuid = require_str(self.session.image_uuid, "session has no resolved image")
-            return self.session.create_inspector(image_uuid)
+        return SessionInspector(
+            self.session.client,
+            partial(self.inspection_source, timeout=timeout),
+            partial(self.inspect_snapshot, timeout=timeout),
+            self.session.file_transfer.on_progress,
+        )
 
     @contextmanager
-    def _file_access(self, *, write: bool = False) -> Generator[tuple[str, bool], None, None]:
+    def inspection_source(
+        self, *, timeout: float | None = None, write: bool = False
+    ) -> Generator[ImageInspector | str, None, None]:
+        """Reserve the live VM or selected image through an inspection request.
+
+        Yields:
+            An operation UUID or a pinned image inspector.
+
+        """
         reserved = False
         try:
             with self.condition:
-                operation = self._get_running_operation_locked(start_vm=write)
-                live = operation is not None
-                if operation is not None:
-                    self.state.transfers += 1
-                    reserved = True
-                    self.snapshot_policy.notify(SnapshotEvent.TRANSFER_STARTED)
-                    identifier = operation.uuid
+                start_vm = write or (self.state.phase == "cold" and bool(self.session.pending_files()))
+                operation = self._get_running_operation_locked(start_vm=start_vm, timeout=timeout)
+                if operation is None:
+                    image_uuid = require_str(self.session.image_uuid, "session has no resolved image")
+                    source: ImageInspector | str = self.session.create_inspector(image_uuid)
                 else:
-                    identifier = require_str(self.session.image_uuid, "session has no resolved image")
-            yield identifier, live
+                    try:
+                        self.snapshot_policy.notify(SnapshotEvent.INSPECTION_STARTED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                    self.state.inspecting += 1
+                    reserved = True
+                    source = operation.uuid
+            yield source
         finally:
             if reserved:
                 with self.condition:
-                    self.state.transfers -= 1
-                    if self.state.phase not in {"closed", "failed"}:
-                        self.snapshot_policy.notify(SnapshotEvent.TRANSFER_FINISHED)
-                    self._notify()
+                    self.state.inspecting -= 1
+                    try:
+                        if self.state.phase not in {"closed", "failed"}:
+                            self.snapshot_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        raise
+                    finally:
+                        self._notify()
             elif self.state.error is not None and self.operation is not None:
                 with suppress(Exception):
                     self.abort()
+
+    def inspect_snapshot(self, *, timeout: float | None = None) -> ImageInspector:
+        """Save active work and pin its image for inspection.
+
+        Returns:
+            An inspector of the saved image.
+
+        """
+        with self.condition:
+            self.state.ensure_usable()
+            cold = self.state.phase == "cold"
+            entry = self._snapshot_locked(timeout=timeout)
+            image_uuid = (
+                entry.image_uuid
+                if not cold and entry is not None
+                else require_str(self.session.image_uuid, "session has no resolved image")
+            )
+            return self.session.create_inspector(image_uuid)
+
+    def read_file(self, path: str) -> bytes:
+        """Read the current VM or saved image without requesting a snapshot.
+
+        Returns:
+            Complete file contents.
+
+        """
+        return self.inspect().read_file(path)
 
     def _apply_file(self, operation: str, source: Path | bytes, path: str, *, unpack: bool = False) -> None:
         uploaded = self.session.file_transfer.upload(UploadFileSpec(source=source, path=path))
@@ -544,24 +601,11 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         except UnprocessableEntityError as error:
             raise FileWriteError(path, error.error) from error
 
-    def read_file(self, path: str) -> bytes:
-        """Read live VM contents, or the selected image when no VM is running.
-
-        Returns:
-            Complete file contents. This does not request a snapshot.
-
-        """
-        validate_remote_path(path)
-        with self._file_access() as (identifier, live):
-            if live:
-                return ready_call(lambda: self.session.client.inspect_instance_download(identifier, path))
-            return self.session.file_transfer.read_file(identifier, path)
-
     def write_file(self, path: str, content: bytes) -> None:
-        """Publish bytes in the live VM; start a VM if needed. Does not snapshot."""
+        """Publish bytes in the live VM without requesting a snapshot."""
         validate_remote_path(path)
-        with self._file_access(write=True) as (identifier, _):
-            self._apply_file(identifier, content, path)
+        with self.inspection_source(write=True) as source:
+            self._apply_file(cast("str", source), content, path)
 
     def upload_file(self, source: str | Path, path: str) -> None:
         """Upload a local regular file, preserving its permission bits.
@@ -574,10 +618,10 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         destination = PurePosixPath(path)
         if not destination.name or not Path(source).is_file():
             raise ValueError("upload_file requires a regular source file and a destination filename")
-        with self._file_access(write=True) as (identifier, _), TemporaryDirectory() as tmp:
+        with self.inspection_source(write=True) as identifier, TemporaryDirectory() as tmp:
             archive = Path(tmp) / "upload.tar.gz"
             pack_upload(Path(source), archive, name=destination.name)
-            self._apply_file(identifier, archive, str(destination.parent), unpack=True)
+            self._apply_file(cast("str", identifier), archive, str(destination.parent), unpack=True)
 
     def upload_dir(self, source: str | Path, path: str) -> None:
         """Merge a local directory into the live VM, preserving unrelated entries.
@@ -589,43 +633,10 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
         validate_remote_path(path)
         if not Path(source).is_dir():
             raise ValueError("upload_dir requires a source directory")
-        with self._file_access(write=True) as (identifier, _), TemporaryDirectory() as tmp:
+        with self.inspection_source(write=True) as identifier, TemporaryDirectory() as tmp:
             archive = Path(tmp) / "upload.tar.gz"
             pack_upload(Path(source), archive)
-            self._apply_file(identifier, archive, path, unpack=True)
-
-    def download_file(self, path: str, destination: str | Path) -> int:
-        """Atomically download a live or saved file without requesting a snapshot.
-
-        Returns:
-            Number of downloaded bytes.
-
-        """
-        validate_remote_path(path)
-        Path(destination).parent.mkdir(parents=True, exist_ok=True)
-        with self._file_access() as (identifier, live):
-            if not live:
-                return self.session.file_transfer.download_file(identifier, path, destination)
-            with closing(
-                ready_stream(lambda: self.session.client.inspect_instance_download_stream(identifier, path))
-            ) as chunks:
-                return write_download(
-                    chunks, destination, path=path, on_progress=self.session.file_transfer.on_progress
-                )
-
-    def download_dir(self, path: str, destination: str | Path) -> None:
-        """Download a live or saved directory as an archive; never snapshots."""
-        validate_remote_path(path)
-        with self._file_access() as (identifier, live), TemporaryDirectory() as tmp:
-            archive = Path(tmp) / "download.tar"
-            source = (
-                ready_stream(lambda: self.session.client.inspect_instance_archive(identifier, path))
-                if live
-                else ready_stream(lambda: self.session.client.inspect_image_archive(identifier, path))
-            )
-            with closing(source) as chunks:
-                write_download(chunks, archive, path=path)
-            extract_download(archive, Path(destination))
+            self._apply_file(cast("str", identifier), archive, path, unpack=True)
 
     def _boundary(self) -> None:
         self.state.ensure_usable()

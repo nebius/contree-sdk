@@ -414,7 +414,7 @@ They receive `(event, None)` for events and `(None, error)` at EOF. Keep them sh
 do not wait for the operation from its own observer. Observer errors fail the reader.
 
 `LazySession` requires `add_observer()` support from a custom operation contract.
-It calls `wait_ready()` before admitting commands or live file transfers, and
+It calls `wait_ready()` before admitting commands or live inspection, and
 stays in `starting` until the primary is ready. `startup_timeout` bounds each VM's
 readiness wait (default 30 seconds), separately from command and snapshot timeouts.
 Pass it in `session_kwargs` when using a sandbox factory. Startup failure cancels

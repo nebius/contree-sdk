@@ -1,4 +1,6 @@
 import asyncio
+import io
+import tarfile
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,9 +13,9 @@ pytest.importorskip("harbor")
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
+from tests.unit.session.lazy_clients import LiveAsyncClient, event
 
 from contree_sdk.harbor import ConTreeEnvironment
-from tests.unit.session.lazy_clients import LiveAsyncClient, event
 
 
 @pytest.fixture
@@ -235,9 +237,9 @@ async def test_startup_budget_expiry_cleans_up_without_preflight(backend):
 async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, monkeypatch, startup_fails):
     _, env = backend
     from contree_client.profiles import Profile
+    from tests.unit.session.test_sandbox_factory import FactoryAsyncClient
 
     import contree_sdk.harbor.environment as module
-    from tests.unit.session.test_sandbox_factory import FactoryAsyncClient
 
     profile = Profile(name="test", url="https://test.invalid", token="token", auth_type="iam")
     monkeypatch.setattr("contree_sdk.connection.ConnectionConfig.resolve_profile", lambda self: profile)
@@ -297,6 +299,34 @@ async def test_download_file_streams_binary_chunks_without_snapshot(backend, tmp
     assert len(client.calls_for("operation_subprocess")) == 1  # log-dir creation only
     assert client.calls_for("inspect_instance_download_stream")[0].args == ("op-1", "/remote/data.bin")
     await env.stop(delete=True)
+
+
+async def test_download_dir_uses_live_session_inspector(backend, tmp_path, monkeypatch):
+    client, env = backend
+    await env.start(force_build=False)
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        content = b"log contents\n"
+        member = tarfile.TarInfo("nested/log.txt")
+        member.size = len(content)
+        tar.addfile(member, io.BytesIO(content))
+
+    async def archived(operation_id, path, **kwargs):
+        client.record_call("inspect_instance_archive", (operation_id, path), kwargs)
+        yield archive.getvalue()
+
+    monkeypatch.setattr(client, "inspect_instance_archive", archived)
+    destination = tmp_path / "logs"
+    destination.mkdir()
+    (destination / "existing.txt").write_text("keep")
+    try:
+        await env.download_dir("/remote/logs", destination)
+        assert (destination / "nested/log.txt").read_bytes() == b"log contents\n"
+        assert (destination / "existing.txt").read_text() == "keep"
+        assert client.calls_for("inspect_instance_archive")[0].args == ("op-1", "/remote/logs")
+        assert len(client.calls_for("spawn_instance")) == 1
+    finally:
+        await env.stop()
 
 
 @pytest.mark.parametrize("cwd", [None, "/override"])

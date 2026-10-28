@@ -115,13 +115,12 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-For local files and directories, use `upload_file("local.txt", "/input.txt")` and
-`upload_dir("local-dir", "/work")`. Use `download_file("/output.txt", "local.txt")`
-or `download_dir("/work", "local-dir")` for streamed results. Directory uploads
-merge with existing contents; these methods preserve file permission bits.
-Live transfers require a client and backend supporting running-instance file APIs. The default lazy sandbox does not support `run(files=...)` while a
-VM is active. The advanced examples below select `ContreeSession` or
-`ContreeAsyncSession` explicitly for startup attachments and per-command images.
+The lazy sandbox reads live files through `inspect()`. Its `write_file()` method
+uploads and applies content directly to the live VM; `inspect_snapshot()` pins a
+saved image when needed.
+The default lazy sandbox does not support `run(files=...)` while a VM is active.
+The advanced examples below select `ContreeSession` or `ContreeAsyncSession`
+explicitly for startup attachments and per-command images.
 
 ## Advanced: choose a file source
 
@@ -501,3 +500,23 @@ directly, close it on early exit with `contextlib.closing()` or `aclosing()`.
 for other byte iterables. These helpers do not own their input streams; the caller
 must close them. Custom transfer backends can override `iter_file()`; its default
 implementation buffers through `read_file()`.
+
+`extract_tar_download()` and `extract_tar_download_async()` consume a tar stream,
+verify paths with Python's `data` extraction filter, and merge its contents into
+a local directory. They spool the archive to a temporary file before extraction;
+callers still own and close the source stream.
+
+## Inspect the active VM without stopping it
+
+`LazySession.inspect()` returns a `SessionInspector`; the async variant returns an
+`AsyncSessionInspector`. Each request selects the live VM or the saved image when
+the session is cold. Creating the inspector does not start a VM. Pending staged
+files start a VM before a read so the view includes them.
+
+The view provides `list`, `grep`, `file_exists`, `archive_exists`, `read_file`,
+`iter_file`, `download_file`, and `archive`. Paths are rooted at `/`, independent
+of the command's working directory. `download_file()` writes atomically. Close
+`iter_file()` and `archive()` generators if you stop consuming them early.
+
+Use `inspect_snapshot()` to stop the VM and get a pinned `ImageInspector` when
+you need a stable saved image. Background processes end at that boundary.

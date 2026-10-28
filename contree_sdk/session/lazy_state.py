@@ -13,7 +13,7 @@ LazyPhase = Literal["cold", "starting", "running", "draining", "snapshotting", "
 class LazyState:
     phase: LazyPhase = "cold"
     creating: int = 0
-    transfers: int = 0
+    inspecting: int = 0
     active: set[int] = field(default_factory=set)
     early_exits: set[int] = field(default_factory=set)
     error: BaseException | None = None
@@ -80,7 +80,7 @@ class LazyState:
             self.phase = "draining"
 
     def ready_to_snapshot(self) -> bool:
-        return self.phase == "draining" and self.creating == 0 and self.transfers == 0 and not self.active
+        return self.phase == "draining" and self.creating == 0 and self.inspecting == 0 and not self.active
 
     def begin_snapshot(self) -> None:
         self.phase = "snapshotting"

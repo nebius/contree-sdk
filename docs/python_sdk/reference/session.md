@@ -8,8 +8,8 @@ Sync calls return results directly. Async calls must be awaited unless used as t
 `disposable=True` leaves the session image unchanged. `LazySession` and
 `AsyncLazySession` reuse a VM until snapshot. Snapshots are lightweight and can
 run after every command, but they stop the VM. An unchanged filesystem can return
-the same image UUID. Lazy `inspect()` never snapshots or stops a VM; it raises
-while a VM is active. Call `snapshot()` first to inspect the saved image.
+the same image UUID. Lazy `inspect()` reads the active VM or selected saved image
+without stopping a VM. Call `inspect_snapshot()` to pin a saved image.
 See [Save after every command](../session-model.md#save-after-every-command).
 
 ```{eval-rst}

@@ -5,19 +5,20 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
-from contextlib import suppress
-from pathlib import Path
+from contextlib import aclosing, suppress
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import EventDataStream, InstanceResult, InstanceResultState, OperationEvent, StreamRepr
 from contree_client.types import ContreeAsyncClient
-from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback, OutputStream
+from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
+from contree_sdk.file_io import extract_tar_download_async
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session import IdleSnapshotPolicy, ManualSnapshotPolicy
 
@@ -296,9 +297,9 @@ class ConTreeEnvironment(BaseEnvironment):
                 output_callback is not None
                 and event.type in {"stdout", "stderr"}
                 and isinstance(event.data, EventDataStream)
-            ):
-                if chunk := event.data.as_text():
-                    await output_callback(chunk, event.type)
+            ) and (chunk := event.data.as_text()):
+                stream: Literal["stdout", "stderr"] = "stdout" if event.type == "stdout" else "stderr"
+                await output_callback(chunk, stream)
 
         self._active_run = asyncio.create_task(
             lazy.execute(
@@ -341,12 +342,24 @@ class ConTreeEnvironment(BaseEnvironment):
     async def _upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         await asyncio.wait_for(self._require_lazy().upload_dir(source_dir, target_dir), timeout=_TRANSFER_TIMEOUT)
 
+    @staticmethod
+    def _remote_path(path: str) -> PurePosixPath:
+        destination = PurePosixPath(path)
+        if not destination.is_absolute() or "\0" in path:
+            raise ValueError("file paths must be absolute and contain no NUL characters")
+        return destination
+
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         async with self._lock:
-            await asyncio.wait_for(
-                self._require_lazy().download_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT
-            )
+            self._remote_path(source_path)
+            view = await self._require_lazy().inspect()
+            await asyncio.wait_for(view.download_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT)
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
         async with self._lock:
-            await asyncio.wait_for(self._require_lazy().download_dir(source_dir, target_dir), timeout=_TRANSFER_TIMEOUT)
+            self._remote_path(source_dir)
+            view = await self._require_lazy().inspect()
+            async with aclosing(view.archive(source_dir)) as chunks:
+                await asyncio.wait_for(
+                    extract_tar_download_async(chunks, target_dir, path=source_dir), timeout=_TRANSFER_TIMEOUT
+                )
