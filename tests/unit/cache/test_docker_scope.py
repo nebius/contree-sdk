@@ -19,14 +19,18 @@ from tests.unit.session.factories import mock_completion, operation_response, sp
 
 def context(cache, tmp_path):
     if isinstance(cache, AsyncStore):
+        async_client = ContreeAsyncClient()
+        async_client.mock("check_file_exists", True)
         return AsyncBuildContext(
-            client=ContreeAsyncClient(),
+            client=async_client,
             store=cache,
             local=LocalContext(tmp_path),
             upload_cache_ttl=10,
         )
+    sync_client = ContreeClient()
+    sync_client.mock("check_file_exists", True)
     return BuildContext(
-        client=ContreeClient(),
+        client=sync_client,
         store=cache,
         local=LocalContext(tmp_path),
         upload_cache_ttl=10,

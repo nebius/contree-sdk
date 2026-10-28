@@ -53,6 +53,7 @@ class TrackingAsyncClient(ContreeAsyncClient):
 def seed(client):
     client.mock("resolve_image", "base")
     client.mock("check_image_archive", True)
+    client.mock("check_file_exists", True)
     client.mock("import_image", "import-1")
     client.mock("wait_operation", operation_response(operation_uuid="import-1", result_image_uuid="imported"))
     client.mock("update_image_tag", None)

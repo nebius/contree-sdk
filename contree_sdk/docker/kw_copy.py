@@ -168,7 +168,7 @@ LOCAL_FILE_CACHE_NAMESPACE = "docker.copy"
 
 def cached_local_uuid(ctx: BuildContext, sha256: str) -> str | None:
     cached = lookup_result(ctx.store, ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), sha256)
-    if isinstance(cached, dict) and cached.get("uuid"):
+    if isinstance(cached, dict) and cached.get("uuid") and ctx.client.check_file_exists(sha256):
         return str(cached["uuid"])
     return None
 
@@ -321,7 +321,7 @@ async def resolve_stage_image_async(ctx: AsyncBuildContext, ref: str) -> str:
 
 async def cached_local_uuid_async(ctx: AsyncBuildContext, sha256: str) -> str | None:
     cached = await async_lookup_result(ctx.store, ctx.cache_namespace(LOCAL_FILE_CACHE_NAMESPACE), sha256)
-    if isinstance(cached, dict) and cached.get("uuid"):
+    if isinstance(cached, dict) and cached.get("uuid") and await ctx.client.check_file_exists(sha256):
         return str(cached["uuid"])
     return None
 

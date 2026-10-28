@@ -19,6 +19,7 @@ def client() -> ContreeAsyncClient:
     client = ContreeAsyncClient()
     client.mock("resolve_image", "img-uuid-0")
     client.mock("check_image_archive", True)
+    client.mock("check_file_exists", True)
     return client
 
 

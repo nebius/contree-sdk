@@ -145,6 +145,9 @@ def write_url_chunk(handle: IO[bytes], chunk: bytes, digest: Any) -> None:
 
 def fetch_url(ctx: BuildContext, url: str) -> tuple[str, str]:
     cached = lookup_result(ctx.store, ctx.cache_namespace(URL_CACHE_NAMESPACE), url)
+    hit = cached_uuid_sha256(cached)
+    if hit is not None and not ctx.client.check_file_exists(hit[1]):
+        cached = None
     status, headers, body = ctx.http_fetch(url, "GET", conditional_headers_for(cached))
     with tempfile.TemporaryFile() as content:
         digest = hashlib.sha256()
@@ -208,6 +211,9 @@ def stage_urls(
 
 async def fetch_url_async(ctx: AsyncBuildContext, url: str) -> tuple[str, str]:
     cached = await async_lookup_result(ctx.store, ctx.cache_namespace(URL_CACHE_NAMESPACE), url)
+    hit = cached_uuid_sha256(cached)
+    if hit is not None and not await ctx.client.check_file_exists(hit[1]):
+        cached = None
     status, headers, body = await ctx.http_fetch_async(url, "GET", conditional_headers_for(cached))
     with tempfile.TemporaryFile() as content:
         digest = hashlib.sha256()
