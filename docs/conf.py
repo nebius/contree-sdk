@@ -31,7 +31,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "_autosummary"]
 
 html_theme = "furo"
 html_title = f"{project} Documentation"
+html_static_path = ["_static"]
 html_logo = "_static/logo.svg"
+html_favicon = "_static/logo.svg"
 
 
 autodoc_typehints = "signature"
