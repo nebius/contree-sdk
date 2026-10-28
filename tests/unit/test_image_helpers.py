@@ -189,9 +189,13 @@ async def test_build_scopes_default_history_by_connection(mode, api, profile, co
 async def test_build_custom_components_and_builder_remain_caller_owned(mode, api, context):
     client = api()
     store = AsyncMemoryStore() if mode else SyncMemoryStore()
-    base = ContreeAsyncDockerBuilder if mode else ContreeDockerBuilder
 
-    class CustomBuilder(base):
+    class CustomBuilder(ContreeDockerBuilder):
+        def __init__(self, client, *, marker, **kwargs):
+            assert marker == "custom"
+            super().__init__(client, **kwargs)
+
+    class CustomAsyncBuilder(ContreeAsyncDockerBuilder):
         def __init__(self, client, *, marker, **kwargs):
             assert marker == "custom"
             super().__init__(client, **kwargs)
@@ -204,7 +208,7 @@ async def test_build_custom_components_and_builder_remain_caller_owned(mode, api
             context,
             client=client,
             store=store,
-            builder_type=CustomBuilder,
+            builder_type=CustomAsyncBuilder if mode else CustomBuilder,
             builder_kwargs=options,
             session_id="custom-build",
         )

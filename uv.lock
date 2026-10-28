@@ -601,7 +601,6 @@ async = [
 ]
 dev = [
     { name = "aiosqlite" },
-    { name = "click" },
     { name = "contree-client", extra = ["aiohttp"] },
     { name = "deepagents", marker = "python_full_version >= '3.11'" },
     { name = "dprint-py" },
@@ -613,7 +612,6 @@ dev = [
     { name = "pytest-html" },
     { name = "pytest-mock" },
     { name = "pytest-xdist" },
-    { name = "pyyaml" },
     { name = "rich" },
     { name = "ruff" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
@@ -630,7 +628,6 @@ langchain = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'async'", specifier = ">=0.20" },
-    { name = "click", marker = "extra == 'dev'" },
     { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'async'" },
     { name = "contree-client", extras = ["httpx"], specifier = ">=0.5.1" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
@@ -646,7 +643,6 @@ requires-dist = [
     { name = "pytest-html", marker = "extra == 'dev'" },
     { name = "pytest-mock", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "pyyaml", marker = "extra == 'dev'" },
     { name = "rich", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'" },

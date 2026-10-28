@@ -48,8 +48,6 @@ dev = [
     "ty~=0.0.51",
     "ruff",
     "typing-extensions",
-    "click",
-    "pyyaml",
 ]
 
 langchain = [

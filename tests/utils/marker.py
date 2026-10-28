@@ -17,6 +17,6 @@ def create_directory_marker(marker: pytest.MarkDecorator) -> tuple[Callable, Cal
     def autouse_fixture(): ...
 
     autouse_fixture.__name__ = fixture_name
-    autouse_fixture = pytest.fixture(autouse=True)(autouse_fixture)
+    fixture = pytest.fixture(autouse=True)(autouse_fixture)
 
-    return pytest_collection_modifyitems, autouse_fixture
+    return pytest_collection_modifyitems, fixture
