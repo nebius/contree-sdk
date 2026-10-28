@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/nebius/contree-sdk/security/advisories/new
     about: Report security vulnerabilities privately through GitHub Security Advisories
   - name: Documentation
-    url: https://docs.contree.dev/sdk/index.html
+    url: https://nebius.github.io/contree-sdk/
     about: Read the full documentation before opening an issue

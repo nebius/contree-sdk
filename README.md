@@ -105,7 +105,7 @@ control over the components the factory supplies.
 | Override policy or replace components            | [Customization](docs/python_sdk/customization.md)          |
 | Upgrade from the old SDK                         | [Migration](docs/python_sdk/migration.md)                  |
 
-The [documentation](https://docs.contree.dev/sdk/) includes API references and
+The [documentation](https://nebius.github.io/contree-sdk/) includes API references and
 failure-handling examples. The mini-swe-agent 2.4.6 bundled adapter needs a port
 before it can use this API; see the [compatibility note](docs/integrations/mini-swe-agent.md).
 
