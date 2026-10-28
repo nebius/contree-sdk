@@ -1,0 +1,548 @@
+"""Build contexts and their shared Dockerfile directive contract."""
+
+from __future__ import annotations
+
+import hashlib
+import inspect
+import json
+import time
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import ClassVar, cast
+
+from contree_client.models import EventDataStream, InstanceResult
+from contree_client.types import ContreeAsyncClient, ContreeSyncClient
+
+from contree_sdk.exceptions import DockerBuildError
+from contree_sdk.execution import RunRequest
+from contree_sdk.file_sources import AsyncFileSources, SyncFileSources
+from contree_sdk.scope import StoreScope
+from contree_sdk.session.asyncio import ContreeAsyncSession
+from contree_sdk.session.cleanup import owned_async_operation, owned_operation
+from contree_sdk.session.sync import ContreeSession
+from contree_sdk.session.tree import entry_node
+from contree_sdk.store import AsyncStore, Node, SyncStore
+from contree_sdk.utils.models.file import UploadedFile, UploadFileSpec
+
+from .events import BuildEvent, BuildEventType, BuildProgress
+from .interpolation import substitute
+from .local_context import LocalContext
+from .url_fetch import AsyncFetchResponse, FetchResponse
+from .url_fetch import http_fetch as default_http_fetch
+from .url_fetch import http_fetch_async as default_http_fetch_async
+
+
+BUILD_TIMEOUT_DEFAULT = 600
+
+
+@dataclass(frozen=True, repr=False)
+class DockerKeyword:
+    """Base class. Subclasses implement `parse`, `serialize`, `execute`."""
+
+    NAME: ClassVar[str] = ""
+
+    @classmethod
+    def parse(cls, args_text: str) -> DockerKeyword:
+        raise NotImplementedError
+
+    def serialize(self) -> str:
+        """Stable text used for layer hashing."""
+        raise NotImplementedError
+
+    def execute(self, ctx: BuildContext) -> None:
+        raise NotImplementedError
+
+    async def execute_async(self, ctx: AsyncBuildContext) -> None:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        return self.NAME or self.__class__.__name__
+
+
+@dataclass(frozen=True, kw_only=True)
+class BuildRequest:
+    """Resolved local inputs and options for one build context."""
+
+    context_dir: Path
+    dockerfile_path: Path
+    session_id: str
+    build_args: dict[str, str] = field(default_factory=dict)
+    no_cache: bool = False
+    timeout: int = BUILD_TIMEOUT_DEFAULT
+
+
+@dataclass(frozen=True)
+class BuildStepEvent:
+    """Reported to `on_step` around each directive's `execute()`/`execute_async()` call."""
+
+    index: int
+    keyword: str
+    cache_hit: bool
+    image_before: str | None
+    image_after: str | None
+    duration: float
+    error: BaseException | None = None
+
+
+@dataclass
+class PendingFile:
+    instance_path: str
+    file_uuid: str
+    sha256: str
+    uid: int
+    gid: int
+    mode: str  # octal like "0644"
+
+
+def upload_file_spec_for(pending: PendingFile) -> UploadFileSpec:
+    # the file is already uploaded (file_uuid known) - UploadedFile makes session.run()'s
+    # own upload_file() reuse it directly instead of re-hashing/re-uploading the content
+    uploaded = UploadedFile(uuid=pending.file_uuid, sha256=pending.sha256)
+    return UploadFileSpec(uid=pending.uid, gid=pending.gid, mode=int(pending.mode, 8), source=uploaded)
+
+
+@dataclass
+class BuildContext:
+    client: ContreeSyncClient
+    store: SyncStore
+    local: LocalContext
+    http_fetch: Callable[[str, str, Iterable[tuple[str, str]]], FetchResponse] = default_http_fetch
+    session_factory: Callable[..., ContreeSession] = ContreeSession
+    directive_executor: Callable[[DockerKeyword, BuildContext], None] | None = None
+    session_id: str = ""
+    session: ContreeSession | None = None
+    build_args: dict[str, str] = field(default_factory=dict)
+    declared_args: set[str] = field(default_factory=set)
+    arg_defaults: dict[str, str] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
+    workdir: str = "/"
+    user: str = ""
+    parent_hash: str = ""
+    # Sealed build stages: every FROM past the first closes the stage
+    # before it. `stages` maps `FROM ... AS name` aliases, `stage_images`
+    # indexes the same images for numeric `COPY --from=N` references.
+    stages: dict[str, str] = field(default_factory=dict)
+    stage_images: list[str] = field(default_factory=list)
+    current_stage_alias: str = ""
+    pending: list[PendingFile] = field(default_factory=list)
+    no_cache: bool = False
+    timeout: int = BUILD_TIMEOUT_DEFAULT
+    last_cache_hit: bool = False
+    on_event: Callable[[BuildEvent], None] | None = None
+    progress: BuildProgress = field(default_factory=BuildProgress)
+
+    upload_cache_ttl: float = 90 * 24 * 3600
+    upload_concurrency: int = 4
+
+    def cache_namespace(self, namespace: str) -> str:
+        return StoreScope.from_client(self.client).namespace(namespace)
+
+    @property
+    def file_sources(self) -> SyncFileSources:
+        return SyncFileSources(self.store, StoreScope.from_client(self.client))
+
+    def emit_event(self, event_type: BuildEventType, *, data: bytes = b"", error: BaseException | None = None) -> None:
+        """Deliver one notification through the configured build callback."""
+        event = self.progress.event(event_type, self.last_image or None, data=data, error=error)
+        if event is not None and self.on_event is not None:
+            self.on_event(event)
+
+    def run_operation(self, request: RunRequest, *, branch: str) -> InstanceResult:
+        """Stream and commit one RUN operation through the session's public lifecycle.
+
+        Returns:
+            The terminal process result, including nonzero exits.
+
+        Raises:
+            DockerBuildError: No FROM session is active.
+
+        """
+        session = self.session
+        if session is None:
+            raise DockerBuildError("no active FROM: cannot RUN without a base image")
+        operation = session.spawn_request(request)
+        context = operation.context
+        effective = context.request if context is not None else request
+        if self.progress.current is not None:
+            self.progress.current.operation_uuid = operation.uuid
+        with owned_operation(operation):
+            self.emit_event("operation_started")
+            for event in operation.events(timeout=effective.timeout_seconds):
+                if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
+                    self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
+            result = operation.wait()
+        if self.progress.current is not None:
+            self.progress.current.result = result
+        if not effective.disposable:
+            session.commit_result(operation, title=effective.title, data={"docker_hash": branch})
+        return result
+
+    def execute_directive(self, directive: DockerKeyword) -> None:
+        """Run a nested directive through the builder's policy when configured."""
+        if self.directive_executor is None:
+            directive.execute(self)
+        else:
+            self.directive_executor(directive, self)
+
+    def create_session(
+        self, client: ContreeSyncClient, *, session_id: str, store: SyncStore, image: str, node_id: str | None = None
+    ) -> ContreeSession:
+        """Return a session from the configured factory.
+
+        Returns:
+            The configured session implementation.
+
+        """
+        return self.session_factory(
+            client, session_id=session_id, store=store, image=image, node_id=node_id, tree_kind="docker-build"
+        )
+
+    def arg_values(self) -> dict[str, str]:
+        # effective value for every declared ARG (build-arg overrides default)
+        return {name: self.build_args.get(name, self.arg_defaults.get(name, "")) for name in self.declared_args}
+
+    def substitute(self, text: str) -> str:
+        merged = {**self.arg_values(), **self.env}
+        return substitute(text, merged)
+
+    def state_repr(self) -> str:
+        return json.dumps(
+            {
+                "workdir": self.workdir,
+                "user": self.user,
+                "env": sorted(self.env.items()),
+                "args": sorted(self.arg_values().items()),
+            },
+            sort_keys=True,
+        )
+
+    def pending_repr(self) -> str:
+        return json.dumps(
+            [
+                {"path": p.instance_path, "sha": p.sha256, "uid": p.uid, "gid": p.gid, "mode": p.mode}
+                for p in self.pending
+            ],
+            sort_keys=True,
+        )
+
+    def chain(self, contribution: str) -> str:
+        digest = hashlib.sha256()
+        digest.update(self.parent_hash.encode())
+        digest.update(b"\x00")
+        digest.update(self.last_image.encode())
+        digest.update(b"\x00")
+        digest.update(self.state_repr().encode())
+        digest.update(b"\x00")
+        digest.update(contribution.encode())
+        digest.update(b"\x00")
+        digest.update(self.pending_repr().encode())
+        return digest.hexdigest()
+
+    @property
+    def last_image(self) -> str:
+        return (self.session.image_uuid or "") if self.session is not None else ""
+
+    def pending_files_payload(self) -> dict[str, str | Path | bytes | UploadFileSpec]:
+        return {p.instance_path: upload_file_spec_for(p) for p in self.pending}
+
+    def try_cache_hit(self, branch_name: str, *, kind: str = "run") -> str | None:
+        if self.no_cache or self.store.get_session(self.session_id) is None:
+            return None
+        parent_id = self.session.tip_id if self.session is not None else None
+        if kind != "use" and parent_id is None:
+            return None
+        candidate = None
+        cursor = None
+        while True:
+            if kind == "use":
+                page = self.store.list_nodes(self.session_id, kind="use", cursor=cursor)
+            elif parent_id is not None:
+                page = self.store.list_children(self.session_id, parent_id, kind=kind, cursor=cursor)
+            else:
+                return None
+            for node in page.items:
+                if cache_matches(node, branch_name) and (
+                    candidate is None or cache_order(node) > cache_order(candidate)
+                ):
+                    candidate = node
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        if candidate is None or not self.client.check_image_archive(cast("str", candidate.data["image_uuid"]), "/"):
+            return None
+        node = candidate
+        image_uuid = cast("str", node.data["image_uuid"])
+        if self.session is None:
+            self.session = self.create_session(
+                self.client, session_id=self.session_id, store=self.store, image=image_uuid, node_id=node.id
+            )
+        else:
+            self.session.navigate(node.id)
+        self.last_cache_hit = True
+        return image_uuid
+
+    def commit_layer(
+        self, branch_name: str, image_uuid: str, *, kind: str, title: str, operation_uuid: str = ""
+    ) -> None:
+        self.store.create_session(self.session_id, kind="docker-build")
+        self.store.append(self.session_id, Node(id="root", parent_id=None, kind="build"))
+        node = entry_node(
+            parent_id="root",
+            image_uuid=image_uuid,
+            kind=kind,
+            title=title,
+            operation_uuid=operation_uuid or None,
+            created_at=time.time(),
+            user={"docker_hash": branch_name},
+        )
+        self.store.append(self.session_id, node)
+        if self.session is None:
+            self.session = self.create_session(
+                self.client, session_id=self.session_id, store=self.store, image=image_uuid, node_id=node.id
+            )
+        else:
+            self.session.navigate(node.id)
+
+
+@dataclass
+class AsyncBuildContext:
+    client: ContreeAsyncClient
+    store: AsyncStore
+    local: LocalContext
+    http_fetch_async: Callable[[str, str, Iterable[tuple[str, str]]], Awaitable[AsyncFetchResponse]] = (
+        default_http_fetch_async
+    )
+    session_factory: Callable[..., ContreeAsyncSession] = ContreeAsyncSession
+    directive_executor: Callable[[DockerKeyword, AsyncBuildContext], Awaitable[None]] | None = None
+    session_id: str = ""
+    session: ContreeAsyncSession | None = None
+    build_args: dict[str, str] = field(default_factory=dict)
+    declared_args: set[str] = field(default_factory=set)
+    arg_defaults: dict[str, str] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
+    workdir: str = "/"
+    user: str = ""
+    parent_hash: str = ""
+    stages: dict[str, str] = field(default_factory=dict)
+    stage_images: list[str] = field(default_factory=list)
+    current_stage_alias: str = ""
+    pending: list[PendingFile] = field(default_factory=list)
+    no_cache: bool = False
+    timeout: int = BUILD_TIMEOUT_DEFAULT
+    last_cache_hit: bool = False
+    on_event: Callable[[BuildEvent], object] | None = None
+    progress: BuildProgress = field(default_factory=BuildProgress)
+
+    async def emit_event(
+        self, event_type: BuildEventType, *, data: bytes = b"", error: BaseException | None = None
+    ) -> None:
+        """Deliver one notification through the configured build callback."""
+        event = self.progress.event(event_type, self.last_image or None, data=data, error=error)
+        if event is not None and self.on_event is not None:
+            result = self.on_event(event)
+            if inspect.isawaitable(result):
+                await result
+
+    async def run_operation(self, request: RunRequest, *, branch: str) -> InstanceResult:
+        """Stream and commit one RUN operation through the session's public lifecycle.
+
+        Returns:
+            The terminal process result, including nonzero exits.
+
+        Raises:
+            DockerBuildError: No FROM session is active.
+
+        """
+        session = self.session
+        if session is None:
+            raise DockerBuildError("no active FROM: cannot RUN without a base image")
+        operation = await session.spawn_request(request)
+        context = operation.context
+        effective = context.request if context is not None else request
+        if self.progress.current is not None:
+            self.progress.current.operation_uuid = operation.uuid
+        async with owned_async_operation(operation):
+            await self.emit_event("operation_started")
+            async for event in operation.events(timeout=effective.timeout_seconds):
+                if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
+                    await self.emit_event("stdout" if event.type == "stdout" else "stderr", data=event.data.as_bytes())
+            result = await operation.wait()
+        if self.progress.current is not None:
+            self.progress.current.result = result
+        if not effective.disposable:
+            await session.commit_result(operation, title=effective.title, data={"docker_hash": branch})
+        return result
+
+    async def execute_directive(self, directive: DockerKeyword) -> None:
+        """Run a nested directive through the builder's policy when configured."""
+        if self.directive_executor is None:
+            await directive.execute_async(self)
+        else:
+            await self.directive_executor(directive, self)
+
+    upload_cache_ttl: float = 90 * 24 * 3600
+    upload_concurrency: int = 4
+
+    def cache_namespace(self, namespace: str) -> str:
+        return StoreScope.from_client(self.client).namespace(namespace)
+
+    @property
+    def file_sources(self) -> AsyncFileSources:
+        return AsyncFileSources(self.store, StoreScope.from_client(self.client))
+
+    def create_session(
+        self, client: ContreeAsyncClient, *, session_id: str, store: AsyncStore, image: str, node_id: str | None = None
+    ) -> ContreeAsyncSession:
+        """Return a session from the configured factory.
+
+        Returns:
+            The configured session implementation.
+
+        """
+        return self.session_factory(
+            client, session_id=session_id, store=store, image=image, node_id=node_id, tree_kind="docker-build"
+        )
+
+    def arg_values(self) -> dict[str, str]:
+        return {name: self.build_args.get(name, self.arg_defaults.get(name, "")) for name in self.declared_args}
+
+    def substitute(self, text: str) -> str:
+        merged = {**self.arg_values(), **self.env}
+        return substitute(text, merged)
+
+    def state_repr(self) -> str:
+        return json.dumps(
+            {
+                "workdir": self.workdir,
+                "user": self.user,
+                "env": sorted(self.env.items()),
+                "args": sorted(self.arg_values().items()),
+            },
+            sort_keys=True,
+        )
+
+    def pending_repr(self) -> str:
+        return json.dumps(
+            [
+                {"path": p.instance_path, "sha": p.sha256, "uid": p.uid, "gid": p.gid, "mode": p.mode}
+                for p in self.pending
+            ],
+            sort_keys=True,
+        )
+
+    def chain(self, contribution: str) -> str:
+        digest = hashlib.sha256()
+        digest.update(self.parent_hash.encode())
+        digest.update(b"\x00")
+        digest.update(self.last_image.encode())
+        digest.update(b"\x00")
+        digest.update(self.state_repr().encode())
+        digest.update(b"\x00")
+        digest.update(contribution.encode())
+        digest.update(b"\x00")
+        digest.update(self.pending_repr().encode())
+        return digest.hexdigest()
+
+    @property
+    def last_image(self) -> str:
+        return (self.session.image_uuid or "") if self.session is not None else ""
+
+    def pending_files_payload(self) -> dict[str, str | Path | bytes | UploadFileSpec]:
+        return {p.instance_path: upload_file_spec_for(p) for p in self.pending}
+
+    async def try_cache_hit(self, branch_name: str, *, kind: str = "run") -> str | None:
+        if self.no_cache or await self.store.get_session(self.session_id) is None:
+            return None
+        parent_id = self.session.tip_id if self.session is not None else None
+        if kind != "use" and parent_id is None:
+            return None
+        candidate = None
+        cursor = None
+        while True:
+            if kind == "use":
+                page = await self.store.list_nodes(self.session_id, kind="use", cursor=cursor)
+            elif parent_id is not None:
+                page = await self.store.list_children(self.session_id, parent_id, kind=kind, cursor=cursor)
+            else:
+                return None
+            for node in page.items:
+                if cache_matches(node, branch_name) and (
+                    candidate is None or cache_order(node) > cache_order(candidate)
+                ):
+                    candidate = node
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        if candidate is None or not await self.client.check_image_archive(
+            cast("str", candidate.data["image_uuid"]), "/"
+        ):
+            return None
+        node = candidate
+        image_uuid = cast("str", node.data["image_uuid"])
+        if self.session is None:
+            self.session = self.create_session(
+                self.client, session_id=self.session_id, store=self.store, image=image_uuid, node_id=node.id
+            )
+            await self.session.ensure_ready()
+        else:
+            await self.session.navigate(node.id)
+        self.last_cache_hit = True
+        return image_uuid
+
+    async def commit_layer(
+        self, branch_name: str, image_uuid: str, *, kind: str, title: str, operation_uuid: str = ""
+    ) -> None:
+        await self.store.create_session(self.session_id, kind="docker-build")
+        await self.store.append(self.session_id, Node(id="root", parent_id=None, kind="build"))
+        node = entry_node(
+            parent_id="root",
+            image_uuid=image_uuid,
+            kind=kind,
+            title=title,
+            operation_uuid=operation_uuid or None,
+            created_at=time.time(),
+            user={"docker_hash": branch_name},
+        )
+        await self.store.append(self.session_id, node)
+        if self.session is None:
+            self.session = self.create_session(
+                self.client, session_id=self.session_id, store=self.store, image=image_uuid, node_id=node.id
+            )
+            await self.session.ensure_ready()
+        else:
+            await self.session.navigate(node.id)
+
+
+def cache_order(node: Node) -> tuple[float, str]:
+    return cast("float", node.data.get("created_at", 0)), node.id
+
+
+def resolve_stage_ref(ctx: BuildContext | AsyncBuildContext, ref: str) -> str | None:
+    # a numeric ref addresses a sealed stage by position (must be in range); a name is
+    # looked up in the alias registry; anything else falls through to external resolution
+    if ref.isdigit():
+        index = int(ref)
+        if index >= len(ctx.stage_images):
+            raise ValueError(f"stage index out of range ({len(ctx.stage_images)} stage(s) sealed so far): {ref}")
+        return ctx.stage_images[index]
+    return ctx.stages.get(ref)
+
+
+def resolve_build_paths(context: str | Path, dockerfile: str | Path | None) -> tuple[Path, Path]:
+    context_dir = Path(context).resolve()
+    if not context_dir.is_dir():
+        raise FileNotFoundError(f"build context not found: {context_dir}")
+    dockerfile_path = Path(dockerfile).resolve() if dockerfile else context_dir / "Dockerfile"
+    if not dockerfile_path.is_file():
+        raise FileNotFoundError(f"Dockerfile not found: {dockerfile_path}")
+    return context_dir, dockerfile_path
+
+
+def cache_matches(node: Node, branch_name: str) -> bool:
+    user = node.data.get("user", {})
+    return (
+        isinstance(user, dict)
+        and user.get("docker_hash") == branch_name
+        and (node.data.get("exit_code") in {None, 0} or user.get("docker_copy_complete") is True)
+    )

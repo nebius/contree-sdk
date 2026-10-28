@@ -1,4 +1,4 @@
-name: RTD docs
+name: Documentation
 
 on:
   pull_request:
@@ -6,8 +6,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  deploy-rtd:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,19 +19,27 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: uv run --all-extras sphinx-build docs docs/_build/html
+      - run: uv run --frozen --all-extras sphinx-build docs docs/_build/html
 
-      - uses: andreiio/rclone-action@v1
+      - uses: actions/upload-pages-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          args: >
-            sync docs/_build/html
-            s3:${{ secrets.RCLONE_CONFIG_S3_BUCKET }}/sdk
-            --delete-during -v --s3-upload-cutoff=0
-        env:
-          RCLONE_CONFIG_S3_TYPE: s3
-          RCLONE_CONFIG_S3_PROVIDER: Other
-          RCLONE_CONFIG_S3_ENDPOINT: ${{ secrets.RCLONE_CONFIG_S3_ENDPOINT }}
-          RCLONE_CONFIG_S3_REGION: ${{ secrets.RCLONE_CONFIG_S3_REGION }}
-          RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${{ secrets.RCLONE_CONFIG_S3_ACCESS_KEY_ID }}
-          RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${{ secrets.RCLONE_CONFIG_S3_SECRET_ACCESS_KEY }}
+          path: docs/_build/html
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

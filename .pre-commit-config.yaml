@@ -29,20 +29,18 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
-      - id: dprint-contree-sdk
+      - id: dprint
         name: dprint
-        entry: bash -lc 'dprint fmt --config dprint.json .'
+        entry: uv run --all-extras dprint fmt
         language: system
-        files: (^|/)README\.md$
+        files: (\.md$|^dprint\.json$)
         pass_filenames: false
-  - repo: local
-    hooks:
       - id: ty
         name: ty
-        entry: bash -lc 'exec uv run --extra dev --extra examples python scripts/ty_baseline.py check' --
+        entry: uv run --all-extras ty check
         language: system
         pass_filenames: false
-        files: (?x)^(.*\.py|\.ty/.*|(?:.*/)?pyproject\.toml)$
+        files: (?x)^(.*\.py|ty\.toml|(?:.*/)?pyproject\.toml)$
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.24.2
     hooks:

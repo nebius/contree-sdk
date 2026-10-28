@@ -1,0 +1,560 @@
+"""Synchronous commands sharing a VM until a policy requests a snapshot."""
+
+from __future__ import annotations
+
+import threading
+from collections.abc import Iterator
+from concurrent.futures import Future
+from contextlib import contextmanager, suppress
+from functools import partial
+from math import isfinite
+from time import monotonic
+
+from contree_client.models import InstanceResult, OperationEvent
+
+from contree_sdk.compat import Self
+from contree_sdk.execution import RunRequest, SyncExecutor
+from contree_sdk.inspection import ImageInspector
+from contree_sdk.session.base import require_str
+from contree_sdk.session.contracts import OperationContract, SubprocessContract
+from contree_sdk.session.inspection import SessionInspector
+from contree_sdk.session.lazy_state import LazyPhase, LazyState
+from contree_sdk.session.models import HistoryEntry
+from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
+from contree_sdk.session.sync import ContreeSession
+
+
+class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
+    """Share one VM across commands; save one history entry per snapshot.
+
+    The supplied session, its client and its store remain caller-owned. Do not
+    mutate that session outside this wrapper while a VM is active. Use this
+    object as a context manager or call close/abort to release its worker.
+    """
+
+    def __init__(
+        self,
+        session: ContreeSession,
+        *,
+        snapshot_policy: AbstractSnapshotPolicy | None = None,
+        snapshot_timeout: float = 30,
+    ) -> None:
+        if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
+            raise ValueError("snapshot_timeout must be positive")
+        self.session = session
+        self.session_id = session.session_id
+        self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
+        self.snapshot_timeout = snapshot_timeout
+        self.state = LazyState()
+        self.condition = threading.Condition()
+        self.operation: OperationContract | None = None
+        self.worker: threading.Thread | None = None
+        self.last_entry: HistoryEntry | None = None
+        self._snapshot_future: Future[None] | None = None
+        self._changed = threading.Event()
+
+    @property
+    def phase(self) -> LazyPhase:
+        with self.condition:
+            return self.state.phase
+
+    @property
+    def error(self) -> BaseException | None:
+        with self.condition:
+            return self.state.error
+
+    def prepare_request(self, request: RunRequest) -> RunRequest:
+        """Apply the wrapped session's policy and validate shared-VM semantics.
+
+        Returns:
+            The effective request.
+
+        Raises:
+            ValueError: The request needs a disposable VM or unsupported live uploads.
+
+        """
+        request = self.session.prepare_request(request)
+        if request.disposable:
+            raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
+        if (
+            request.files
+            or request.preserve_env
+            or request.hostname is not None
+            or request.resources_limits is not None
+            or request.networking is not None
+        ):
+            raise ValueError(
+                "files, preserve_env, hostname, resources_limits and networking require VM startup configuration"
+            )
+        return request
+
+    def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
+        """Supply a long-running main process available in the base image.
+
+        Returns:
+            The non-disposable request used to start each VM.
+
+        """
+        return RunRequest(command="sleep", args=("2147483647",), disposable=False)
+
+    def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
+        """Observe the operation's sole reader without depending on handle.wait()."""
+        with self.condition:
+            previous_phase = self.state.phase
+            if self.state.observe(event, error):
+                self.snapshot_policy.notify(SnapshotEvent.COMMAND_FINISHED)
+            self._notify()
+            if previous_phase not in {"closed", "failed"} and isinstance(self.state.error, Exception):
+                raise self.state.error
+
+    def _notify(self) -> None:
+        self.condition.notify_all()
+        self._changed.set()
+
+    def _policy_ready(self, future: Future[None]) -> None:
+        self._changed.set()
+
+    def _snapshot_requested(self) -> bool:
+        future = self._snapshot_future
+        if future is None or not future.done():
+            return False
+        future.result()
+        return True
+
+    def _start(self) -> None:
+        self.state.begin()
+        self.snapshot_policy.notify(SnapshotEvent.RESET)
+        self._snapshot_future = self.snapshot_policy.should_snapshot()
+        self._snapshot_future.add_done_callback(self._policy_ready)
+        self.operation = self.session.spawn_request(self.keepalive_request())
+        context = self.operation.context
+        if context is None or context.request.disposable:
+            raise ValueError("the keepalive factory must create a bound, non-disposable operation")
+        self.operation.add_observer(self.observe)
+        self.operation.__enter__()  # noqa: PLC2801 - context spans several commands
+        self.state.phase = "running"
+        if self.worker is None:
+            self.worker = threading.Thread(target=self._control, daemon=True, name=f"lazy-{self.session_id}")
+            self.worker.start()
+
+    def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
+        request = self.prepare_request(request)
+        stdin = self.session.file_transfer.read_stdin(request.stdin) if request.stdin is not None else None
+        with self.condition:
+            while True:
+                self.state.check()
+                starting = self.state.phase == "cold"
+                if starting:
+                    try:
+                        self._start()
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                if self.state.phase == "running":
+                    if not starting:
+                        try:
+                            self.state.wants_snapshot(self._snapshot_requested())
+                        except BaseException as error:
+                            self.state.fail(error)
+                            self._notify()
+                            raise
+                    if self.state.phase == "running":
+                        break
+                self._notify()
+                self.condition.wait()
+            operation = self.operation
+            if operation is None:
+                raise RuntimeError("running LazySession has no operation")
+            self.state.reserve()
+            try:
+                self.snapshot_policy.notify(SnapshotEvent.COMMAND_STARTED)
+                handle = operation.run(
+                    request.title,
+                    shell=request.shell is not None,
+                    args=request.args,
+                    env=dict(request.env) if request.env is not None else None,
+                    cwd=request.cwd,
+                    uid=request.uid,
+                    gid=request.gid,
+                    stdin=stdin,
+                    stdin_open=request.stdin_open,
+                    truncate_output_at=request.truncate_output_at,
+                )
+            except BaseException as error:
+                self.state.creating -= 1
+                self.state.fail(error)
+                self._notify()
+                raise
+            self.state.created(handle.spid)
+            self._notify()
+            return operation, handle, request.timeout_seconds
+
+    def _spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
+        try:
+            return self._admit_and_spawn(request)
+        except BaseException:
+            if self.state.error is not None:
+                self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+            if self.state.error is not None and self.operation is not None:
+                with suppress(Exception):
+                    self.operation.cancel()
+                with suppress(Exception):
+                    self.operation.shutdown()
+            raise
+
+    def spawn_request(self, request: RunRequest) -> SubprocessContract:
+        """Start a subprocess; track its exit even if the caller never waits.
+
+        Returns:
+            The subprocess handle from the operation factory.
+
+        """
+        return self._spawn(request)[1]
+
+    def spawn(self, command: str | None = None, **kwargs) -> SubprocessContract:
+        return self.spawn_request(RunRequest(command=command, disposable=kwargs.pop("disposable", False), **kwargs))
+
+    def execute(self, request: RunRequest) -> InstanceResult:
+        operation, handle, timeout = self._spawn(request)
+        try:
+            result = handle.wait(timeout=timeout)
+        except BaseException:
+            with suppress(Exception):
+                operation.signal("SIGKILL", spid=handle.spid)
+            raise
+        with self.condition:
+            if self.state.error is not None:
+                raise RuntimeError("LazySession failed while executing a command") from self.state.error
+        return result
+
+    def run(self, command: str | None = None, **kwargs) -> InstanceResult:
+        """Run a shared-VM command. Options are RunRequest fields; disposable defaults to False.
+
+        Returns:
+            The subprocess result, including a nonzero exit code.
+
+        """
+        return self.execute(RunRequest(command=command, disposable=kwargs.pop("disposable", False), **kwargs))
+
+    def _save(self, operation: OperationContract) -> None:
+        operation.signal("SIGTERM")
+        operation.wait(timeout=self.snapshot_timeout)
+        operation.shutdown()
+        with self.condition:
+            if self.state.error is not None:
+                raise RuntimeError("event stream failed during snapshot") from self.state.error
+        entry = self.session.commit_result(operation, title="LazySession snapshot")
+        if entry is None:
+            raise RuntimeError("commit policy rejected the LazySession snapshot")
+        with self.condition:
+            self.last_entry = entry
+            self.operation = None
+            self.snapshot_policy.notify(SnapshotEvent.RESET)
+            self._snapshot_future = None
+            self.state.saved()
+            self._notify()
+
+    def _control(self) -> None:
+        try:  # noqa: PLW0717 - one failure boundary owns the worker lifecycle
+            while True:
+                with self.condition:
+                    self._changed.clear()
+                    if self.state.phase in {"closed", "failed"}:
+                        return
+                    previous_phase = self.state.phase
+                    if self.state.wants_snapshot(self._snapshot_requested()):
+                        operation = self.operation
+                        if operation is None:
+                            raise RuntimeError("snapshot has no operation")  # noqa: TRY301 - fail the worker
+                        self.state.phase = "snapshotting"
+                    else:
+                        operation = None
+                    if self.state.phase != previous_phase:
+                        self.condition.notify_all()
+                if operation is None:
+                    self._changed.wait()
+                else:
+                    self._save(operation)
+        except BaseException as error:
+            with self.condition:
+                self.state.fail(error)
+                self._notify()
+            if self.operation is not None:
+                with suppress(Exception):
+                    self.operation.cancel()
+                with suppress(Exception):
+                    self.operation.shutdown()
+        finally:
+            self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+
+    def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
+        """Drain commands and inspections, save their common image, and reopen admission.
+
+        Snapshots are lightweight and can run after every command. They stop
+        the VM. An unchanged filesystem can return the same image UUID.
+        timeout limits this wait; an already requested snapshot continues.
+        Errors remain available as error and are raised on subsequent calls.
+        Saving failure or a closed wrapper raises RuntimeError. A wait that
+        expires raises TimeoutError; saving continues in the worker.
+
+        Returns:
+            The saved history entry, or None if no VM has run yet.
+
+        """
+        with self.condition:
+            return self._snapshot_locked(timeout=timeout)
+
+    def _snapshot_locked(self, *, timeout: float | None = None) -> HistoryEntry | None:
+        self.state.check()
+        if self.state.phase == "cold":
+            return self.last_entry
+        generation = self.state.snapshots
+        if self.state.phase == "running":
+            self.state.phase = "draining"
+        self._notify()
+        completed = self.condition.wait_for(
+            lambda: self.state.snapshots != generation or self.state.error is not None or self.state.phase == "closed",
+            timeout=timeout,
+        )
+        if not completed:
+            raise TimeoutError("LazySession snapshot is still pending")
+        if self.state.error is not None:
+            raise RuntimeError("LazySession snapshot failed") from self.state.error
+        if self.state.snapshots == generation:
+            raise RuntimeError("LazySession closed before snapshot completed")
+        return self.last_entry
+
+    def close(self, *, timeout: float | None = None) -> None:
+        """Save pending work and close this wrapper, retaining caller-owned resources.
+
+        Raises:
+            RuntimeError: Saving failed; the cause is available as error.
+            TimeoutError: The caller's wait expired; closing continues in the worker.
+
+        """
+        with self.condition:
+            if self.state.phase == "closed":
+                return
+            self.state.closing = True
+            if self.state.phase == "cold":
+                self.state.phase = "closed"
+                self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+            elif self.state.phase == "running":
+                self.state.phase = "draining"
+            self._notify()
+            completed = self.condition.wait_for(
+                lambda: self.state.phase in {"closed", "failed"},
+                timeout=timeout,
+            )
+            if not completed:
+                raise TimeoutError("LazySession close is still pending")
+            error = self.state.error
+        if error is not None:
+            with suppress(Exception):
+                self.abort()
+            raise RuntimeError("LazySession close could not save pending work") from error
+        if self.worker is not None:
+            self.worker.join()
+
+    def abort(self) -> None:
+        """Discard unsaved work and close. An already running snapshot finishes first."""
+        with self.condition:
+            self.condition.wait_for(lambda: self.state.phase != "snapshotting")
+            operation = self.operation
+            self.state.closing = True
+            self.state.phase = "closed"
+            self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+            self._notify()
+        try:
+            if operation is not None:
+                try:
+                    operation.cancel()
+                finally:
+                    try:
+                        operation.shutdown()
+                    except Exception as error:
+                        if error is not self.state.error:
+                            raise
+        finally:
+            if self.worker is not None:
+                self.worker.join()
+
+    def inspect(self, *, timeout: float | None = None) -> SessionInspector:
+        """Return a view that selects the current filesystem for each request.
+
+        Live requests do not stop the VM. Cold requests use the saved image;
+        pending staged files start a VM so the view includes those files.
+        timeout limits admission and VM startup waits, not HTTP I/O.
+        Use inspect_snapshot() for a stable image and its image_uuid.
+
+        Returns:
+            A session-bound inspector; creating it starts no VM.
+
+        """
+        with self.condition:
+            self.state.check()
+        return SessionInspector(
+            self.session.client,
+            partial(self.inspection_source, timeout=timeout),
+            partial(self.inspect_snapshot, timeout=timeout),
+            self.session.file_transfer.on_progress,
+        )
+
+    def _inspection_source_locked(self, timeout: float | None) -> ImageInspector | str:
+        deadline = None if timeout is None else monotonic() + timeout
+        while True:
+            self.state.check()
+            started = False
+            if self.state.phase == "cold":
+                if not self.session.pending_files():
+                    return self.session.create_inspector(
+                        require_str(self.session.image_uuid, "session has no resolved image")
+                    )
+                try:
+                    self._start()
+                except BaseException as error:
+                    self.state.fail(error)
+                    self._notify()
+                    raise
+                started = True
+            if self.state.phase == "running":
+                if not started:
+                    try:
+                        self.state.wants_snapshot(self._snapshot_requested())
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                if self.state.phase == "running":
+                    if self.operation is None:
+                        raise RuntimeError("running LazySession has no operation")
+                    try:
+                        self.snapshot_policy.notify(SnapshotEvent.INSPECTION_STARTED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        self._notify()
+                        raise
+                    self.state.inspecting += 1
+                    return self.operation.uuid
+            self._notify()
+            remaining = None if deadline is None else deadline - monotonic()
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError("LazySession inspection admission is still pending")
+            self.condition.wait(remaining)
+
+    @contextmanager
+    def inspection_source(self, *, timeout: float | None = None) -> Iterator[ImageInspector | str]:
+        """Reserve the current source until the request and its stream close.
+
+        Override this hook to customize source selection. Image inspectors are
+        pinned; operation UUIDs remain protected from automatic snapshot.
+
+        Yields:
+            A saved image inspector or an active operation UUID.
+
+        Raises:
+            RuntimeError: The session fails or closes before inspection starts.
+            TimeoutError: Admission or VM startup exceeds the timeout.
+
+        """
+        try:
+            with self.condition:
+                source = self._inspection_source_locked(timeout)
+        except BaseException:
+            if self.state.error is not None and self.operation is not None:
+                with suppress(Exception):
+                    self.operation.cancel()
+                with suppress(Exception):
+                    self.operation.shutdown()
+            raise
+        try:
+            if isinstance(source, str):
+                with self.condition:
+                    if not self.condition.wait_for(
+                        lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed",
+                        timeout=timeout,
+                    ):
+                        raise TimeoutError("LazySession inspection is waiting for VM startup")
+                    if self.state.error is not None:
+                        raise RuntimeError("LazySession failed before inspection") from self.state.error
+                    if self.state.phase == "closed":
+                        raise RuntimeError("LazySession closed before inspection")
+            yield source
+        finally:
+            if isinstance(source, str):
+                with self.condition:
+                    self.state.inspecting -= 1
+                    try:
+                        if self.state.phase not in {"closed", "failed"}:
+                            self.snapshot_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
+                    except BaseException as error:
+                        self.state.fail(error)
+                        raise
+                    finally:
+                        self._notify()
+
+    def inspect_snapshot(self, *, timeout: float | None = None) -> ImageInspector:
+        """Save active work and pin the resulting image for inspection.
+
+        Waits for admitted commands and inspections, then stops the VM.
+        A cold session starts no VM. Later commands cannot change the pinned image.
+        timeout limits the snapshot wait; saving continues if the wait ends early.
+        A failed snapshot raises instead of returning the previous image.
+        Staged attachments appear only after a command applies them.
+
+        Returns:
+            An inspector borrowing the underlying client and file transfer.
+
+        """
+        with self.condition:
+            cold = self.state.phase == "cold"
+            entry = self._snapshot_locked(timeout=timeout)
+            image_uuid = (
+                entry.image_uuid
+                if not cold and entry is not None
+                else require_str(self.session.image_uuid, "session has no resolved image")
+            )
+            return self.session.create_inspector(image_uuid)
+
+    def read_file(self, path: str) -> bytes:
+        """Read current files without stopping an active VM.
+
+        Returns:
+            The complete file as bytes.
+
+        """
+        view = self.inspect()
+        return view.read_file(path)
+
+    def _boundary(self) -> None:
+        self.state.check()
+        if self.state.phase != "cold":
+            raise RuntimeError("snapshot pending work before changing history")
+
+    def create_branch(self, name: str, *, from_branch: str | None = None) -> None:
+        with self.condition:
+            self._boundary()
+            self.session.create_branch(name, from_branch=from_branch)
+
+    def switch_branch(self, name: str) -> None:
+        with self.condition:
+            self._boundary()
+            self.session.switch_branch(name)
+
+    def rollback(self, steps: int = 1) -> None:
+        with self.condition:
+            self._boundary()
+            self.session.rollback(steps)
+
+    def __enter__(self) -> Self:
+        with self.condition:
+            self.state.check()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        if exc_type is None:
+            self.close()
+        else:
+            with suppress(Exception):
+                self.abort()

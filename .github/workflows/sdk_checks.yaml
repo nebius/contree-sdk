@@ -43,9 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dprint/check@v2.3
+      - uses: actions/setup-python@v5
         with:
-          config-path: dprint.json
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: uv run --frozen --all-extras dprint fmt
+      - run: git diff --exit-code
 
   markdownlint:
     runs-on: ubuntu-latest

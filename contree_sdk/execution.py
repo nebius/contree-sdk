@@ -1,0 +1,160 @@
+"""Public command values and execution contracts for integrations."""
+
+from __future__ import annotations
+
+import time
+from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import timedelta
+from pathlib import PurePosixPath
+from shlex import quote
+from types import MappingProxyType
+
+from contree_client.models import (
+    InstanceNetworking,
+    InstanceResourcesLimits,
+    InstanceResult,
+    InstanceResultState,
+    StreamRepr,
+)
+
+from contree_sdk.exceptions import FileWriteError
+from contree_sdk.files import InputSource, RunFiles, StagedFile
+from contree_sdk.store.tree import new_node_id
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunRequest:
+    """Command configuration passed through the session's public extension hooks.
+
+    Use ``dataclasses.replace`` to change a request. Arguments and environment
+    are copied at construction. File sources and stdin remain caller-owned.
+    Exactly one of ``command`` and ``shell`` must be supplied. Results are saved
+    by default; use ``disposable=True`` to leave session history unchanged.
+    """
+
+    command: str | None = None
+    shell: str | None = None
+    args: tuple[str, ...] = ()
+    env: Mapping[str, str] | None = None
+    cwd: str | None = None
+    stdin: InputSource | None = None
+    stdin_open: bool = False
+    files: RunFiles = None
+    timeout: float | timedelta | None = None
+    disposable: bool = False
+    truncate_output_at: int | None = None
+    preserve_env: bool = False
+    hostname: str | None = None
+    uid: int | None = None
+    gid: int | None = None
+    resources_limits: InstanceResourcesLimits | None = None
+    networking: InstanceNetworking | None = None
+
+    def __post_init__(self) -> None:
+        if (self.command is None) == (self.shell is None):
+            raise ValueError("provide exactly one of command or shell")
+        object.__setattr__(self, "args", tuple(self.args))
+        if self.env is not None:
+            object.__setattr__(self, "env", MappingProxyType(dict(self.env)))
+
+    @property
+    def title(self) -> str:
+        return self.shell if self.shell is not None else str(self.command)
+
+    @property
+    def timeout_seconds(self) -> float | None:
+        return self.timeout.total_seconds() if isinstance(self.timeout, timedelta) else self.timeout
+
+
+@dataclass(frozen=True)
+class OperationContext:
+    """The effective request and history position captured before remote execution."""
+
+    request: RunRequest
+    session_id: str
+    image_uuid: str
+    parent_id: str | None
+    branch: str | None
+    files: tuple[str, ...] = ()
+    attachments: tuple[StagedFile, ...] = ()
+    detached: bool = False
+    node_id: str = field(default_factory=new_node_id)
+    created_at: float = field(default_factory=time.time)
+    position_version: int = 0
+    session_cwd: str | None = None
+    session_env: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "session_env", MappingProxyType(dict(self.session_env)))
+
+
+def _file_write_request(path: str, content: bytes) -> RunRequest:
+    if not path.startswith("/") or "\x00" in path:
+        raise ValueError("file path must be absolute and contain no NUL characters")
+    parent = str(PurePosixPath(path).parent)
+    return RunRequest(shell=f"mkdir -p -- {quote(parent)} && cat > {quote(path)}", stdin=content, disposable=False)
+
+
+def _check_file_write(path: str, result: InstanceResult) -> None:
+    exit_code = result.state.exit_code if isinstance(result.state, InstanceResultState) else None
+    if exit_code != 0:
+        message = result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else ""
+        raise FileWriteError(path, message or f"write command failed (exit code {exit_code})")
+
+
+class SyncExecutor(ABC):
+    """Execution and file access required by synchronous framework adapters.
+
+    Implementations own their lifecycle. Adapters do not close executors.
+    Successful execution returns the client's InstanceResult, including nonzero
+    exit codes. read_file returns exact bytes or raises a client API exception.
+    """
+
+    session_id: str
+
+    @abstractmethod
+    def execute(self, request: RunRequest) -> InstanceResult: ...
+
+    @abstractmethod
+    def read_file(self, path: str) -> bytes: ...
+
+    def write_file(self, path: str, content: bytes) -> None:
+        """Write bytes to an absolute path, creating its parent directories.
+
+        Returns after the write is applied to the executor's filesystem. It does
+        not merely stage a file or upload a blob. Persistence follows execute().
+        The default runs mkdir and cat through execute() with binary stdin.
+        Override this method to use another file-transfer mechanism. An override
+        must coordinate with the executor's commands and snapshot lifecycle.
+
+        Invalid paths raise ValueError; a failed write raises FileWriteError.
+        Transport errors, timeouts, and cancellation propagate unchanged.
+
+        """
+        _check_file_write(path, self.execute(_file_write_request(path, content)))
+
+
+class AsyncExecutor(ABC):
+    """Native asynchronous execution and file access for framework adapters."""
+
+    session_id: str
+
+    @abstractmethod
+    async def execute(self, request: RunRequest) -> InstanceResult: ...
+
+    @abstractmethod
+    async def read_file(self, path: str) -> bytes: ...
+
+    async def write_file(self, path: str, content: bytes) -> None:
+        """Write bytes with the same contract as SyncExecutor.write_file.
+
+        The default awaits execute() with binary stdin. Override with native
+        async file transfer, coordinating with commands and snapshot lifecycle.
+        Returns after application, not after staging or blob upload. Invalid paths
+        raise ValueError; a failed write raises FileWriteError. Transport errors,
+        timeouts, and cancellation propagate unchanged.
+
+        """
+        _check_file_write(path, await self.execute(_file_write_request(path, content)))

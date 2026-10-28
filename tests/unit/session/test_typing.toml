@@ -1,0 +1,164 @@
+# Each case is collected by pytest and checked with ty.
+imports = '''
+from typing_extensions import assert_type
+from contree_client.testing import ContreeClient, ContreeAsyncClient
+from contree_sdk import (
+    ContreeSession, ContreeAsyncSession, LazySession, AsyncLazySession,
+    create_sandbox_session, create_sync_sandbox_session, create_async_sandbox_session,
+)
+from contree_sdk.store import SyncMemoryStore, AsyncMemoryStore
+from contree_sdk.files import ClientFileTransfer, AsyncClientFileTransfer
+from contree_sdk.execution import SyncExecutor, AsyncExecutor
+
+class CustomSync(ContreeSession):
+    pass
+
+class CustomAsync(ContreeAsyncSession):
+    pass
+'''
+
+[[cases]]
+name = "sync_use"
+code = '''
+def sync_use(session_type: type[CustomSync] | None):
+    with create_sandbox_session(image="base") as session:
+        assert_type(session, LazySession)
+    with create_sandbox_session(
+        session_type=CustomSync, client=ContreeClient(), store=SyncMemoryStore()
+    ) as custom:
+        assert_type(custom, CustomSync)
+    with create_sync_sandbox_session(session_type=CustomSync, client_type=ContreeClient) as explicit:
+        assert_type(explicit, CustomSync)
+    with create_sync_sandbox_session(image="base") as default:
+        assert_type(default, LazySession)
+    with create_sandbox_session(session_type=None) as explicit_none:
+        assert_type(explicit_none, LazySession)
+    with create_sync_sandbox_session(session_type=None) as sync_none:
+        assert_type(sync_none, LazySession)
+    with create_sandbox_session(session_type=session_type, store=SyncMemoryStore()) as optional:
+        assert_type(optional, CustomSync | LazySession)
+    with create_sync_sandbox_session(session_type=session_type, store=SyncMemoryStore()) as sync_optional:
+        assert_type(sync_optional, CustomSync | LazySession)
+'''
+
+[[cases]]
+name = "async_use"
+code = '''
+async def async_use(session_type: type[CustomAsync] | None):
+    async with create_sandbox_session(image="base") as session:
+        assert_type(session, AsyncLazySession)
+    async with create_sandbox_session(
+        session_type=CustomAsync, client=ContreeAsyncClient(), store=AsyncMemoryStore()
+    ) as custom:
+        assert_type(custom, CustomAsync)
+    async with create_async_sandbox_session(session_type=CustomAsync, client_type=ContreeAsyncClient) as explicit:
+        assert_type(explicit, CustomAsync)
+    async with create_async_sandbox_session(image="base") as default:
+        assert_type(default, AsyncLazySession)
+    async with create_sandbox_session(session_type=None) as explicit_none:
+        assert_type(explicit_none, AsyncLazySession)
+    async with create_async_sandbox_session(session_type=None) as async_none:
+        assert_type(async_none, AsyncLazySession)
+    async with create_sandbox_session(session_type=session_type, store=AsyncMemoryStore()) as optional:
+        assert_type(optional, CustomAsync | AsyncLazySession)
+    async with create_async_sandbox_session(session_type=session_type, store=AsyncMemoryStore()) as async_optional:
+        assert_type(async_optional, CustomAsync | AsyncLazySession)
+'''
+
+[[cases]]
+name = "optional_executor_classes"
+code = '''
+def sync_use(session_type: type[SyncExecutor] | None):
+    with create_sync_sandbox_session(session_type=session_type) as session:
+        assert_type(session, SyncExecutor | LazySession)
+
+async def async_use(session_type: type[AsyncExecutor] | None):
+    async with create_async_sandbox_session(session_type=session_type) as session:
+        assert_type(session, AsyncExecutor | AsyncLazySession)
+'''
+
+[[cases]]
+name = "sync_async_client"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeSession, client=ContreeAsyncClient())
+'''
+
+[[cases]]
+name = "sync_async_client_type"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeSession, client_type=ContreeAsyncClient)
+'''
+
+[[cases]]
+name = "sync_async_storage"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeSession, store=AsyncMemoryStore())
+'''
+
+[[cases]]
+name = "sync_async_file_transfer"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeSession, file_transfer=AsyncClientFileTransfer(ContreeAsyncClient()))
+'''
+
+[[cases]]
+name = "async_sync_client"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeAsyncSession, client=ContreeClient())
+'''
+
+[[cases]]
+name = "async_sync_storage"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeAsyncSession, store=SyncMemoryStore())
+'''
+
+[[cases]]
+name = "sync_factory_async_storage"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_sync_sandbox_session(store=AsyncMemoryStore())
+'''
+
+[[cases]]
+name = "async_factory_sync_storage"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+create_async_sandbox_session(store=SyncMemoryStore())
+'''
+
+[[cases]]
+name = "optional_sync_mixed_components"
+errors = [{ line = 2, code = "no-matching-overload" }]
+code = '''
+def use(session_type: type[ContreeSession] | None):
+    create_sandbox_session(session_type=session_type, store=AsyncMemoryStore())
+'''
+
+[[cases]]
+name = "optional_async_mixed_components"
+errors = [{ line = 2, code = "no-matching-overload" }]
+code = '''
+def use(session_type: type[ContreeAsyncSession] | None):
+    create_sandbox_session(session_type=session_type, store=SyncMemoryStore())
+'''
+
+[[cases]]
+name = "async_sync_client_type"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeAsyncSession, client_type=ContreeClient)
+'''
+
+[[cases]]
+name = "async_sync_file_transfer"
+errors = [{ line = 1, code = "no-matching-overload" }]
+code = '''
+create_sandbox_session(session_type=ContreeAsyncSession, file_transfer=ClientFileTransfer(ContreeClient()))
+'''
