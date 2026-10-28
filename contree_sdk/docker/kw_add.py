@@ -30,6 +30,9 @@ from .kw_copy import format_copy_like, parse_chmod, parse_chown, parse_copy_like
 from .url_fetch import HTTP_NOT_MODIFIED, is_url, url_basename
 
 
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+
+
 @dataclass(frozen=True, repr=False)
 class AddKeyword(DockerKeyword):
     NAME: ClassVar[str] = "ADD"
@@ -134,7 +137,7 @@ def iter_url_body(body: Iterable[bytes]) -> Iterator[bytes]:
     if read is None:
         yield from body
     else:
-        while chunk := read(64 * 1024):
+        while chunk := read(DOWNLOAD_CHUNK_SIZE):
             yield chunk
 
 

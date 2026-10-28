@@ -2,7 +2,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from contree_client.models import InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import InstanceNetworking, InstanceResultState, OperationStatus, StreamRepr
 
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
@@ -14,6 +14,51 @@ from tests.unit.session.timers import ManualTimers
 def wait_state(lazy, predicate):
     with lazy.condition:
         assert lazy.condition.wait_for(predicate, timeout=2)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "callback"])
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_execute_failure_confirms_exit_or_aborts(monkeypatch, failure, confirmed):
+    from contree_sdk import RunRequest
+
+    client = LiveClient()
+    client.auto_exit = False
+    if not confirmed:
+
+        def unconfirmed_kill(operation_id, spid, **kwargs):
+            client.record_call("operation_subprocess_kill", (operation_id, spid), kwargs)
+
+        monkeypatch.setattr(client, "operation_subprocess_kill", unconfirmed_kill)
+    lazy = LazySession(ContreeSession(client, image="base"))
+    seen = []
+
+    def callback(event):
+        seen.append(event.type)
+        raise ValueError("callback failed")
+
+    request = RunRequest(command="sleep", timeout=0.02 if failure == "timeout" else None)
+    if failure == "callback":
+        create = client.operation_subprocess_create
+
+        def create_with_output(operation_id, command, **kwargs):
+            spid = create(operation_id, command, **kwargs)
+            client.streams[operation_id].put(event("stdout", spid))
+            return spid
+
+        monkeypatch.setattr(client, "operation_subprocess_create", create_with_output)
+    expected = TimeoutError if failure == "timeout" else ValueError
+    with pytest.raises(expected):
+        lazy.execute(request, on_event=callback if failure == "callback" else None, terminate_timeout=0.02)
+    assert client.calls_for("operation_subprocess_kill")[-1].kwargs["signal"] == "SIGKILL"
+    assert seen == (["stdout"] if failure == "callback" else [])
+    if confirmed:
+        client.auto_exit = True
+        assert lazy.run("next").state.exit_code == 0
+        assert len(client.calls_for("spawn_instance")) == 1
+        lazy.close(timeout=2)
+    else:
+        assert lazy.phase == "closed"
+        assert client.calls_for("cancel_operation")
 
 
 def test_shared_vm_snapshot_and_next_image():
@@ -352,3 +397,24 @@ def test_rejected_snapshot_does_not_restart_from_stale_image():
         assert len(client.calls_for("spawn_instance")) == 1
     finally:
         lazy.abort()
+
+
+def test_sync_session_and_lazy_process_identity_are_consistent():
+    from contree_sdk import ContreeSession, LazySession
+    from contree_sdk.session import Operation
+    from tests.unit.session.lazy_clients import LiveClient
+
+    client = LiveClient()
+    session = ContreeSession(client, image="base")
+    operation = session.spawn("true", uid=12, gid=34, networking=InstanceNetworking(enabled=False))
+    assert client.calls_for("spawn_instance")[0].kwargs["uid"] == 12
+    assert client.calls_for("spawn_instance")[0].kwargs["gid"] == 34
+    assert client.calls_for("spawn_instance")[0].kwargs["networking"].enabled is False
+    assert isinstance(operation, Operation)
+    operation.shutdown_timeout = 0.01
+    operation.cancel()
+    operation.shutdown()
+    with LazySession(session) as lazy:
+        lazy.run("id", uid=56, gid=78)
+        call = client.calls_for("operation_subprocess_create")[0]
+        assert (call.kwargs["uid"], call.kwargs["gid"]) == (56, 78)

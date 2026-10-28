@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing, closing
 
 import pytest
-from contree_client.models import DirectoryList, GrepResult, Image, OperationStatus
+from contree_client.exceptions import UnprocessableEntityError
+from contree_client.models import DirectoryList, FileResponse, GrepResult, Image, OperationStatus
 
 from contree_sdk import AsyncLazySession, ContreeAsyncSession, ContreeSession, LazySession
+from contree_sdk.exceptions import FileWriteError
 from contree_sdk.session import AbstractSnapshotPolicy
 from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient, event
 
@@ -118,6 +120,37 @@ async def test_cold_read_and_branch_changes_need_no_vm(setup):
         await invoke(lazy.close)
     with pytest.raises(RuntimeError, match="closed"):
         await invoke(lazy.inspect_snapshot)
+
+
+async def test_large_live_write_uses_file_transfer_without_subprocess_stdin(setup):
+    _, client, _, lazy = setup
+    client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=2 * 1024 * 1024))
+    client.mock("apply_instance_file", None)
+    try:
+        await invoke(lazy.write_file, "/large.bin", b"x" * (2 * 1024 * 1024))
+        assert len(client.calls_for("ensure_file")) == 1
+        assert client.calls_for("apply_instance_file")[0].args[:3] == ("op-1", "uploaded", "/large.bin")
+        assert not client.calls_for("operation_subprocess_create")
+        assert not client.calls_for("operation_subprocess_stdin")
+    finally:
+        await invoke(lazy.abort)
+
+
+async def test_rejected_live_write_preserves_session_for_next_upload(setup):
+    _, client, _, lazy = setup
+    client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=3))
+    client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=3))
+    client.mock("apply_instance_file", error=UnprocessableEntityError(422, "Destination is a directory"))
+    client.mock("apply_instance_file", None)
+    try:
+        with pytest.raises(FileWriteError, match="Destination is a directory"):
+            await invoke(lazy.write_file, "/directory", b"bad")
+        assert lazy.error is None
+        await invoke(lazy.write_file, "/good", b"ok")
+        assert len(client.calls_for("spawn_instance")) == 1
+        assert not client.calls_for("operation_subprocess_create")
+    finally:
+        await invoke(lazy.abort)
 
 
 @pytest.mark.parametrize("failure", ["missing_image", "failed", "wait", "store"])

@@ -22,6 +22,7 @@ def sequence():
 
 def test_sync_wait_events_subprocess_and_replay_share_one_reader():
     client = LiveClient()
+    client.auto_ready = False
     client.auto_exit = False
     client.spawn_instance("sleep", "base")
     expected = sequence()
@@ -52,6 +53,7 @@ async def collect(operation, **kwargs):
 
 async def test_async_wait_events_subprocess_and_replay_share_one_reader():
     client = LiveAsyncClient()
+    client.auto_ready = False
     client.auto_exit = False
     await client.spawn_instance("sleep", "base")
     expected = sequence()
@@ -78,6 +80,7 @@ async def test_async_wait_events_subprocess_and_replay_share_one_reader():
 
 async def test_cancelled_event_subscriber_leaves_reader_available():
     client = LiveAsyncClient()
+    client.auto_ready = False
     await client.spawn_instance("sleep", "base")
     operation = AsyncOperation(client, "op-1")
     subscriber = asyncio.create_task(collect(operation))
@@ -95,6 +98,7 @@ async def test_cancelled_event_subscriber_leaves_reader_available():
 
 def test_sync_stream_error_reaches_all_consumers_and_late_subscribers():
     client = LiveClient()
+    client.auto_ready = False
     client.auto_exit = False
     client.spawn_instance("sleep", "base")
     operation = Operation(client, "op-1")
@@ -116,6 +120,7 @@ def test_sync_stream_error_reaches_all_consumers_and_late_subscribers():
 
 async def test_async_stream_error_reaches_all_consumers_and_late_subscribers():
     client = LiveAsyncClient()
+    client.auto_ready = False
     client.auto_exit = False
     await client.spawn_instance("sleep", "base")
     operation = AsyncOperation(client, "op-1")
@@ -136,6 +141,7 @@ async def test_async_stream_error_reaches_all_consumers_and_late_subscribers():
 
 def test_sync_timeout_cancels_remote_without_starting_another_reader():
     client = LiveClient()
+    client.auto_ready = False
     client.spawn_instance("sleep", "base")
     operation = Operation(client, "op-1")
     with pytest.raises(TimeoutError):
@@ -147,6 +153,7 @@ def test_sync_timeout_cancels_remote_without_starting_another_reader():
 
 async def test_async_cancelled_wait_cancels_remote_without_cancelling_reader():
     client = LiveAsyncClient()
+    client.auto_ready = False
     await client.spawn_instance("sleep", "base")
     operation = AsyncOperation(client, "op-1")
     waiter = asyncio.create_task(operation.wait())
@@ -161,6 +168,7 @@ async def test_async_cancelled_wait_cancels_remote_without_cancelling_reader():
 
 def test_sync_subscription_timeout_leaves_reader_and_operation_available():
     client = LiveClient()
+    client.auto_ready = False
     client.spawn_instance("sleep", "base")
     operation = Operation(client, "op-1")
     with pytest.raises(TimeoutError):
@@ -175,6 +183,7 @@ def test_sync_subscription_timeout_leaves_reader_and_operation_available():
 
 async def test_async_subscription_timeout_leaves_reader_and_operation_available():
     client = LiveAsyncClient()
+    client.auto_ready = False
     await client.spawn_instance("sleep", "base")
     operation = AsyncOperation(client, "op-1")
     with pytest.raises(asyncio.TimeoutError):

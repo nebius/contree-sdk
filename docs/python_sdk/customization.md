@@ -191,13 +191,16 @@ its reader when the generator closes. Its default implementation buffers through
 `read_file()`. The inherited `download_file()` writes those chunks atomically.
 See {doc}`files` for tree preparation, callbacks, cancellation, and ownership.
 The async implementation cancels and joins sibling uploads if one fails. Override
-this method for batching or bounded concurrency. Override `read_stdin()` to support
-additional input handling. Never close a caller-owned input stream.
+this method for batching or bounded concurrency.
 
 Inject a component with `file_transfer=`. `ClientFileTransfer` and
 `AsyncClientFileTransfer` provide the standard implementations and can also be
-subclassed. Import `UploadFileSpec`, `UploadedFile`, `InputSource`, and the readable
-protocols from `contree_sdk.files`.
+subclassed. Import `UploadFileSpec` and `UploadedFile` from `contree_sdk.files`.
+
+Stdin is prepared independently of file transfer. `InputSource`, `Readable`, and
+`AsyncReadable` live in `contree_sdk.session.stdin`. Strings and bytes pass through; paths
+and streams are read locally without closing caller-owned streams. Async sessions
+await async readers and offload blocking reads to a thread.
 
 ## Implement history storage
 
@@ -394,6 +397,10 @@ may have no context and cannot be committed to session history.
 
 `wait()` must store the final `OperationResponse` before returning its
 `InstanceResult`. Cancellation and cleanup must preserve the primary exception.
+`wait_ready(timeout=...)` waits for the primary process's `spawn` event, without
+creating a subprocess. It raises if the primary exits or the operation ends
+before readiness is observed. A timeout or cancelled readiness wait leaves the
+operation and its shared event reader running; the owner controls cleanup.
 Use `SubprocessContract` or `AsyncSubprocessContract` when replacing subprocess
 handles. Iteration followed by `wait()` must not wait for a second exit event.
 A stream failure must reach its consumer instead of appearing as successful EOF.
@@ -407,8 +414,18 @@ They receive `(event, None)` for events and `(None, error)` at EOF. Keep them sh
 do not wait for the operation from its own observer. Observer errors fail the reader.
 
 `LazySession` requires `add_observer()` support from a custom operation contract.
-It delegates request policy and operation creation to the wrapped session. Override
-`keepalive_request()` on the lazy wrapper to use another main process. See
+It calls `wait_ready()` before admitting commands or live inspection, and
+stays in `starting` until the primary is ready. `startup_timeout` bounds each VM's
+readiness wait (default 30 seconds), separately from command and snapshot timeouts.
+Pass it in `session_kwargs` when using a sandbox factory. Startup failure cancels
+the unsaved VM; Harbor supplies its remaining environment startup budget through
+this same option.
+It delegates request policy and operation creation to the wrapped session. Pass
+`vm_request=RunRequest(...)` to configure the main process, VM lifetime, and other
+startup options without subclassing. With the sandbox factories, put `vm_request`
+in `session_kwargs`. `ManualSnapshotPolicy` keeps the VM alive until explicit
+snapshot, close, or abort; the default remains a ten-second idle snapshot.
+Override `keepalive_request()` when the startup request needs custom logic. See
 {doc}`reference/session` for the public snapshot-policy interface.
 
 ## Resolve application-specific image names

@@ -19,6 +19,7 @@ from contree_sdk.session.snapshot_policy import (
     CommandCountSnapshotPolicy,
     CompositeSnapshotPolicy,
     IdleSnapshotPolicy,
+    ManualSnapshotPolicy,
     SnapshotEvent,
 )
 from contree_sdk.session.stdin import StdinResult
@@ -41,6 +42,7 @@ __all__ = [
     "HistoryEntry",
     "IdleSnapshotPolicy",
     "LazySession",
+    "ManualSnapshotPolicy",
     "Operation",
     "OperationContext",
     "OperationContract",

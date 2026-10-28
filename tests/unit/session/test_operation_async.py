@@ -222,7 +222,7 @@ class TestRichMode:
 
         async with AsyncOperation(client, "op-1") as operation:
             handle = await operation.run("echo sub")
-            collected = [event async for event in handle]
+            collected = [event async for event in handle.iter_events()]
             result = await handle.wait()
 
         assert [event.id for event in collected] == [2, 3]
@@ -327,7 +327,9 @@ async def test_wait_after_consuming_exit_and_repeated_wait_do_not_block(client):
     events = asyncio.Queue()
     events.put_nowait(make_event(1, "exit", 2))
     handle = AsyncSubprocessHandle(operation, 2, events)
-    assert len([event async for event in handle]) == 1
+    with pytest.raises(TypeError):
+        aiter(handle)
+    assert len([event async for event in handle.iter_events()]) == 1
     first = await handle.wait(timeout=0.01)
     second = await handle.wait(timeout=0.01)
     assert first is second

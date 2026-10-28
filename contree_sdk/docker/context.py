@@ -34,6 +34,8 @@ from .url_fetch import http_fetch_async as default_http_fetch_async
 
 
 BUILD_TIMEOUT_DEFAULT = 600
+UPLOAD_CACHE_TTL_DEFAULT = 90 * 24 * 3600
+UPLOAD_CONCURRENCY_DEFAULT = 4
 
 
 @dataclass(frozen=True, repr=False)
@@ -132,8 +134,8 @@ class BuildContext:
     on_event: Callable[[BuildEvent], None] | None = None
     progress: BuildProgress = field(default_factory=BuildProgress)
 
-    upload_cache_ttl: float = 90 * 24 * 3600
-    upload_concurrency: int = 4
+    upload_cache_ttl: float = UPLOAD_CACHE_TTL_DEFAULT
+    upload_concurrency: int = UPLOAD_CONCURRENCY_DEFAULT
 
     def cache_namespace(self, namespace: str) -> str:
         return StoreScope.from_client(self.client).namespace(namespace)
@@ -381,8 +383,8 @@ class AsyncBuildContext:
         else:
             await self.directive_executor(directive, self)
 
-    upload_cache_ttl: float = 90 * 24 * 3600
-    upload_concurrency: int = 4
+    upload_cache_ttl: float = UPLOAD_CACHE_TTL_DEFAULT
+    upload_concurrency: int = UPLOAD_CONCURRENCY_DEFAULT
 
     def cache_namespace(self, namespace: str) -> str:
         return StoreScope.from_client(self.client).namespace(namespace)

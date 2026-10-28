@@ -15,6 +15,57 @@ async def wait_state(lazy, predicate):
         await asyncio.wait_for(lazy.condition.wait_for(predicate), 2)
 
 
+@pytest.mark.parametrize("failure", ["timeout", "cancel", "callback"])
+@pytest.mark.parametrize("confirmed", [True, False])
+async def test_execute_failure_confirms_exit_or_aborts(monkeypatch, failure, confirmed):
+    from contree_sdk import RunRequest
+
+    client = LiveAsyncClient()
+    client.auto_exit = False
+    if not confirmed:
+
+        async def unconfirmed_kill(operation_id, spid, **kwargs):
+            client.record_call("operation_subprocess_kill", (operation_id, spid), kwargs)
+
+        monkeypatch.setattr(client, "operation_subprocess_kill", unconfirmed_kill)
+    lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"))
+    seen = []
+
+    async def callback(event):
+        seen.append(event.type)
+        raise ValueError("callback failed")
+
+    request = RunRequest(command="sleep", timeout=0.02 if failure == "timeout" else None)
+    if failure == "callback":
+        create = client.operation_subprocess_create
+
+        async def create_with_output(operation_id, command, **kwargs):
+            spid = await create(operation_id, command, **kwargs)
+            await client.streams[operation_id].put(event("stdout", spid))
+            return spid
+
+        monkeypatch.setattr(client, "operation_subprocess_create", create_with_output)
+    task = asyncio.create_task(
+        lazy.execute(request, on_event=callback if failure == "callback" else None, terminate_timeout=0.02)
+    )
+    if failure == "cancel":
+        await asyncio.wait_for(client.created.wait(), 1)
+        task.cancel()
+    expected = {"timeout": TimeoutError, "cancel": asyncio.CancelledError, "callback": ValueError}[failure]
+    with pytest.raises(expected):
+        await asyncio.wait_for(task, 1)
+    assert client.calls_for("operation_subprocess_kill")[-1].kwargs["signal"] == "SIGKILL"
+    assert seen == (["stdout"] if failure == "callback" else [])
+    if confirmed:
+        client.auto_exit = True
+        assert (await lazy.run("next")).state.exit_code == 0
+        assert len(client.calls_for("spawn_instance")) == 1
+        await lazy.close(timeout=2)
+    else:
+        assert lazy.phase == "closed"
+        assert client.calls_for("cancel_operation")
+
+
 async def test_shared_vm_snapshot_and_next_image():
     client = LiveAsyncClient()
     base = ContreeAsyncSession(client, image="base")

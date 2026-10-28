@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Coroutine, Iterator
+from collections.abc import AsyncGenerator, Coroutine, Generator
 from contextlib import asynccontextmanager, contextmanager, suppress
 
 from contree_sdk.session.contracts import AsyncOperationContract, OperationContract
@@ -48,7 +48,7 @@ async def await_cleanup(cleanup: Coroutine[object, object, None]) -> None:
 
 
 @contextmanager
-def owned_operation(operation: OperationContract) -> Iterator[OperationContract]:
+def owned_operation(operation: OperationContract) -> Generator[OperationContract, None, None]:
     """Close an SDK-owned handle after use without starting its reader early.
 
     Yields:
@@ -66,7 +66,7 @@ def owned_operation(operation: OperationContract) -> Iterator[OperationContract]
 
 
 @asynccontextmanager
-async def owned_async_operation(operation: AsyncOperationContract) -> AsyncIterator[AsyncOperationContract]:
+async def owned_async_operation(operation: AsyncOperationContract) -> AsyncGenerator[AsyncOperationContract, None]:
     """Close an SDK-owned handle and join cleanup before propagating cancellation.
 
     Yields:

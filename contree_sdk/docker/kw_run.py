@@ -20,6 +20,7 @@ from .keyword import DockerKeyword, parse_command_form
 
 
 DISPLAY_TITLE_MAX_LEN = 200
+BUILD_OUTPUT_LIMIT = 64 * 1024
 
 
 @dataclass(frozen=True, repr=False)
@@ -100,7 +101,7 @@ class RunKeyword(DockerKeyword):
             files=ctx.pending_files_payload() if ctx.pending else None,
             disposable=False,
             hostname="linuxkit",
-            truncate_output_at=65536,
+            truncate_output_at=BUILD_OUTPUT_LIMIT,
             timeout=ctx.timeout if ctx.timeout else None,
         )
 

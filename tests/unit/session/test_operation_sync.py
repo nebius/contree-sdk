@@ -234,7 +234,7 @@ class TestRichMode:
 
         with Operation(client, "op-1") as operation:
             handle = operation.run("echo sub")
-            collected = list(handle)
+            collected = list(handle.iter_events())
             result = handle.wait()
 
         assert [event.id for event in collected] == [2, 3]
@@ -337,7 +337,9 @@ def test_wait_after_consuming_exit_and_repeated_wait_do_not_block(client):
     events = queue.Queue()
     events.put_nowait(make_event(1, "exit", 2))
     handle = SubprocessHandle(operation, 2, events)
-    assert len(list(handle)) == 1
+    with pytest.raises(TypeError):
+        iter(handle)
+    assert len(list(handle.iter_events())) == 1
     first = handle.wait(timeout=0.01)
     second = handle.wait(timeout=0.01)
     assert first is second

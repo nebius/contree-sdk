@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from contree_client.exceptions import APIConnectionError, NotFoundError
 from contree_client.models import FileResponse, ImageImportRegistry, ImageImportRegistryCredentials, OperationStatus
 from contree_client.profiles import Profile
 from contree_client.testing import ContreeAsyncClient, ContreeClient
@@ -103,6 +104,8 @@ async def test_import_default_cache_persists_across_calls(mode, api, profile, tm
         assert await invoke(helper, "alpine:latest", profile=profile, client_type=api, tag="base") == "imported"
     first, second = api.instances
     assert first.calls_for("import_image")[0].args[0].url == "docker://docker.io/library/alpine:latest"
+    assert first.calls_for("wait_operation")[0].kwargs == {"timeout": 300}
+    assert not first.calls_for("follow_operation_events")
     assert not second.calls_for("import_image")
     assert second.calls_for("update_image_tag")[0].args == ("imported", "base")
     assert first.opened == first.closed == second.opened == second.closed == 1
@@ -115,6 +118,21 @@ async def test_import_refresh_and_zero_ttl(mode, api, profile):
     for options in [{}, {"no_cache": True, "cache_ttl": 0}, {}]:
         await invoke(helper, "alpine:latest", profile=profile, client_type=api, **options)
     assert all(len(c.calls_for("import_image")) == 1 for c in api.instances)
+
+
+async def test_import_wait_failure_cancels_without_sdk_status_fallback(mode, api):
+    client = api()
+    cache = AsyncMemoryStore() if mode else SyncMemoryStore()
+    error = APIConnectionError("status polling failed")
+    client.mocks["wait_operation"].clear()
+    client.mock("wait_operation", error=error)
+    helper = async_import_image if mode else sync_import_image
+    with pytest.raises(APIConnectionError) as caught:
+        await invoke(helper, "alpine:latest", client=client, store=cache)
+    assert caught.value is error
+    assert not client.calls_for("get_operation_status")
+    assert len(client.calls_for("cancel_operation")) == 1
+    assert not (await invoke(cache.list_sessions)).items
 
 
 @pytest.mark.parametrize("field", ["url", "project", "token"])
@@ -168,6 +186,18 @@ async def test_build_persists_layers_and_uploads_without_rebuilding(mode, api, p
     assert first.closed == second.closed == 1
     assert not (tmp_path / "xdg/contree/builds.sqlite3").exists()
     assert (tmp_path / "xdg/contree/images.sqlite3").is_file()
+
+
+async def test_build_from_registry_waits_without_events(mode, api, context):
+    client = api()
+    client.mocks["resolve_image"].clear()
+    client.mock("resolve_image", error=NotFoundError(404, "image not imported"))
+    helper = async_build_image if mode else sync_build_image
+    assert await invoke(helper, context, client=client) == "built"
+    wait = client.calls_for("wait_operation")
+    assert len(wait) == 1
+    assert wait[0].args == ("import-1",)
+    assert wait[0].kwargs == {"timeout": 600}
 
 
 async def test_build_no_cache_bypasses_layers_but_reuses_uploads(mode, api, profile, context):

@@ -35,6 +35,7 @@ from contree_sdk.store.ttl import expiration
 
 
 IMPORT_CACHE_TTL = 3600
+IMPORT_TIMEOUT_DEFAULT = 300
 
 
 def image_cache_directory(cache_dir: str | Path | None = None) -> Path:
@@ -82,7 +83,7 @@ def sync_import_image(  # noqa: PLR0913 - explicit connection and import options
     source: str | ImageImportRegistry,
     *,
     tag: str | None = None,
-    timeout: int = 300,
+    timeout: int = IMPORT_TIMEOUT_DEFAULT,
     no_cache: bool = False,
     store: SyncStore | None = None,
     cache_dir: str | Path | None = None,
@@ -162,7 +163,7 @@ async def async_import_image(  # noqa: PLR0913 - explicit connection and import 
     source: str | ImageImportRegistry,
     *,
     tag: str | None = None,
-    timeout: int = 300,
+    timeout: int = IMPORT_TIMEOUT_DEFAULT,
     no_cache: bool = False,
     store: AsyncStore | None = None,
     cache_dir: str | Path | None = None,

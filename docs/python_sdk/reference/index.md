@@ -16,5 +16,6 @@ docker
 cache
 execution
 langchain
+harbor
 exceptions
 ```

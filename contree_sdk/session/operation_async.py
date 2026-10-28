@@ -11,15 +11,25 @@ import asyncio
 import time
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from contextlib import suppress
+from math import isfinite
 from typing import IO
 
+from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.compat import Self
+from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.execution import OperationContext
-from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
+from contree_sdk.session.base import (
+    encode_stdin_chunk,
+    instance_result,
+    stream_repr_for_stdin,
+    subprocess_not_ready,
+    write_stream_chunk,
+)
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
+from contree_sdk.session.defaults import DEFAULT_READINESS_TIMEOUT, DEFAULT_SHUTDOWN_TIMEOUT, READINESS_RETRY_INTERVAL
 from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
@@ -27,7 +37,12 @@ DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
 
 
 class AsyncOperation(AsyncOperationContract):
-    """Handle to a spawned instance operation, identified by its UUID."""
+    """Handle to a spawned instance operation, identified by its UUID.
+
+    Subprocess creation retries explicit pending/control-channel rejections for
+    readiness_timeout seconds (default 30). Zero disables readiness retries.
+    Transport errors and other conflicts propagate without resubmission.
+    """
 
     def __init__(
         self,
@@ -35,10 +50,14 @@ class AsyncOperation(AsyncOperationContract):
         operation_uuid: str,
         *,
         timeout: float | None = None,
-        shutdown_timeout: float = 10.0,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
+        readiness_timeout: float = DEFAULT_READINESS_TIMEOUT,
         files: tuple[str, ...] = (),
         context: OperationContext | None = None,
     ) -> None:
+        if not isfinite(readiness_timeout) or readiness_timeout < 0:
+            raise ValueError("readiness_timeout must be finite and nonnegative")
+        self.readiness_timeout = readiness_timeout
         self.client = client
         self.uuid = operation_uuid
         self.timeout = timeout
@@ -130,6 +149,45 @@ class AsyncOperation(AsyncOperationContract):
     async def status(self, *, inflight: bool = False) -> OperationResponse:
         self.response = await self.client.get_operation_status(self.uuid, inflight=inflight)
         return self.response
+
+    async def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait for the primary spawn using the shared reader, without creating a subprocess.
+
+        None waits indefinitely. Timeout or caller cancellation leaves the reader
+        and VM running; the owner decides whether to cancel the operation.
+
+        Raises:
+            ValueError: Timeout is not finite and positive.
+            TimeoutError: The sandbox did not become ready within the timeout.
+
+        """
+        if timeout is not None and (not isfinite(timeout) or timeout <= 0):
+            raise ValueError("timeout must be finite and positive")
+        try:
+            await asyncio.wait_for(self._wait_ready(), timeout=timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"operation {self.uuid} sandbox startup timed out") from None
+
+    async def _wait_ready(self) -> None:
+        await self._start_reader()
+        async with self.changed:
+            await self.changed.wait_for(
+                lambda: (
+                    1 in self.spawned or 1 in self.exited or self.completion_received or self.terminal_event.is_set()
+                )
+            )
+            if (
+                1 in self.spawned
+                and 1 not in self.exited
+                and not self.completion_received
+                and not self.terminal_event.is_set()
+            ):
+                return
+        response = await self.status()
+        error = (
+            response.error if isinstance(response.error, str) else f"primary process unavailable ({response.status})"
+        )
+        raise FailedOperationError(self.uuid, error) from self.stream_error
 
     async def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None:
         value, encoding = encode_stdin_chunk(data)
@@ -357,18 +415,28 @@ class AsyncOperation(AsyncOperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
-        spid = await self.client.operation_subprocess_create(
-            self.uuid,
-            command,
-            args=list(args) if args else ...,
-            shell=shell,
-            env=env if env is not None else ...,
-            cwd=cwd if cwd is not None else ...,
-            uid=uid if uid is not None else ...,
-            gid=gid if gid is not None else ...,
-            stdin=stdin_repr,
-            truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
-        )
+        arguments = list(args) if args else ...
+        deadline = time.monotonic() + self.readiness_timeout
+        while True:
+            try:
+                spid = await self.client.operation_subprocess_create(
+                    self.uuid,
+                    command,
+                    args=arguments,
+                    shell=shell,
+                    env=env if env is not None else ...,
+                    cwd=cwd if cwd is not None else ...,
+                    uid=uid if uid is not None else ...,
+                    gid=gid if gid is not None else ...,
+                    stdin=stdin_repr,
+                    truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
+                )
+                break
+            except (TooEarlyError, ConflictError) as error:
+                remaining = deadline - time.monotonic()
+                if not subprocess_not_ready(error) or self.terminal or remaining <= 0:
+                    raise
+                await asyncio.sleep(min(READINESS_RETRY_INTERVAL, remaining))
         return self.create_subprocess(spid, await self.claim_queue(spid))
 
     def create_subprocess(
@@ -412,7 +480,7 @@ class AsyncOperation(AsyncOperationContract):
 
 
 class AsyncSubprocessHandle(AsyncSubprocessContract):
-    """Both awaitable (final result) and async-iterable (live events) for one spid."""
+    """Awaitable final result and explicit live events for one spid."""
 
     def __init__(
         self, operation: AsyncOperation, spid: int, events_queue: asyncio.Queue[OperationEvent | None]
@@ -423,7 +491,7 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
         self.finished = False
         self.result: InstanceResult | None = None
 
-    async def iterate(self) -> AsyncIterator[OperationEvent]:
+    async def iter_events(self) -> AsyncIterator[OperationEvent]:
         while not self.finished:
             item = await self.queue.get()
             if item is None:
@@ -434,9 +502,6 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
             if item.type == "exit":
                 self.finished = True
             yield item
-
-    def __aiter__(self) -> AsyncIterator[OperationEvent]:
-        return self.iterate()
 
     def __await__(self):
         return self.wait().__await__()
@@ -464,7 +529,7 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
     async def pipe_to(
         self, *, stdout: IO[str] | IO[bytes] | None = None, stderr: IO[str] | IO[bytes] | None = None
     ) -> InstanceResult:
-        async for event in self:
+        async for event in self.iter_events():
             if event.type == "stdout" and stdout is not None:
                 write_stream_chunk(stdout, event.data)
             elif event.type == "stderr" and stderr is not None:

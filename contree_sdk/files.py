@@ -97,10 +97,9 @@ RunFiles: TypeAlias = list[str | Path | UploadFileSpec] | dict[str, str | Path |
 
 
 class SyncFileTransfer(ABC):
-    """Replace upload, download, or stdin handling without replacing a session.
+    """Replace file uploads and downloads without replacing a session.
 
     Returned FileSpec values identify uploads on the same server as the session.
-    Input streams belong to the caller and must not be closed by this component.
     """
 
     max_concurrency = 1

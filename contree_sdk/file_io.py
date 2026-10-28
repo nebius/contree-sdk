@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import tarfile
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import IO, Any, Literal, TypeVar
 
 
+HASH_CHUNK_SIZE = 1024 * 1024
 T = TypeVar("T")
 
 
@@ -55,7 +57,7 @@ def hash_upload(handle: IO[bytes]) -> str:
     position = handle.tell()
     digest = hashlib.sha256()
     try:
-        while chunk := handle.read(1024 * 1024):
+        while chunk := handle.read(HASH_CHUNK_SIZE):
             digest.update(chunk)
     finally:
         handle.seek(position)
@@ -129,3 +131,26 @@ async def write_download_async(
                 on_progress(TransferProgress("download", path, total))
         await run_file_io(flush_download, handle)
     return total
+
+
+def _extract_tar_file(archive: Path, destination: str | Path) -> None:
+    target = Path(destination)
+    target.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:*") as tar:
+        tar.extractall(target, filter="data")
+
+
+def extract_tar_download(chunks: Iterable[bytes], destination: str | Path, *, path: str = "") -> None:
+    """Download a tar stream and safely merge it into a local directory."""
+    with TemporaryDirectory() as tmp:
+        archive = Path(tmp) / "download.tar"
+        write_download(chunks, archive, path=path)
+        _extract_tar_file(archive, destination)
+
+
+async def extract_tar_download_async(chunks: AsyncIterable[bytes], destination: str | Path, *, path: str = "") -> None:
+    """Download a tar stream and safely merge it into a local directory."""
+    with TemporaryDirectory() as tmp:
+        archive = Path(tmp) / "download.tar"
+        await write_download_async(chunks, archive, path=path)
+        await run_file_io(_extract_tar_file, archive, destination)

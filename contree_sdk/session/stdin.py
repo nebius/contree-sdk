@@ -1,4 +1,6 @@
-"""Values shared by synchronous and asynchronous stdin forwarding."""
+"""Input sources, local readers, and values shared by stdin forwarding."""
+
+from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass

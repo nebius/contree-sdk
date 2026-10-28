@@ -309,7 +309,7 @@ A UUID-only handle can inspect, wait for, or cancel an existing operation. It ha
 session history context, so `commit_result()` cannot use it. Keep the original
 session-created handle when you intend to commit.
 
-A subprocess remembers its exit event. `wait()` after iteration does not wait for
+A subprocess remembers its exit event. `wait()` after `iter_events()` does not wait for
 another exit. Stream failures propagate to consumers. Operation `wait()` attempts
 remote cancellation if waiting fails or is cancelled, while preserving the original error.
 

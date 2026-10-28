@@ -20,21 +20,24 @@ class LazyState:
     closing: bool = False
     snapshots: int = 0
     completion_seen: bool = False
-    ready: bool = False
+    snapshot_pending: bool = False
 
-    def begin(self) -> None:
+    def begin_start(self) -> None:
         self.phase = "starting"
         self.creating = 0
         self.completion_seen = False
-        self.ready = False
+        self.snapshot_pending = False
         self.active.clear()
         self.early_exits.clear()
+
+    def finish_start(self) -> None:
+        self.phase = "draining" if self.closing or self.snapshot_pending else "running"
+        self.snapshot_pending = False
 
     def reserve(self) -> None:
         self.creating += 1
 
     def created(self, spid: int) -> None:
-        self.ready = True
         self.creating -= 1
         if spid in self.early_exits:
             self.early_exits.remove(spid)
@@ -51,8 +54,6 @@ class LazyState:
             return False
         if error is not None:
             self.fail(error)
-        elif event is not None and event.type == "spawn" and event.spid == 1:
-            self.ready = True
         elif event is None:
             if self.phase != "snapshotting" or not self.completion_seen:
                 self.fail(RuntimeError("LazySession event stream ended without expected completion"))
@@ -72,16 +73,34 @@ class LazyState:
                 return True
         return False
 
-    def wants_snapshot(self, requested: bool) -> bool:
-        if self.phase == "running" and requested:
+    def request_snapshot(self) -> None:
+        if self.phase == "starting":
+            self.snapshot_pending = True
+        elif self.phase == "running":
             self.phase = "draining"
-        return self.phase == "draining" and self.creating == 0 and not self.active and self.inspecting == 0
 
-    def saved(self) -> None:
+    def ready_to_snapshot(self) -> bool:
+        return self.phase == "draining" and self.creating == 0 and self.inspecting == 0 and not self.active
+
+    def begin_snapshot(self) -> None:
+        self.phase = "snapshotting"
+
+    def finish_snapshot(self) -> None:
         self.snapshots += 1
         self.phase = "closed" if self.closing else "cold"
 
-    def check(self) -> None:
+    def request_close(self) -> None:
+        self.closing = True
+        if self.phase == "cold":
+            self.close()
+        else:
+            self.request_snapshot()
+
+    def close(self) -> None:
+        self.closing = True
+        self.phase = "closed"
+
+    def ensure_usable(self) -> None:
         if self.error is not None:
             raise RuntimeError(
                 "LazySession failed; inspect error and abort before reusing the base session"

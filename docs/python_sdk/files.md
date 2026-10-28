@@ -5,10 +5,12 @@ icon: file-arrow-up
 # Upload inputs and download results
 
 Use `write_file(path, content)` to write bytes into the sandbox. It creates parent
-directories and returns after the write completes. `read_file()` reads the active
-VM without taking a snapshot. The next command reuses that VM, including its
-running processes. A cold session reads its saved image; pending staged files
-start a VM so reads include those inputs.
+directories and returns after the write completes. A running lazy sandbox uses
+live file APIs for reads and writes, without snapshots or file contents in command
+events. When no VM is running, reads inspect the selected saved image; writes start
+a VM. Use `snapshot()` to explicitly save filesystem changes and stop the VM.
+`inspect()` returns an inspector for the selected saved image only when no VM is
+active; it raises while a VM is starting, running, draining, or snapshotting.
 
 This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
 and saves the result as `output.txt` in your local working directory.
@@ -25,7 +27,7 @@ sandbox_api.download(b"Hello from a file!\n")
 -->
 
 ```python
-"""Write a file and download the result from the same VM."""
+"""Write a file, save its state, and download the result."""
 
 from pathlib import Path
 
@@ -50,7 +52,8 @@ name: test_files
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
 assert sandbox_api.sync.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
+assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 1
+assert sandbox_api.sync.calls_for("apply_instance_file")
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -92,7 +95,8 @@ name: test_files_async
 assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
 assert sandbox_api.async_client.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
+assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 1
+assert sandbox_api.async_client.calls_for("apply_instance_file")
 assert capsys.readouterr().out == "Hello from a file!\n"
 ```
 -->
@@ -100,7 +104,8 @@ assert capsys.readouterr().out == "Hello from a file!\n"
 ::::
 
 Both stdout and the local `output.txt` contain `Hello from a file!` followed by a newline.
-`read_file()` sees both writes without stopping the VM. Normal context exit saves them.
+`read_file()` downloads the live result and keeps the VM running. Normal context
+exit saves the filesystem changes.
 With `ContreeSession`, each command saves by default; `disposable=True` leaves
 the previous image selected.
 
@@ -110,9 +115,12 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-For a local file, use `run(shell="cat > /input.txt", stdin=Path("local.txt"))`. The default lazy sandbox does not support `run(files=...)` while a
-VM is active. The advanced examples below select `ContreeSession` or
-`ContreeAsyncSession` explicitly for startup attachments and per-command images.
+The lazy sandbox reads live files through `inspect()`. Its `write_file()` method
+uploads and applies content directly to the live VM; `inspect_snapshot()` pins a
+saved image when needed.
+The default lazy sandbox does not support `run(files=...)` while a VM is active.
+The advanced examples below select `ContreeSession` or `ContreeAsyncSession`
+explicitly for startup attachments and per-command images.
 
 ## Advanced: choose a file source
 
@@ -493,102 +501,22 @@ for other byte iterables. These helpers do not own their input streams; the call
 must close them. Custom transfer backends can override `iter_file()`; its default
 implementation buffers through `read_file()`.
 
+`extract_tar_download()` and `extract_tar_download_async()` consume a tar stream,
+verify paths with Python's `data` extraction filter, and merge its contents into
+a local directory. They spool the archive to a temporary file before extraction;
+callers still own and close the source stream.
+
 ## Inspect the active VM without stopping it
 
-`LazySession.inspect()` returns a view of the current session. Each file request
-selects the active VM or, when the session is cold, its saved image. Retaining the
-view does not keep a VM running. Pending staged files start a VM before reading.
+`LazySession.inspect()` returns a `SessionInspector`; the async variant returns an
+`AsyncSessionInspector`. Each request selects the live VM or the saved image when
+the session is cold. Creating the inspector does not start a VM. Pending staged
+files start a VM before a read so the view includes them.
 
 The view provides `list`, `grep`, `file_exists`, `archive_exists`, `read_file`,
-`iter_file`, `download_file`, and `archive`. Paths use the filesystem root rather
-than the command's working directory. File contents bypass the operation event log.
-`download_file` replaces the local destination only after the complete transfer.
+`iter_file`, `download_file`, and `archive`. Paths are rooted at `/`, independent
+of the command's working directory. `download_file()` writes atomically. Close
+`iter_file()` and `archive()` generators if you stop consuming them early.
 
-::::{tab} Sync
-
-<!--
-name: test_live_inspect; fixtures: sandbox_api
-```python
-sandbox_api.sync.mock("inspect_instance_download_stream", [b"result", b"\n"])
-```
--->
-
-```python
-from contextlib import closing
-
-from contree_sdk import create_sandbox_session
-
-
-with create_sandbox_session(image="tag:alpine:latest") as session:
-    session.write_file("/result.txt", b"result\n")
-    view = session.inspect()
-    with closing(view.iter_file("/result.txt")) as chunks:
-        content = b"".join(chunks)
-    assert content == b"result\n"
-    assert session.phase == "running"
-    saved = session.inspect_snapshot()
-    assert session.phase == "cold"
-    image_uuid = saved.image_uuid
-```
-
-<!--
-name: test_live_inspect
-```python
-assert sandbox_api.sync.calls_for("inspect_instance_download_stream")[0].args == ("op-1", "/result.txt")
-assert image_uuid == "image-op-1"
-```
--->
-
-::::
-
-::::{tab} Async
-
-<!--
-name: async test_live_inspect_async; fixtures: sandbox_api
-```python
-sandbox_api.async_client.mock("inspect_instance_download_stream", [b"result", b"\n"])
-```
--->
-
-```python
-from contextlib import aclosing
-
-from contree_sdk import create_sandbox_session
-
-
-async with create_sandbox_session(image="tag:alpine:latest") as session:
-    await session.write_file("/result.txt", b"result\n")
-    view = await session.inspect()
-    async with aclosing(view.iter_file("/result.txt")) as chunks:
-        content = b"".join([chunk async for chunk in chunks])
-    assert content == b"result\n"
-    assert session.phase == "running"
-    saved = await session.inspect_snapshot()
-    assert session.phase == "cold"
-    image_uuid = saved.image_uuid
-```
-
-<!--
-name: test_live_inspect_async
-```python
-assert sandbox_api.async_client.calls_for("inspect_instance_download_stream")[0].args == ("op-1", "/result.txt")
-assert image_uuid == "image-op-1"
-```
--->
-
-::::
-
-Close streams when iteration stops early. Snapshot and normal session close wait
-for accepted live requests, including their streams. File requests count as idle
-activity; they do not increase `CommandCountSnapshotPolicy`'s command count.
-Requests arriving during a snapshot wait for it to finish. `inspect(timeout=...)`
-limits that admission and startup wait; client settings control HTTP timeouts.
-Live errors propagate without reading an older image as a fallback.
-
-Live reads can observe concurrent writes. They are not filesystem snapshots.
-Live grep also differs from image grep in regex support, encoding, ignore rules,
-and highlight spans. Unsupported patterns raise an error; check `truncated` on
-successful results. The live API limits transfers to 300 seconds and directory
-listings to 10,000 entries. Use `inspect_snapshot()` for a stable image view;
-its `image_uuid` remains fixed across later commands. Image metadata through
-`view.info()` requires this same snapshot and stops the VM.
+Use `inspect_snapshot()` to stop the VM and get a pinned `ImageInspector` when
+you need a stable saved image. Background processes end at that boundary.
