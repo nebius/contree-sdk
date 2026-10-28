@@ -7,6 +7,7 @@ import pytest
 
 from contree_sdk.store import AsyncSQLiteStore, Node, SyncSQLiteStore
 from tests.unit.store.test_tree_store import call, seed
+from tests.utils.store import seed_nodes
 
 
 async def test_batch_preserves_order_missing_slots_and_independent_json(store_case):
@@ -37,10 +38,12 @@ async def test_history_continues_after_reopen_with_page_bounded_work(factory, tm
     store = factory(path)
     await seed(store)
     parent = "root"
+    nodes = []
     for index in range(1100):
         node = Node(id=f"step-{index:04}", parent_id=parent, kind="run")
-        await call(store.append, "s", node)
+        nodes.append(node)
         parent = node.id
+    await seed_nodes(store, "s", nodes)
     first = await call(store.list_history, "s", parent)
     assert len(first.items) == 1000
     token = first.next_cursor
@@ -90,8 +93,7 @@ async def test_batch_over_sqlite_parameter_boundary(factory, tmp_path):
     try:
         await seed(store)
         ids = tuple(f"node-{index}" for index in range(1000))
-        for node_id in ids:
-            await call(store.append, "s", Node(id=node_id, parent_id="root", kind="run"))
+        await seed_nodes(store, "s", (Node(id=node_id, parent_id="root", kind="run") for node_id in ids))
         batch = await call(store.get_nodes, "s", tuple(reversed(ids)))
         assert [node.id for node in batch] == list(reversed(ids))
     finally:
