@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from contree_client.models import (
+    DirectoryList,
     EventDataStream,
     FileResponse,
     InstanceResult,
@@ -27,8 +28,11 @@ class DocumentationAPI:
         self.sync = ContreeClient()
         self.async_client = ContreeAsyncClient()
         self.sequence = 0
+        self.stage_copy = False
         for client in (self.sync, self.async_client):
             client.mock("resolve_image", "base-image")
+            client.mock("check_image_archive", True)
+            client.mock("check_file_exists", True)
             client.mock("ensure_file", FileResponse(uuid="uploaded-file", sha256="a" * 64, size=4))
             client.mock("cancel_operation", None)
             client.mock("operation_subprocess_kill", None)
@@ -64,12 +68,18 @@ class DocumentationAPI:
         for client in (self.sync, self.async_client):
             client.mock("spawn_instance", InstanceSpawnResponse(uuid=operation_uuid))
             client.mock("wait_operation", response)
-            client.mock("get_operation_status", response)
+            if not (stream and self.stage_copy):
+                client.mock("get_operation_status", response)
             if stream:
-                client.mock(
-                    "follow_operation_events",
-                    [OperationEvent(id=1, ts=datetime.now(timezone.utc), type="completion", data={})],
-                )
+                if self.stage_copy:
+                    from tests.unit.docker.copy_clients import mock_copy_completion
+
+                    mock_copy_completion(client, response)
+                else:
+                    client.mock(
+                        "follow_operation_events",
+                        [OperationEvent(id=1, ts=datetime.now(timezone.utc), type="completion", data={})],
+                    )
 
     def download(self, data: bytes) -> None:
         for client in (self.sync, self.async_client):
@@ -162,18 +172,27 @@ def doc_build_context(doc_api: DocumentationAPI, tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def doc_stage_archive(doc_api: DocumentationAPI) -> None:
-    """Provide the remote stage export; context files are created by the example."""
-    import io
-    import tarfile
+def doc_stage_file(doc_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide stage-file bytes and metadata; the example creates its local context."""
+    import hashlib
+    from typing import IO
 
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w") as archive:
-        member = tarfile.TarInfo("built.txt")
-        member.size = 4
-        archive.addfile(member, io.BytesIO(b"one\n"))
+    from tests.unit.docker.copy_clients import source_item
+
+    def ensure_file(content: IO[bytes], **kwargs: object) -> FileResponse:
+        data = content.read()
+        sha256 = hashlib.sha256(data).hexdigest()
+        return FileResponse(uuid=sha256, sha256=sha256, size=len(data))
+
+    async def ensure_file_async(content: IO[bytes], **kwargs: object) -> FileResponse:
+        return ensure_file(content, **kwargs)
+
     for client in (doc_api.sync, doc_api.async_client):
-        client.mock("inspect_image_archive", [buffer.getvalue()])
+        client.mock("inspect_image_list", DirectoryList(path="/", files=[source_item("built.txt")]))
+        client.mock("inspect_image_download_stream", [b"one\n"])
+        client.mock("inspect_image_download_stream", [b"two\n"])
+    monkeypatch.setattr(doc_api.sync, "ensure_file", ensure_file)
+    monkeypatch.setattr(doc_api.async_client, "ensure_file", ensure_file_async)
 
 
 @pytest.fixture

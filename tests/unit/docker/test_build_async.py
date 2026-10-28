@@ -4,12 +4,13 @@ import tarfile
 from collections.abc import AsyncIterator
 
 import pytest
-from contree_client.models import FileResponse
+from contree_client.models import DirectoryList, FileResponse
 from contree_client.testing import ContreeAsyncClient
 
 from contree_sdk.docker import ContreeAsyncDockerBuilder
 from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore
+from tests.unit.docker.copy_clients import mock_copy_completion, source_item
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
@@ -17,6 +18,7 @@ from tests.unit.session.factories import mock_completion, operation_response, sp
 def client() -> ContreeAsyncClient:
     client = ContreeAsyncClient()
     client.mock("resolve_image", "img-uuid-0")
+    client.mock("check_image_archive", True)
     return client
 
 
@@ -226,12 +228,19 @@ class TestMultistage:
             "FROM tag:runtime\nCOPY --from=builder /out /out\nRUN echo done\n",
         )
         client.mock("resolve_image", "img-uuid-builder")
+        client.mock("check_image_archive", True)
         client.mock("resolve_image", "img-uuid-runtime")
+        client.mock("check_image_archive", True)
         client.mock("spawn_instance", spawn_response("op-1"))
         client.mock("spawn_instance", spawn_response("op-2"))
         mock_completion(client, operation_response(operation_uuid="op-1", result_image_uuid="img-build", exit_code=0))
-        mock_completion(client, operation_response(operation_uuid="op-2", result_image_uuid="img-final", exit_code=0))
+        mock_copy_completion(
+            client, operation_response(operation_uuid="op-2", result_image_uuid="img-copy", exit_code=143)
+        )
+        client.mock("spawn_instance", spawn_response("op-3"))
+        mock_completion(client, operation_response(operation_uuid="op-3", result_image_uuid="img-final", exit_code=0))
 
+        client.mock("inspect_image_list", DirectoryList(path="/", files=[source_item("out", is_dir=True)]))
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tar:
             data = b"binary"
@@ -246,7 +255,7 @@ class TestMultistage:
         image = await builder.build(tmp_path, session_id="sess-multi")
 
         assert image == "img-final"
-        # "echo build", the COPY --from extraction RUN, and "echo done"
+        # "echo build", the COPY --from live transfer, and "echo done"
         assert len(client.calls_for("spawn_instance")) == 3
 
 
@@ -440,6 +449,7 @@ async def test_concurrent_cache_misses_preserve_both_results(tmp_path, monkeypat
     clients = [ContreeAsyncClient(), ContreeAsyncClient()]
     for index, client in enumerate(clients):
         client.mock("resolve_image", "base")
+        client.mock("check_image_archive", True)
         client.mock("spawn_instance", spawn_response(f"op-{index}"))
         mock_completion(client, operation_response(operation_uuid=f"op-{index}", result_image_uuid=f"image-{index}"))
     async with AsyncSQLiteStore(tmp_path / "shared.db") as first, AsyncSQLiteStore(tmp_path / "shared.db") as second:

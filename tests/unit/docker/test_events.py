@@ -21,6 +21,7 @@ def build_case(request, tmp_path):
     (tmp_path / "Dockerfile").write_text("FROM base\nRUN echo hello\n")
     client = ContreeAsyncClient() if request.param else ContreeClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     client.mock("cancel_operation", None)
     builder = (
         ContreeAsyncDockerBuilder(client) if isinstance(client, ContreeAsyncClient) else ContreeDockerBuilder(client)

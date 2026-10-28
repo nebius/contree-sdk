@@ -61,6 +61,7 @@ def test_context_session_and_directive_extensions_survive_cache_hits(tmp_path):
     (tmp_path / "Dockerfile").write_text("FROM base\nCUSTOMENV BUILD_MODE=test\nRUN echo hi\n")
     client = ContreeClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
     store = SyncMemoryStore()
@@ -77,6 +78,7 @@ async def test_async_context_session_and_directive_extensions_survive_cache_hits
     (tmp_path / "Dockerfile").write_text("FROM base\nCUSTOMENV BUILD_MODE=release\nRUN echo hi\n")
     client = ContreeAsyncClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
     store = AsyncMemoryStore()
@@ -109,6 +111,7 @@ def test_final_file_materialization_uses_directive_policy(tmp_path, next_stage):
     (tmp_path / "data").write_bytes(b"data")
     client = ContreeClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     client.mock("ensure_file", FileResponse(uuid="file", sha256="a" * 64, size=4))
     with pytest.raises(TypeError, match="RUN disabled by policy"):
         NoRunBuilder(client).build(tmp_path)
@@ -121,6 +124,7 @@ async def test_async_final_file_materialization_uses_directive_policy(tmp_path, 
     (tmp_path / "data").write_bytes(b"data")
     client = ContreeAsyncClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     client.mock("ensure_file", FileResponse(uuid="file", sha256="a" * 64, size=4))
     with pytest.raises(TypeError, match="RUN disabled by policy"):
         await NoRunAsyncBuilder(client).build(tmp_path)
@@ -131,6 +135,7 @@ async def test_async_from_only_build_initializes_custom_session_on_cache_hit_and
     (tmp_path / "Dockerfile").write_text("FROM base\n")
     client = ContreeAsyncClient()
     client.mock("resolve_image", "base-image")
+    client.mock("check_image_archive", True)
     store = AsyncMemoryStore()
     for _ in range(2):
         builder = ContreeAsyncDockerBuilder(client, store=store, session_factory=CustomAsyncSession)

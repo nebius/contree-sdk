@@ -88,6 +88,7 @@ async def test_operations_resolve_completions_in_batches(store_case, mocker):
 async def test_docker_lookup_reads_only_matching_children(store_case, mocker, tmp_path):
     store = store_case
     client = client_for(store, "unused")
+    client.mock("check_image_archive", True)
     session = await session_for(store, client, image="base")
     root = session.tip_id
     sibling = Node(id="sibling", parent_id=root, kind="run", data={"image_uuid": "other"})
@@ -119,6 +120,7 @@ async def test_docker_lookup_reads_only_matching_children(store_case, mocker, tm
     pages = mocker.spy(store, "list_nodes")
     children = mocker.spy(store, "list_children")
     assert await call(context.try_cache_hit, "target") == "wanted"
+    assert [request.args for request in client.calls_for("check_image_archive")] == [("wanted", "/")]
     assert pages.call_count == 0
     assert children.call_count == 1
     assert children.call_args.args == ("shared", root)

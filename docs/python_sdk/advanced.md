@@ -406,7 +406,18 @@ Use `builder_type=` and `builder_kwargs=` to extend a builder through a helper.
 
 This standalone example creates `multi-context` in the current directory. Its
 first stage builds an output file. The second stage copies only that output with
-`COPY --from`. Use a base image with `cat`, `tar`, and standard POSIX file utilities.
+`COPY --from`. Use a base image with `cat` and a POSIX shell.
+The builder downloads regular files as bytes and attaches them at their final
+paths to the next operation. The file specification carries permissions and
+ownership, including explicit `--chown`/`--chmod` overrides.
+
+For directory sources, the builder exports tar and asks the live API to unpack
+it directly into the destination with merge enabled. This preserves existing
+entries that are absent from the archive. The VM runs `sleep infinity` during
+transfer. Explicit directory overrides run as subprocesses after unpacking and
+before the builder signals the main process to save the layer. These commands
+change only entries supplied by the archive. Directory copies require
+`sleep infinity` and, for overrides, `chown` or `chmod`; they do not require `tar`.
 
 Keep the same builder, store, and build session to observe layer reuse. Changing
 an ignored file leaves the build inputs unchanged. Changing `message.txt`
@@ -415,7 +426,7 @@ invalidates the source RUN and the stage copy that depends on its output.
 ::::{tab} Sync
 
 <!--
-name: test_multistage_rebuild; fixtures: doc_api, doc_stage_archive
+name: test_multistage_rebuild; fixtures: doc_api, doc_stage_file
 ```python
 for _ in range(4):
     doc_api.complete()
@@ -466,7 +477,7 @@ with ContreeClient.from_profile(profiles.from_env() or profiles.resolve_profile(
     (context / "message.txt").write_text("two\n")
     changed_image, changed_runs = rebuild()
 
-assert len(first_runs) == 2  # Source RUN and COPY --from extraction.
+assert len(first_runs) == 2  # Source RUN and snapshot of the attached stage file.
 assert repeated_runs == ignored_runs == []
 assert first_image == repeated_image == ignored_image
 assert len(changed_runs) == 2
@@ -477,7 +488,7 @@ assert len(changed_runs) == 2
 ::::{tab} Async
 
 <!--
-name: async test_multistage_rebuild_async; fixtures: doc_api, doc_stage_archive
+name: async test_multistage_rebuild_async; fixtures: doc_api, doc_stage_file
 ```python
 for _ in range(4):
     doc_api.complete()
@@ -528,7 +539,7 @@ async with ContreeAsyncClient.from_profile(profiles.from_env() or profiles.resol
     (context / "message.txt").write_text("two\n")
     changed_image, changed_runs = await rebuild()
 
-assert len(first_runs) == 2  # Source RUN and COPY --from extraction.
+assert len(first_runs) == 2  # Source RUN and snapshot of the attached stage file.
 assert repeated_runs == ignored_runs == []
 assert first_image == repeated_image == ignored_image
 assert len(changed_runs) == 2
@@ -539,6 +550,16 @@ assert len(changed_runs) == 2
 The cache comparison uses file content and execution inputs. It does not require
 the server to return a different image UUID for every submission. To retain this
 cache across Python restarts, supply a SQLite Store as above.
+
+Source files and directory archives are keyed by immutable image UUID and source path, without a
+client expiry. Before reuse, the builder checks the uploaded file with HEAD;
+a missing upload is downloaded from the image and uploaded again. Cached layers also receive a
+HEAD check, and missing images are rebuilt. Store retention still applies.
+
+The live API restores regular-file permission bits from tar. Its current
+implementation creates archive directories with mode `0755` and does not restore
+ownership or timestamps. Explicit directory overrides apply after unpacking. File attachments retain
+the source file mode and ownership unless COPY overrides them.
 
 ## Observe a live build
 

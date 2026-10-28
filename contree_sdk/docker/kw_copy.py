@@ -2,9 +2,9 @@
 
 Local sources are uploaded from the build context and attached to the next
 RUN. `--from=<stage|index|image>` sources are exported from the referenced
-image as a tar archive, uploaded as a single file and unpacked by an
-extraction RUN inside the sandbox, so ownership, modes and symlinks survive
-natively.
+image as ordinary file attachments or directory archives. The live API
+unpacks directories directly at their destination. Explicit directory
+attribute overrides run before the VM is saved.
 """
 
 from __future__ import annotations
@@ -13,28 +13,23 @@ import asyncio
 import json
 import posixpath
 import shlex
-import tarfile
-import tempfile
-from dataclasses import asdict, dataclass, field
-from typing import IO, ClassVar, TypedDict
+from dataclasses import dataclass, field
+from typing import ClassVar, TypedDict
 
-from contree_client.exceptions import NotFoundError
-from contree_client.models import File, FileResponse
-
-from contree_sdk.exceptions import DockerBuildError
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.reuse import async_lookup_result, async_remember_result, lookup_result, remember_result
 from contree_sdk.upload_cache import async_upload_snapshot, upload_snapshot
 
 from .context import AsyncBuildContext, BuildContext, PendingFile, resolve_stage_ref
+from .copy_layer import UploadedArchive, apply_copy_layer, apply_copy_layer_async
+from .copy_source import CopySource, export_source, export_source_async
 from .keyword import DockerKeyword
 from .kw_from import resolve_or_import, resolve_or_import_async
-from .kw_run import RunKeyword
 from .local_context import MappedFile
 
 
-SPOOL_MAX_MEMORY = 8 * 1024 * 1024
 MIN_COPY_LIKE_ARGS = 2
+OVERRIDE_COMMAND_MAX_LENGTH = 16 * 1024
 
 
 class CopyLikeArgs(TypedDict, total=False):
@@ -235,145 +230,72 @@ def resolve_stage_image(ctx: BuildContext, ref: str) -> str:
     return resolve_or_import(ctx, ref)
 
 
-def fetch_archive(ctx: BuildContext, stage_ref: str, image_uuid: str, src: str, buffer: IO[bytes]) -> None:
-    # fill `buffer` with the tar export of `src` from `image_uuid`
-    try:
-        for chunk in ctx.client.inspect_image_archive(image_uuid, src, compressed=False):
-            buffer.write(chunk)
-    except NotFoundError:
-        raise DockerBuildError(f"COPY --from={stage_ref}: {src} not found in {image_uuid}") from None
-    buffer.seek(0)
-
-
-def archive_root(buffer: IO[bytes], src: str) -> tuple[str, bool]:
-    # peek the buffered tar: its root member name and directory-ness
-    with tarfile.open(fileobj=buffer, mode="r:") as tar:
-        member = tar.next()
-        if member is None:
-            raise ValueError(f"COPY --from: empty archive for {src}")
-        root = member.name.split("/", 1)[0]
-        is_dir = member.isdir() or member.name.rstrip("/") != root
-    buffer.seek(0)
-    return root, is_dir
-
-
-@dataclass(frozen=True)
-class ExtractSpec:
-    sub_dest: str
-    dest_is_dir: bool
-    sub_chown: str
-    mode_override: int | None
-    uid: int
-    gid: int
-
-
-def build_extract_spec(
-    ctx: BuildContext | AsyncBuildContext, sub_sources: tuple[str, ...], dest: str, chown: str, chmod: str
-) -> ExtractSpec:
-    sub_dest = ctx.substitute(dest)
-    dest_is_dir = sub_dest.endswith("/") or len(sub_sources) > 1
-    if not posixpath.isabs(sub_dest):
-        sub_dest = posixpath.join(ctx.workdir or "/", sub_dest)
-    sub_dest = posixpath.normpath(sub_dest)
-
-    sub_chown = ctx.substitute(chown)
-    uid, gid = parse_chown(sub_chown)
-    mode_override = parse_chmod(ctx.substitute(chmod))
-    return ExtractSpec(
-        sub_dest=sub_dest, dest_is_dir=dest_is_dir, sub_chown=sub_chown, mode_override=mode_override, uid=uid, gid=gid
+def resolve_image_copy(
+    ctx: BuildContext | AsyncBuildContext, image_uuid: str, sources: tuple[str, ...], dest: str, chown: str, chmod: str
+) -> CopyKeyword:
+    target = ctx.substitute(dest)
+    is_directory = target.endswith("/") or len(sources) > 1
+    target = posixpath.normpath(posixpath.join(ctx.workdir or "/", target))
+    return CopyKeyword(
+        from_stage=image_uuid,
+        sources=tuple(posixpath.normpath(posixpath.join("/", ctx.substitute(src))) for src in sources),
+        dest=target.rstrip("/") + "/" if is_directory else target,
+        chown=ctx.substitute(chown),
+        chmod=ctx.substitute(chmod),
     )
+
+
+def stage_image_file(ctx: BuildContext | AsyncBuildContext, source: CopySource, path: str, copy: CopyKeyword) -> None:
+    destination = posixpath.join(copy.dest, posixpath.basename(path)) if copy.dest.endswith("/") else copy.dest
+    uid, gid = parse_chown(copy.chown) if copy.chown else (source.uid, source.gid)
+    mode = parse_chmod(copy.chmod)
+    ctx.pending.append(
+        PendingFile(destination, source.uuid, source.sha256, uid, gid, f"{source.mode if mode is None else mode:04o}")
+    )
+
+
+def directory_overrides(source: CopySource, copy: CopyKeyword) -> list[str]:
+    # Apply explicit attributes only to archive entries, in bounded subprocess batches.
+    commands = []
+    destination = posixpath.normpath(copy.dest)
+    uid, gid = parse_chown(copy.chown)
+    mode = parse_chmod(copy.chmod)
+    for name, symlink in source.entries:
+        path = shlex.quote(posixpath.normpath(posixpath.join(destination, name)))
+        if copy.chown:
+            commands.append(f"chown -h {uid}:{gid} {path}")
+        if mode is not None and not symlink:
+            commands.append(f"chmod {mode:o} {path}")
+    batches: list[str] = []
+    for command in commands:
+        if not batches or len(batches[-1]) + len(command) > OVERRIDE_COMMAND_MAX_LENGTH:
+            batches.append(command)
+        else:
+            batches[-1] += " && " + command
+    return batches
 
 
 def copy_from_image(
     ctx: BuildContext, from_stage: str, sources: tuple[str, ...], dest: str, chown: str, chmod: str
 ) -> None:
-    """Stage a `COPY --from` directive as one extraction layer."""
-    stage_ref = ctx.substitute(from_stage)
-    image_uuid = resolve_stage_image(ctx, stage_ref)
-    sub_sources = tuple(ctx.substitute(s) for s in sources)
-    spec = build_extract_spec(ctx, sub_sources, dest, chown, chmod)
-    scratch_dir = copy_scratch_dir(ctx, image_uuid, sub_sources, spec)
-
-    script: list[str] = []
-    for index, raw_src in enumerate(sub_sources):
-        export_source(ctx, script, index, raw_src, scratch_dir, stage_ref, image_uuid, spec)
-
-    script.append(f"rm -rf {shlex.quote(scratch_dir)}")
-    command = " && ".join(script)
-
-    saved_user = ctx.user
-    ctx.user = ""
-    try:
-        ctx.execute_directive(RunKeyword(parts=(command,), shell_form=True))
-    finally:
-        ctx.user = saved_user
-
-
-def copy_scratch_dir(
-    ctx: BuildContext | AsyncBuildContext, image_uuid: str, sources: tuple[str, ...], spec: ExtractSpec
-) -> str:
-    """Derive a stable extraction path from the complete stage-copy inputs.
-
-    Returns:
-        A build scratch path that preserves RUN cache identity across rebuilds.
-
-    """
-    contribution = json.dumps(
-        {"kind": "COPY --from", "image": image_uuid, "sources": sources, "extract": asdict(spec)}, sort_keys=True
-    )
-    return f"/.contree-build-{ctx.chain(contribution)[:24]}"
-
-
-def export_source(
-    ctx: BuildContext,
-    script: list[str],
-    index: int,
-    raw_src: str,
-    scratch_dir: str,
-    stage_ref: str,
-    image_uuid: str,
-    spec: ExtractSpec,
-) -> None:
-    src = posixpath.normpath(posixpath.join("/", raw_src))
-    tar_path = f"{scratch_dir}/copy-{index}.tar"
-    extract_dir = f"{scratch_dir}/extract-{index}"
-
-    with tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_MEMORY) as buffer:
-        fetch_archive(ctx, stage_ref, image_uuid, src, buffer)
-        root, is_dir = archive_root(buffer, src)
-        stored = ctx.client.ensure_file(buffer)
-
-    ctx.pending.append(pending_file_for_tar(tar_path, stored))
-    append_extract_script(
-        script, tar_path=tar_path, extract_dir=extract_dir, root=root, is_dir=is_dir, src=src, spec=spec
-    )
-
-
-def append_extract_script(
-    script: list[str], *, tar_path: str, extract_dir: str, root: str, is_dir: bool, src: str, spec: ExtractSpec
-) -> None:
-    unpacked = f"{extract_dir}/{root}"
-    script.append(f"mkdir -p {shlex.quote(extract_dir)}")
-    script.append(f"tar -xf {shlex.quote(tar_path)} -C {shlex.quote(extract_dir)}")
-    if spec.sub_chown:
-        script.append(f"chown -R {spec.uid}:{spec.gid} {shlex.quote(unpacked)}")
-    if spec.mode_override is not None:
-        flag = "-R " if is_dir else ""
-        script.append(f"chmod {flag}{spec.mode_override:o} {shlex.quote(unpacked)}")
-    if is_dir:
-        # Docker copies the CONTENTS of a directory source.
-        script.append(f"mkdir -p {shlex.quote(spec.sub_dest)}")
-        script.append(f"cp -a {shlex.quote(unpacked)}/. {shlex.quote(spec.sub_dest)}/")
-    else:
-        target = posixpath.join(spec.sub_dest, posixpath.basename(src)) if spec.dest_is_dir else spec.sub_dest
-        script.append(f"mkdir -p {shlex.quote(posixpath.dirname(target) or '/')}")
-        script.append(f"mv {shlex.quote(unpacked)} {shlex.quote(target)}")
-
-
-def pending_file_for_tar(tar_path: str, stored: File | FileResponse) -> PendingFile:
-    return PendingFile(
-        instance_path=tar_path, file_uuid=str(stored.uuid), sha256=str(stored.sha256), uid=0, gid=0, mode="0600"
-    )
+    image = resolve_stage_image(ctx, ctx.substitute(from_stage))
+    copy = resolve_image_copy(ctx, image, sources, dest, chown, chmod)
+    for path in copy.sources:
+        directive = CopyKeyword(from_stage=image, sources=(path,), dest=copy.dest, chown=copy.chown, chmod=copy.chmod)
+        chain = ctx.chain(directive.serialize())
+        branch = f"layer:{chain}"
+        if ctx.try_cache_hit(branch) is not None:
+            ctx.parent_hash = chain
+            ctx.pending.clear()
+            continue
+        source = export_source(ctx, image, path)
+        if not source.is_dir:
+            stage_image_file(ctx, source, path, copy)
+            continue
+        archive = UploadedArchive(source.uuid, posixpath.normpath(copy.dest))
+        apply_copy_layer(ctx, archive, directory_overrides(source, copy), branch=branch)
+        ctx.parent_hash = chain
+        ctx.pending.clear()
 
 
 def pending_file_for(mf: MappedFile, *, file_uuid: str, sha256: str) -> PendingFile:
@@ -472,61 +394,24 @@ async def stage_copy_async(ctx: AsyncBuildContext, sources: tuple[str, ...], des
         ctx.pending.append(pending_file_for(mf, file_uuid=file_uuid, sha256=sha256))
 
 
-async def fetch_archive_async(
-    ctx: AsyncBuildContext, stage_ref: str, image_uuid: str, src: str, buffer: IO[bytes]
-) -> None:
-    try:
-        async for chunk in ctx.client.inspect_image_archive(image_uuid, src, compressed=False):
-            buffer.write(chunk)
-    except NotFoundError:
-        raise DockerBuildError(f"COPY --from={stage_ref}: {src} not found in {image_uuid}") from None
-    buffer.seek(0)
-
-
 async def copy_from_image_async(
     ctx: AsyncBuildContext, from_stage: str, sources: tuple[str, ...], dest: str, chown: str, chmod: str
 ) -> None:
-    stage_ref = ctx.substitute(from_stage)
-    image_uuid = await resolve_stage_image_async(ctx, stage_ref)
-    sub_sources = tuple(ctx.substitute(s) for s in sources)
-    spec = build_extract_spec(ctx, sub_sources, dest, chown, chmod)
-    scratch_dir = copy_scratch_dir(ctx, image_uuid, sub_sources, spec)
-
-    script: list[str] = []
-    for index, raw_src in enumerate(sub_sources):
-        await export_source_async(ctx, script, index, raw_src, scratch_dir, stage_ref, image_uuid, spec)
-
-    script.append(f"rm -rf {shlex.quote(scratch_dir)}")
-    command = " && ".join(script)
-
-    saved_user = ctx.user
-    ctx.user = ""
-    try:
-        await ctx.execute_directive(RunKeyword(parts=(command,), shell_form=True))
-    finally:
-        ctx.user = saved_user
-
-
-async def export_source_async(
-    ctx: AsyncBuildContext,
-    script: list[str],
-    index: int,
-    raw_src: str,
-    scratch_dir: str,
-    stage_ref: str,
-    image_uuid: str,
-    spec: ExtractSpec,
-) -> None:
-    src = posixpath.normpath(posixpath.join("/", raw_src))
-    tar_path = f"{scratch_dir}/copy-{index}.tar"
-    extract_dir = f"{scratch_dir}/extract-{index}"
-
-    with tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_MEMORY) as buffer:
-        await fetch_archive_async(ctx, stage_ref, image_uuid, src, buffer)
-        root, is_dir = archive_root(buffer, src)
-        stored = await ctx.client.ensure_file(buffer)
-
-    ctx.pending.append(pending_file_for_tar(tar_path, stored))
-    append_extract_script(
-        script, tar_path=tar_path, extract_dir=extract_dir, root=root, is_dir=is_dir, src=src, spec=spec
-    )
+    image = await resolve_stage_image_async(ctx, ctx.substitute(from_stage))
+    copy = resolve_image_copy(ctx, image, sources, dest, chown, chmod)
+    for path in copy.sources:
+        directive = CopyKeyword(from_stage=image, sources=(path,), dest=copy.dest, chown=copy.chown, chmod=copy.chmod)
+        chain = ctx.chain(directive.serialize())
+        branch = f"layer:{chain}"
+        if await ctx.try_cache_hit(branch) is not None:
+            ctx.parent_hash = chain
+            ctx.pending.clear()
+            continue
+        source = await export_source_async(ctx, image, path)
+        if not source.is_dir:
+            stage_image_file(ctx, source, path, copy)
+            continue
+        archive = UploadedArchive(source.uuid, posixpath.normpath(copy.dest))
+        await apply_copy_layer_async(ctx, archive, directory_overrides(source, copy), branch=branch)
+        ctx.parent_hash = chain
+        ctx.pending.clear()

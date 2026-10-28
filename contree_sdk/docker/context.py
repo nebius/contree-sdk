@@ -262,17 +262,14 @@ class BuildContext:
             else:
                 return None
             for node in page.items:
-                user = node.data.get("user", {})
-                if (
-                    isinstance(user, dict)
-                    and user.get("docker_hash") == branch_name
-                    and (node.data.get("exit_code") in {None, 0})
-                ) and (candidate is None or cache_order(node) > cache_order(candidate)):
+                if cache_matches(node, branch_name) and (
+                    candidate is None or cache_order(node) > cache_order(candidate)
+                ):
                     candidate = node
             cursor = page.next_cursor
             if cursor is None:
                 break
-        if candidate is None:
+        if candidate is None or not self.client.check_image_archive(cast("str", candidate.data["image_uuid"]), "/"):
             return None
         node = candidate
         image_uuid = cast("str", node.data["image_uuid"])
@@ -470,17 +467,16 @@ class AsyncBuildContext:
             else:
                 return None
             for node in page.items:
-                user = node.data.get("user", {})
-                if (
-                    isinstance(user, dict)
-                    and user.get("docker_hash") == branch_name
-                    and (node.data.get("exit_code") in {None, 0})
-                ) and (candidate is None or cache_order(node) > cache_order(candidate)):
+                if cache_matches(node, branch_name) and (
+                    candidate is None or cache_order(node) > cache_order(candidate)
+                ):
                     candidate = node
             cursor = page.next_cursor
             if cursor is None:
                 break
-        if candidate is None:
+        if candidate is None or not await self.client.check_image_archive(
+            cast("str", candidate.data["image_uuid"]), "/"
+        ):
             return None
         node = candidate
         image_uuid = cast("str", node.data["image_uuid"])
@@ -541,3 +537,12 @@ def resolve_build_paths(context: str | Path, dockerfile: str | Path | None) -> t
     if not dockerfile_path.is_file():
         raise FileNotFoundError(f"Dockerfile not found: {dockerfile_path}")
     return context_dir, dockerfile_path
+
+
+def cache_matches(node: Node, branch_name: str) -> bool:
+    user = node.data.get("user", {})
+    return (
+        isinstance(user, dict)
+        and user.get("docker_hash") == branch_name
+        and (node.data.get("exit_code") in {None, 0} or user.get("docker_copy_complete") is True)
+    )

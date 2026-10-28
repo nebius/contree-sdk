@@ -3,16 +3,23 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from contree_client.models import DirectoryList
 
 from contree_sdk.docker import ContreeAsyncDockerBuilder, ContreeDockerBuilder
+from tests.unit.docker.copy_clients import source_item
+from tests.unit.docker.test_live_copy import archive_bytes
 
 
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
 @pytest.mark.parametrize("change", ["source_image", "source_path", "destination", "mode", "no_cache"])
-async def test_stage_copy_cache_reuse_and_invalidation(
-    doc_api, doc_stage_archive, tmp_path, monkeypatch, asynchronous, change
-):
+async def test_stage_copy_cache_reuse_and_invalidation(doc_api, tmp_path, monkeypatch, asynchronous, change):
+    doc_api.stage_copy = True
     client = doc_api.async_client if asynchronous else doc_api.sync
+    client.mock(
+        "inspect_image_list",
+        DirectoryList(path="/", files=[source_item("out", is_dir=True), source_item("other", is_dir=True)]),
+    )
+    client.mock("inspect_image_archive", [archive_bytes()])
     images = {"tag:base": "base", "tag:source": "source-1"}
 
     def resolve(reference):
@@ -24,7 +31,7 @@ async def test_stage_copy_cache_reuse_and_invalidation(
     for _ in range(2):
         doc_api.complete()
     dockerfile = tmp_path / "Dockerfile"
-    original = "FROM tag:base\nCOPY --from=tag:source --chmod=0600 /built.txt /target.txt\n"
+    original = "FROM tag:base\nCOPY --from=tag:source --chmod=0600 /out /target\n"
     dockerfile.write_text(original)
     builder = ContreeAsyncDockerBuilder(doc_api.async_client) if asynchronous else ContreeDockerBuilder(doc_api.sync)
 
@@ -39,9 +46,9 @@ async def test_stage_copy_cache_reuse_and_invalidation(
     if change == "source_image":
         images["tag:source"] = "source-2"
     elif change == "source_path":
-        dockerfile.write_text(original.replace("/built.txt", "/other.txt"))
+        dockerfile.write_text(original.replace("/out", "/other"))
     elif change == "destination":
-        dockerfile.write_text(original.replace("/target.txt", "/elsewhere.txt"))
+        dockerfile.write_text(original.replace("/target", "/elsewhere"))
     elif change == "mode":
         dockerfile.write_text(original.replace("0600", "0644"))
     await build(no_cache=change == "no_cache")
