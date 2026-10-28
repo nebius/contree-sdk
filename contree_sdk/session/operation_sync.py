@@ -440,7 +440,7 @@ class Operation(OperationContract):
 
 
 class SubprocessHandle(SubprocessContract):
-    """Both blocking-waitable (final result) and iterable (live events) for one spid."""
+    """Blocking wait and explicit live events for one spid."""
 
     def __init__(self, operation: Operation, spid: int, events_queue: queue.Queue[OperationEvent | None]) -> None:
         self.operation = operation
@@ -449,9 +449,16 @@ class SubprocessHandle(SubprocessContract):
         self.finished = False
         self.result: InstanceResult | None = None
 
-    def __iter__(self) -> Iterator[OperationEvent]:
+    def iter_events(self, *, timeout: float | None = None) -> Iterator[OperationEvent]:
+        deadline = None if timeout is None else time.monotonic() + timeout
         while not self.finished:
-            item = self.queue.get()
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError(f"subprocess spid={self.spid} did not exit within {timeout}s")
+            try:
+                item = self.queue.get(timeout=remaining)
+            except queue.Empty:
+                raise TimeoutError(f"subprocess spid={self.spid} did not exit within {timeout}s") from None
             if item is None:
                 self.finished = True
                 if self.operation.stream_error is not None:
@@ -484,7 +491,7 @@ class SubprocessHandle(SubprocessContract):
     def pipe_to(
         self, *, stdout: IO[str] | IO[bytes] | None = None, stderr: IO[str] | IO[bytes] | None = None
     ) -> InstanceResult:
-        for event in self:
+        for event in self.iter_events():
             if event.type == "stdout" and stdout is not None:
                 write_stream_chunk(stdout, event.data)
             elif event.type == "stderr" and stderr is not None:

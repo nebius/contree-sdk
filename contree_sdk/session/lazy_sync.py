@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Generator
+import time
+from collections.abc import Callable, Generator
 from concurrent.futures import Future
 from contextlib import closing, contextmanager, suppress
 from math import isfinite
@@ -257,18 +258,64 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public session, history and 
     def spawn(self, command: str | None = None, **kwargs) -> SubprocessContract:
         return self.spawn_request(RunRequest(command=command, disposable=kwargs.pop("disposable", False), **kwargs))
 
-    def execute(self, request: RunRequest) -> InstanceResult:
+    def execute(
+        self,
+        request: RunRequest,
+        *,
+        on_event: Callable[[OperationEvent], None] | None = None,
+        terminate_timeout: float = 5,
+    ) -> InstanceResult:
+        """Run a command and confirm its exit before permitting VM reuse.
+
+        Returns:
+            The subprocess result.
+
+        Raises:
+            ValueError: The termination timeout is invalid.
+            RuntimeError: The VM failed while executing the command.
+
+        """
+        if not isfinite(terminate_timeout) or terminate_timeout <= 0:
+            raise ValueError("terminate_timeout must be finite and positive")
         operation, handle, timeout = self._spawn(request)
+        deadline = None if timeout is None else time.monotonic() + timeout
         try:
-            result = handle.wait(timeout=timeout)
+            if on_event is not None:
+                for event in handle.iter_events(timeout=timeout):
+                    on_event(event)
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            result = handle.wait(timeout=remaining)
         except BaseException:
             with suppress(Exception):
-                operation.signal("SIGKILL", spid=handle.spid)
+                self._terminate_command(operation, handle.spid, timeout=terminate_timeout)
             raise
         with self.condition:
             if self.state.error is not None:
                 raise RuntimeError("LazySession failed while executing a command") from self.state.error
         return result
+
+    def _terminate_command(self, operation: OperationContract, spid: int, *, timeout: float) -> None:
+        try:
+            self._kill_and_confirm(operation, spid, timeout=timeout)
+        except BaseException:
+            with suppress(Exception):
+                self.abort()
+            raise
+
+    def _kill_and_confirm(self, operation: OperationContract, spid: int, *, timeout: float) -> None:
+        with self.condition:
+            if spid not in self.state.active or self.state.phase == "closed":
+                return
+        deadline = time.monotonic() + timeout
+        operation.signal("SIGKILL", spid=spid)
+        with self.condition:
+            if not self.condition.wait_for(
+                lambda: spid not in self.state.active or self.state.error is not None,
+                timeout=max(0.0, deadline - time.monotonic()),
+            ):
+                raise TimeoutError(f"subprocess spid={spid} exit could not be confirmed")
+            if self.state.error is not None:
+                raise RuntimeError("LazySession failed while terminating a command") from self.state.error
 
     def run(self, command: str | None = None, **kwargs) -> InstanceResult:
         """Run a shared-VM command. Options are RunRequest fields; disposable defaults to False.

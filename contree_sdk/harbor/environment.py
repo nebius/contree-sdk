@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import codecs
 import inspect
 import math
 from contextlib import suppress
@@ -11,23 +10,21 @@ from pathlib import Path
 from typing import Literal
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
-from contree_client.models import EventDataStream, InstanceResult, InstanceResultState, StreamRepr
+from contree_client.models import EventDataStream, InstanceResult, InstanceResultState, OperationEvent, StreamRepr
 from contree_client.types import ContreeAsyncClient
-from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback
+from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback, OutputStream
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
 from contree_sdk.sandbox import AsyncSandboxSessionContext
-from contree_sdk.session.cleanup import await_cleanup
-from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
-from contree_sdk.session.defaults import KEEPALIVE_SLEEP_SECONDS
-from contree_sdk.session.snapshot_policy import IdleSnapshotPolicy, ManualSnapshotPolicy
+from contree_sdk.session import IdleSnapshotPolicy, ManualSnapshotPolicy
 
 
 _OUTPUT_LIMIT = 10 * 1024 * 1024
 _TRANSFER_TIMEOUT = 600
+_KEEPALIVE_SLEEP_SECONDS = 2**31 - 1
 
 
 class ConTreeEnvironment(BaseEnvironment):
@@ -146,7 +143,7 @@ class ConTreeEnvironment(BaseEnvironment):
             except BaseException:
                 if self._lazy_session is not None:
                     with suppress(Exception, asyncio.CancelledError):
-                        await await_cleanup(self._lazy_session.abort())
+                        await self._lazy_session.abort()
                 self._lazy_session = None
                 await self._close_session_context()
                 raise
@@ -175,7 +172,7 @@ class ConTreeEnvironment(BaseEnvironment):
             client_type=HttpxAsyncClient if client is None else None,
             session_kwargs={
                 "vm_request": RunRequest(
-                    command="sleep", args=(str(KEEPALIVE_SLEEP_SECONDS),), timeout=self._vm_timeout
+                    command="sleep", args=(str(_KEEPALIVE_SLEEP_SECONDS),), timeout=self._vm_timeout
                 ),
                 "snapshot_policy": policy,
                 "snapshot_timeout": self._snapshot_timeout,
@@ -183,7 +180,6 @@ class ConTreeEnvironment(BaseEnvironment):
             },
         )
         self._lazy_session = await self._lazy_session_context.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop
-        self._client = self._lazy_session.session.client
 
         paths = EnvironmentPaths()
         dirs = [str(paths.agent_dir), str(paths.verifier_dir), str(paths.artifacts_dir)]
@@ -237,7 +233,7 @@ class ConTreeEnvironment(BaseEnvironment):
             finally:
                 if session is not None and session.phase != "closed":
                     with suppress(Exception, asyncio.CancelledError):
-                        await await_cleanup(session.abort())
+                        await session.abort()
                 self._lazy_session = None
                 await self._close_session_context()
 
@@ -290,30 +286,29 @@ class ConTreeEnvironment(BaseEnvironment):
             env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
             truncate_output_at=_OUTPUT_LIMIT,
+            timeout=timeout,
             uid=uid,
             gid=gid,
         )
-        handle = None
-        operation = None
 
-        async def collect() -> InstanceResult:
-            nonlocal handle, operation
-            handle = await lazy.spawn_request(request)
-            operation = lazy.operation
-            if operation is None:
-                raise RuntimeError("ConTree subprocess has no active operation")
-            if output_callback is not None:
-                await self._stream_output(handle, output_callback)
-            return await handle.wait()
+        async def on_event(event: OperationEvent) -> None:
+            if (
+                output_callback is not None
+                and event.type in {"stdout", "stderr"}
+                and isinstance(event.data, EventDataStream)
+            ):
+                if chunk := event.data.as_text():
+                    await output_callback(chunk, event.type)
 
-        self._active_run = asyncio.create_task(collect())
+        self._active_run = asyncio.create_task(
+            lazy.execute(
+                request,
+                on_event=on_event if output_callback is not None else None,
+                terminate_timeout=self._terminate_timeout,
+            )
+        )
         try:
-            result = await asyncio.wait_for(self._active_run, timeout=timeout)
-        except BaseException:
-            if handle is not None and operation is not None:
-                with suppress(Exception, asyncio.CancelledError):
-                    await await_cleanup(self._terminate(lazy, operation, handle.spid))
-            raise
+            result = await self._active_run
         finally:
             self._active_run = None
 
@@ -327,38 +322,6 @@ class ConTreeEnvironment(BaseEnvironment):
             stderr=result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else "",
             return_code=result.state.exit_code,
         )
-
-    @staticmethod
-    async def _stream_output(handle: AsyncSubprocessContract, callback: OutputCallback) -> None:
-        decoders: dict[Literal["stdout", "stderr"], codecs.IncrementalDecoder] = {
-            name: codecs.getincrementaldecoder("utf-8")("replace") for name in ("stdout", "stderr")
-        }
-        async for event in handle:
-            if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
-                stream: Literal["stdout", "stderr"] = "stdout" if event.type == "stdout" else "stderr"
-                text = decoders[stream].decode(event.data.as_bytes())
-                if text:
-                    await callback(text, stream)
-        for name, decoder in decoders.items():
-            if tail := decoder.decode(b"", final=True):
-                await callback(tail, name)
-
-    async def _terminate(self, lazy: AsyncLazySession, operation: AsyncOperationContract, spid: int) -> None:
-        async def kill_and_confirm() -> None:
-            async with lazy.condition:
-                if spid not in lazy.state.active or lazy.state.phase == "closed":
-                    return
-            await operation.signal("SIGKILL", spid=spid)
-            async with lazy.condition:
-                await lazy.condition.wait_for(lambda: spid not in lazy.state.active or lazy.state.error is not None)
-                if lazy.state.error is not None:
-                    raise RuntimeError("ConTree VM failed while terminating a command") from lazy.state.error
-
-        try:
-            await asyncio.wait_for(kill_and_confirm(), timeout=self._terminate_timeout)
-        except BaseException:
-            await lazy.abort()
-            raise
 
     @staticmethod
     def _check_result(result: ExecResult, action: str) -> None:

@@ -18,12 +18,19 @@ AsyncOperationObserver = Callable[[OperationEvent | None, Exception | None], Awa
 
 
 class SubprocessContract(ABC):
-    """Waitable event stream for one subprocess. Iteration and wait share completion state."""
+    """Waitable event stream for one subprocess. iter_events and wait share completion state."""
 
     spid: int
 
     @abstractmethod
-    def __iter__(self) -> Iterator[OperationEvent]: ...
+    def iter_events(self, *, timeout: float | None = None) -> Iterator[OperationEvent]:
+        """Yield live events, enforcing a deadline when supplied.
+
+        Returns:
+            The subprocess event iterator.
+
+        """
+        ...
 
     @abstractmethod
     def wait(self, *, timeout: float | None = None) -> InstanceResult: ...
@@ -35,12 +42,12 @@ class SubprocessContract(ABC):
 
 
 class AsyncSubprocessContract(ABC):
-    """Waitable event stream for one subprocess. Iteration and wait share completion state."""
+    """Waitable event stream for one subprocess. iter_events and wait share completion state."""
 
     spid: int
 
     @abstractmethod
-    def __aiter__(self) -> AsyncIterator[OperationEvent]: ...
+    def iter_events(self) -> AsyncIterator[OperationEvent]: ...
 
     @abstractmethod
     async def wait(self, *, timeout: float | None = None) -> InstanceResult: ...

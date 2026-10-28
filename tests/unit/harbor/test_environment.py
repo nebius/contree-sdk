@@ -333,7 +333,7 @@ async def test_exec_forwards_harbor_options_and_converts_the_result(backend, mon
         await env.stop()
 
 
-async def test_exec_streams_only_its_process_and_decodes_split_utf8(backend, monkeypatch):
+async def test_exec_streams_only_its_process_with_best_effort_text(backend, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
     create = client.operation_subprocess_create
@@ -367,7 +367,7 @@ async def test_exec_streams_only_its_process_and_decodes_split_utf8(backend, mon
         with env.scoped_output_callback(callback):
             await env.exec("first")
             await env.exec("second")
-        assert received == [("err ", "stderr"), ("€", "stdout"), ("�", "stderr")] * 2
+        assert received == [("�", "stdout"), ("err ", "stderr"), ("�", "stdout"), ("�", "stderr")] * 2
         assert len(client.calls_for("spawn_instance")) == 1
     finally:
         await env.stop()

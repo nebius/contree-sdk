@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from concurrent.futures import Future
 from contextlib import aclosing, asynccontextmanager, suppress
 from math import isfinite
@@ -269,18 +269,60 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public session, histor
             RunRequest(command=command, disposable=kwargs.pop("disposable", False), **kwargs)
         )
 
-    async def execute(self, request: RunRequest) -> InstanceResult:
+    async def execute(
+        self,
+        request: RunRequest,
+        *,
+        on_event: Callable[[OperationEvent], Awaitable[None]] | None = None,
+        terminate_timeout: float = 5,
+    ) -> InstanceResult:
+        """Run a command and confirm its exit before permitting VM reuse.
+
+        Returns:
+            The subprocess result.
+
+        Raises:
+            ValueError: The termination timeout is invalid.
+            RuntimeError: The VM failed while executing the command.
+
+        """
+        if not isfinite(terminate_timeout) or terminate_timeout <= 0:
+            raise ValueError("terminate_timeout must be finite and positive")
         operation, handle, timeout = await self._spawn(request)
+
+        async def collect() -> InstanceResult:
+            if on_event is not None:
+                async for event in handle.iter_events():
+                    await on_event(event)
+            return await handle.wait()
+
         try:
-            result = await handle.wait(timeout=timeout)
+            result = await (collect() if timeout is None else asyncio.wait_for(collect(), timeout))
         except BaseException:
-            with suppress(Exception):
-                await asyncio.shield(operation.signal("SIGKILL", spid=handle.spid))
+            with suppress(Exception, asyncio.CancelledError):
+                await await_cleanup(self._terminate_command(operation, handle.spid, timeout=terminate_timeout))
             raise
         async with self.condition:
             if self.state.error is not None:
                 raise RuntimeError("LazySession failed while executing a command") from self.state.error
         return result
+
+    async def _terminate_command(self, operation: AsyncOperationContract, spid: int, *, timeout: float) -> None:
+        async def kill_and_confirm() -> None:
+            async with self.condition:
+                if spid not in self.state.active or self.state.phase == "closed":
+                    return
+            await operation.signal("SIGKILL", spid=spid)
+            async with self.condition:
+                await self.condition.wait_for(lambda: spid not in self.state.active or self.state.error is not None)
+                if self.state.error is not None:
+                    raise RuntimeError("LazySession failed while terminating a command") from self.state.error
+
+        try:
+            await asyncio.wait_for(kill_and_confirm(), timeout=timeout)
+        except BaseException:
+            await self.abort()
+            raise
 
     async def run(self, command: str | None = None, **kwargs) -> InstanceResult:
         """Run a shared-VM command. Options are RunRequest fields; disposable defaults to False.

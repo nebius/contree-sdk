@@ -480,7 +480,7 @@ class AsyncOperation(AsyncOperationContract):
 
 
 class AsyncSubprocessHandle(AsyncSubprocessContract):
-    """Both awaitable (final result) and async-iterable (live events) for one spid."""
+    """Awaitable final result and explicit live events for one spid."""
 
     def __init__(
         self, operation: AsyncOperation, spid: int, events_queue: asyncio.Queue[OperationEvent | None]
@@ -491,7 +491,7 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
         self.finished = False
         self.result: InstanceResult | None = None
 
-    async def iterate(self) -> AsyncIterator[OperationEvent]:
+    async def iter_events(self) -> AsyncIterator[OperationEvent]:
         while not self.finished:
             item = await self.queue.get()
             if item is None:
@@ -502,9 +502,6 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
             if item.type == "exit":
                 self.finished = True
             yield item
-
-    def __aiter__(self) -> AsyncIterator[OperationEvent]:
-        return self.iterate()
 
     def __await__(self):
         return self.wait().__await__()
@@ -532,7 +529,7 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
     async def pipe_to(
         self, *, stdout: IO[str] | IO[bytes] | None = None, stderr: IO[str] | IO[bytes] | None = None
     ) -> InstanceResult:
-        async for event in self:
+        async for event in self.iter_events():
             if event.type == "stdout" and stdout is not None:
                 write_stream_chunk(stdout, event.data)
             elif event.type == "stderr" and stderr is not None:
