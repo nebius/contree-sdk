@@ -111,7 +111,7 @@ async def test_upload_and_spawn_errors_do_not_change_staging(staging_session):
     before = await call(session.store, "list_nodes", session.session_id)
     # Queue both outcomes before consuming the first one.
     session.client.mock("ensure_file", error=OSError("upload failed"))
-    await call(session, "upload_file", UploadFileSpec(source=b"data", path="/not-staged"))
+    await call(session.file_transfer, "upload", UploadFileSpec(source=b"data", path="/not-staged"))
     with pytest.raises(OSError, match="upload failed"):
         await call(session, "stage_files", {"/input": b"replacement"})
     session.client.mock("spawn_instance", error=OSError("spawn failed"))
@@ -171,7 +171,7 @@ async def test_upload_keeps_its_original_branch_when_active_branch_changes(stagi
     await call(session, "switch_branch", "feature")
     await call(session, "stage_files", {"/feature": uploaded("feature")})
     await call(session, "switch_branch", "main")
-    original = session.build_files
+    original = session.file_transfer.prepare_files
     if isinstance(session, ContreeAsyncSession):
 
         async def during_upload(files):
@@ -184,7 +184,7 @@ async def test_upload_keeps_its_original_branch_when_active_branch_changes(stagi
             session.switch_branch("feature")
             return original(files)
 
-    monkeypatch.setattr(session, "build_files", during_upload)
+    monkeypatch.setattr(session.file_transfer, "prepare_files", during_upload)
     staged = await call(session, "stage_files", {"/main": uploaded("main")})
     assert "main" in (await call(session, "history"))[1][staged.id]
     assert "feature" in (await call(session, "history"))[1][session.tip_id]
@@ -195,7 +195,7 @@ async def test_upload_keeps_source_when_another_actor_appends(staging_session, m
     session = staging_session
     root = session.tip_id
     other = type(session)(session.client, session_id=session.session_id, node_id=root, store=session.store)
-    original = session.build_files
+    original = session.file_transfer.prepare_files
     if isinstance(session, ContreeAsyncSession):
 
         async def during_upload(files):
@@ -210,7 +210,7 @@ async def test_upload_keeps_source_when_another_actor_appends(staging_session, m
             session.navigate(newer.id)
             return original(files)
 
-    monkeypatch.setattr(session, "build_files", during_upload)
+    monkeypatch.setattr(session.file_transfer, "prepare_files", during_upload)
     saved = await call(session, "stage_files", {"/input": uploaded("stale")})
     assert saved.parent_id == root
     assert saved.id != session.tip_id

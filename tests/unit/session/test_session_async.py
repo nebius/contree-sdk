@@ -289,5 +289,5 @@ async def test_upload_failure_cancels_and_joins_sibling_uploads(client, monkeypa
 
     monkeypatch.setattr(session.file_transfer, "upload", upload)
     with pytest.raises(OSError, match="upload failed"):
-        await session.build_files({"/fail": b"x", "/blocked": b"y"})
+        await session.file_transfer.prepare_files({"/fail": b"x", "/blocked": b"y"})
     assert stopped.is_set()
