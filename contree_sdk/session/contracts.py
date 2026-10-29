@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
 from typing import IO
 
-from contree_client.models import InstanceResult, OperationEvent, OperationResponse
+from contree_client.models import FileSpec, InstanceResult, OperationEvent, OperationResponse
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
@@ -60,6 +60,9 @@ class OperationContract(ABC):
     uuid: str
     context: OperationContext | None
     response: OperationResponse | None
+
+    @abstractmethod
+    def apply_files(self, files: Mapping[str, FileSpec]) -> None: ...
 
     def add_observer(self, observer: OperationObserver) -> None:
         """Register an observer before starting the shared operation reader.
@@ -132,6 +135,9 @@ class AsyncOperationContract(ABC):
     uuid: str
     context: OperationContext | None
     response: OperationResponse | None
+
+    @abstractmethod
+    async def apply_files(self, files: Mapping[str, FileSpec]) -> None: ...
 
     def add_observer(self, observer: AsyncOperationObserver) -> None:
         """Register an observer before starting the shared operation reader.

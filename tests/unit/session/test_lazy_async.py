@@ -1,9 +1,10 @@
 import asyncio
 
 import pytest
-from contree_client.models import InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import FileResponse, InstanceResultState, OperationStatus, StreamRepr
 
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
+from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
 from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveAsyncClient, event
@@ -34,6 +35,40 @@ async def test_shared_vm_snapshot_and_next_image():
     assert lazy.worker is not None
     assert lazy.worker.done()
     assert len((await base.history())[0]) == 3
+
+
+async def test_run_files_are_applied_before_subprocess_on_cold_and_running_vm(tmp_path):
+    client = LiveAsyncClient()
+    client.mock("apply_instance_file", None)
+    client.mock("ensure_file", FileResponse(uuid="directory-file", sha256="a" * 64, size=4))
+    source = tmp_path / "project"
+    source.mkdir()
+    (source / "script").write_bytes(b"data")
+    (source / "script").chmod(0o755)
+    base = ContreeAsyncSession(client, image="base")
+
+    async with AsyncLazySession(base) as lazy:
+        await lazy.run("first", files={"/first": UploadFileSpec(source=UploadedFile("first-file", "a" * 64))})
+        await lazy.run("second", files={"/app": source})
+        assert len(client.calls_for("spawn_instance")) == 1
+        assert client.calls_for("spawn_instance")[0].kwargs["files"] is Ellipsis
+        calls = [call.operation for call in client.calls]
+        applies = [index for index, name in enumerate(calls) if name == "apply_instance_file"]
+        subprocesses = [index for index, name in enumerate(calls) if name == "operation_subprocess_create"]
+        assert applies[0] < subprocesses[0]
+        assert applies[1] < subprocesses[1]
+        assert [call.args[2] for call in client.calls_for("apply_instance_file")] == ["/first", "/app/script"]
+        await lazy.snapshot(timeout=2)
+
+
+async def test_run_files_rejects_unsupported_live_metadata_before_start():
+    client = LiveAsyncClient()
+    lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"))
+
+    with pytest.raises(ValueError, match="cannot set uid, gid, or mode"):
+        await lazy.run("first", files={"/script": UploadFileSpec(source=b"data", mode=0o755)})
+
+    assert not client.calls_for("spawn_instance")
 
 
 async def test_snapshot_with_unchanged_image_stops_vm_and_records_checkpoint(monkeypatch):

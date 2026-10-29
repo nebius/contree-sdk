@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from contextlib import suppress
 from typing import IO
 
-from contree_client.models import InstanceResult, OperationEvent, OperationResponse
+from contree_client.models import FileSpec, InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import OperationContext
 from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream_repr_for_stdin, write_stream_chunk
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
+from contree_sdk.session.live_files import validate_live_files
 from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
 
 
@@ -130,6 +131,13 @@ class AsyncOperation(AsyncOperationContract):
     async def status(self, *, inflight: bool = False) -> OperationResponse:
         self.response = await self.client.get_operation_status(self.uuid, inflight=inflight)
         return self.response
+
+    async def apply_files(self, files: Mapping[str, FileSpec]) -> None:
+        """Apply already-uploaded files to this running VM."""
+        # Until CONTREE-236 aligns placement, apply prepared regular files one at a time.
+        # Live placement cannot honor FileSpec ownership or mode overrides.
+        for path, file_uuid in validate_live_files(files).items():
+            await self.client.apply_instance_file(self.uuid, file_uuid, path, replace=True)
 
     async def send_stdin(self, data: str | bytes, *, spid: int = 1, close: bool = True) -> None:
         value, encoding = encode_stdin_chunk(data)

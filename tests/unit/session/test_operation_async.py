@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from contree_client.models import (
     EventDataStream,
+    FileSpec,
     InstanceResult,
     InstanceResultState,
     OperationEvent,
@@ -12,6 +13,7 @@ from contree_client.models import (
 )
 from contree_client.testing import ContreeAsyncClient
 
+from contree_sdk.execution import OperationContext, RunRequest
 from contree_sdk.session import AsyncSubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_async import AsyncOperation
@@ -39,6 +41,29 @@ def exit_code_of(result: InstanceResult) -> int | None:
 
 
 class TestSimpleMode:
+    async def test_apply_files_applies_prepared_references(self, client: ContreeAsyncClient):
+        client.mock("apply_instance_file", None)
+        context = OperationContext(RunRequest(command="sleep"), "session", "image", "root", "main")
+        operation = AsyncOperation(client, "op-1", context=context)
+
+        await operation.apply_files({"/work/input": FileSpec(uuid="file-1")})
+
+        call = client.calls_for("apply_instance_file")[0]
+        assert call.args == ("op-1", "file-1", "/work/input")
+        assert call.kwargs == {"replace": True}
+        assert operation.files == ()
+        assert operation.context is not None
+        assert operation.context is context
+        assert operation.context.files == ()
+
+    async def test_apply_files_validates_all_references_before_applying(self, client: ContreeAsyncClient):
+        operation = AsyncOperation(client, "op-1")
+
+        with pytest.raises(ValueError, match="cannot set uid, gid, or mode"):
+            await operation.apply_files({"/ok": FileSpec(uuid="file-1"), "/bad": FileSpec(uuid="file-2", mode=0o755)})
+
+        assert client.calls_for("apply_instance_file") == []
+
     async def test_wait_uses_shared_stream_and_returns_instance_result(self, client: ContreeAsyncClient):
         mock_completion(client, operation_response(result_image_uuid="img-1", exit_code=0, stdout="hi\n"))
         operation = AsyncOperation(client, "op-1")
