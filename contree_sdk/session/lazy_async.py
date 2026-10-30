@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Future
 from contextlib import asynccontextmanager, suppress
 from functools import partial
 from math import isfinite
+from typing import Literal
 
-from contree_client.models import InstanceResult, OperationEvent
+from contree_client.models import DirectoryList, GrepResult, InstanceResult, OperationEvent
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import AsyncExecutor, RunRequest
@@ -23,7 +24,13 @@ from contree_sdk.session.inspection import AsyncSessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
 from contree_sdk.session.live_files import prepare_live_sources
 from contree_sdk.session.models import HistoryEntry
-from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
+from contree_sdk.session.snapshot_policy import (
+    AbstractSnapshotPolicy,
+    CompositeSnapshotPolicy,
+    DurationSnapshotPolicy,
+    IdleSnapshotPolicy,
+    SnapshotEvent,
+)
 
 
 class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
@@ -40,13 +47,19 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         *,
         snapshot_policy: AbstractSnapshotPolicy | None = None,
         snapshot_timeout: float = 30,
+        vm_timeout: float = 3600,
     ) -> None:
         if not isfinite(snapshot_timeout) or snapshot_timeout <= 0:
             raise ValueError("snapshot_timeout must be positive")
+        if not isfinite(vm_timeout) or vm_timeout <= snapshot_timeout:
+            raise ValueError("vm_timeout must be finite and greater than snapshot_timeout")
         self.session = session
         self.session_id = session.session_id
         self.snapshot_policy = snapshot_policy if snapshot_policy is not None else IdleSnapshotPolicy(10)
+        self.duration_policy = DurationSnapshotPolicy(vm_timeout - snapshot_timeout)
+        self.lifecycle_policy = CompositeSnapshotPolicy(self.snapshot_policy, self.duration_policy)
         self.snapshot_timeout = snapshot_timeout
+        self.vm_timeout = vm_timeout
         self.state = LazyState()
         self.condition = asyncio.Condition()
         self.operation: AsyncOperationContract | None = None
@@ -86,21 +99,21 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             raise ValueError("preserve_env, hostname, resources_limits and networking require VM startup configuration")
         return request
 
-    def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
+    def keepalive_request(self) -> RunRequest:
         """Supply a long-running main process available in the base image.
 
         Returns:
             The non-disposable request used to start each VM.
 
         """
-        return RunRequest(command="sleep", args=("2147483647",), disposable=False)
+        return RunRequest(command="sleep", args=("infinity",), timeout=self.vm_timeout, disposable=False)
 
     async def observe(self, event: OperationEvent | None, error: Exception | None) -> None:
         """Observe the operation's sole reader without depending on handle.wait()."""
         async with self.condition:
             previous_phase = self.state.phase
             if self.state.observe(event, error):
-                self.snapshot_policy.notify(SnapshotEvent.COMMAND_FINISHED)
+                self.lifecycle_policy.notify(SnapshotEvent.COMMAND_FINISHED)
             self._notify()
             if previous_phase not in {"closed", "failed"} and isinstance(self.state.error, Exception):
                 raise self.state.error
@@ -122,14 +135,25 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
 
     async def _start(self) -> None:
         self.state.begin()
-        self.snapshot_policy.notify(SnapshotEvent.RESET)
-        self._snapshot_future = self.snapshot_policy.should_snapshot()
+        if self.lifecycle_policy.policies[0] is not self.snapshot_policy:
+            self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
+            self.lifecycle_policy = CompositeSnapshotPolicy(self.snapshot_policy, self.duration_policy)
+        self.lifecycle_policy.notify(SnapshotEvent.RESET)
+        self._snapshot_future = self.lifecycle_policy.should_snapshot()
         self._loop = asyncio.get_running_loop()
         self._snapshot_future.add_done_callback(self._policy_ready)
+        self.duration_policy.start_deferred()
+        self.lifecycle_policy.notify(SnapshotEvent.VM_STARTING)
         self.operation = await self.session.spawn_request(self.keepalive_request())
         context = self.operation.context
         if context is None or context.request.disposable:
             raise ValueError("the keepalive factory must create a bound, non-disposable operation")
+        effective_timeout = context.request.timeout_seconds
+        if effective_timeout is None or not isfinite(effective_timeout) or effective_timeout <= self.snapshot_timeout:
+            raise ValueError("keepalive timeout must be finite and greater than snapshot_timeout")
+        self.duration_policy.set_duration(effective_timeout - self.snapshot_timeout)
+        if self.duration_policy.should_snapshot().done():
+            raise TimeoutError("LazySession VM renewal deadline expired during startup")
         self.operation.add_observer(self.observe)
         await self.operation.__aenter__()  # noqa: PLC2801 - context spans several commands
         self.state.phase = "running"
@@ -176,7 +200,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                 await operation.apply_files(files)
             self.state.reserve()
             try:
-                self.snapshot_policy.notify(SnapshotEvent.COMMAND_STARTED)
+                self.lifecycle_policy.notify(SnapshotEvent.COMMAND_STARTED)
                 handle = await operation.run(
                     request.title,
                     shell=request.shell is not None,
@@ -203,7 +227,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             return await self._admit_and_spawn(request)
         except BaseException:
             if self.state.error is not None:
-                self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+                self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             if self.state.error is not None and self.operation is not None:
                 with suppress(Exception):
                     await self.operation.cancel()
@@ -260,7 +284,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         async with self.condition:
             self.last_entry = entry
             self.operation = None
-            self.snapshot_policy.notify(SnapshotEvent.RESET)
+            self.lifecycle_policy.notify(SnapshotEvent.RESET)
             self._snapshot_future = None
             self.state.saved()
             self._notify()
@@ -296,7 +320,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                 with suppress(Exception):
                     await self.operation.shutdown()
         finally:
-            self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+            self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
 
     async def snapshot(self, *, timeout: float | None = None) -> HistoryEntry | None:
         """Drain commands and inspections, save their common image, and reopen admission.
@@ -356,7 +380,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             self.state.closing = True
             if self.state.phase == "cold":
                 self.state.phase = "closed"
-                self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+                self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             elif self.state.phase == "running":
                 self.state.phase = "draining"
             self._notify()
@@ -381,7 +405,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             operation = self.operation
             self.state.closing = True
             self.state.phase = "closed"
-            self.snapshot_policy.notify(SnapshotEvent.CLOSE)
+            self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             self._notify()
         try:
             if operation is not None:
@@ -449,7 +473,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                     if self.operation is None:
                         raise RuntimeError("running LazySession has no operation")
                     try:
-                        self.snapshot_policy.notify(SnapshotEvent.INSPECTION_STARTED)
+                        self.lifecycle_policy.notify(SnapshotEvent.INSPECTION_STARTED)
                     except BaseException as error:
                         self.state.fail(error)
                         self._notify()
@@ -468,7 +492,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             self.state.inspecting -= 1
             try:
                 if self.state.phase not in {"closed", "failed"}:
-                    self.snapshot_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
+                    self.lifecycle_policy.notify(SnapshotEvent.INSPECTION_FINISHED)
             except BaseException as error:
                 self.state.fail(error)
                 raise
@@ -494,6 +518,8 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             async with self.condition:
                 source = await self._inspection_source_locked(timeout)
         except BaseException:
+            if self.state.error is not None:
+                self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             if self.state.error is not None and self.operation is not None:
                 with suppress(Exception):
                     await self.operation.cancel()
@@ -545,6 +571,46 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                 else require_str(self.session.image_uuid, "session has no resolved image")
             )
             return self.session.create_inspector(image_uuid)
+
+    async def list_dir(self, path: str = "/") -> DirectoryList:
+        """List session directory entries relative to the filesystem root.
+
+        Returns:
+            Directory entries and their filesystem metadata.
+
+        """
+        view = await self.inspect()
+        return await view.list(path)
+
+    async def grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        """Search session files using the current source's syntax and limits.
+
+        Returns:
+            Matching lines and the server's truncation indicator.
+
+        """
+        view = await self.inspect()
+        return await view.grep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
 
     async def read_file(self, path: str) -> bytes:
         """Read current files without stopping an active VM.

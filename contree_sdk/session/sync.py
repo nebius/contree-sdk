@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
-from typing import cast
+from typing import Literal, cast
 
 from contree_client.models import (
     ClosableStreamRepr,
+    DirectoryList,
     FileSpec,
+    GrepResult,
     InstanceNetworking,
     InstanceResourcesLimits,
     InstanceResult,
@@ -621,6 +623,46 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         """
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
         return self.create_inspector(image_uuid)
+
+    def list_dir(self, path: str = "/") -> DirectoryList:
+        """List session directory entries relative to the filesystem root.
+
+        Returns:
+            Directory entries and their filesystem metadata.
+
+        """
+        view = self.inspect()
+        return view.list(path)
+
+    def grep(
+        self,
+        pattern: str | Sequence[str],
+        *,
+        path: str | Sequence[str] | None = None,
+        glob: str | Sequence[str] | None = None,
+        max_count: int | None = None,
+        max_total: int | None = None,
+        case: Literal["sensitive", "insensitive", "smart"] | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> GrepResult:
+        """Search session files using the current source's syntax and limits.
+
+        Returns:
+            Matching lines and the server's truncation indicator.
+
+        """
+        view = self.inspect()
+        return view.grep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            max_total=max_total,
+            case=case,
+            before=before,
+            after=after,
+        )
 
     def read_file(self, path: str) -> bytes:
         view = self.inspect()

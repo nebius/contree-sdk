@@ -55,7 +55,7 @@ from contree_sdk.langchain import ContreeSandbox
 with create_sandbox_session(image="tag:python:3.12-alpine") as session:
     sandbox = ContreeSandbox(session)
     result = sandbox.execute("echo hello")
-    print(result.output, end="")
+    print(result.output)
     print("exit:", result.exit_code)
 ```
 
@@ -63,7 +63,7 @@ with create_sandbox_session(image="tag:python:3.12-alpine") as session:
 name: test_sandbox
 ```python
 assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert capsys.readouterr().out == "hello\nexit: 0\n"
+assert capsys.readouterr().out == "hello\n\nexit: 0\n"
 ```
 -->
 
@@ -86,7 +86,7 @@ from contree_sdk.langchain import ContreeAsyncSandbox
 async with create_sandbox_session(image="tag:python:3.12-alpine") as session:
     sandbox = ContreeAsyncSandbox(session)
     result = await sandbox.aexecute("echo hello")
-    print(result.output, end="")
+    print(result.output)
     print("exit:", result.exit_code)
 ```
 
@@ -94,7 +94,7 @@ async with create_sandbox_session(image="tag:python:3.12-alpine") as session:
 name: test_sandbox_async
 ```python
 assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
-assert capsys.readouterr().out == "hello\nexit: 0\n"
+assert capsys.readouterr().out == "hello\n\nexit: 0\n"
 ```
 -->
 

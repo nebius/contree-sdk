@@ -19,6 +19,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_inline_tabs",
     "sphinxcontrib.log_cabinet",
+    "sphinxcontrib.mermaid",
     "sphinx_mintlify_output",
 ]
 
@@ -60,6 +61,7 @@ myst_enable_extensions = [
 ]
 
 myst_heading_anchors = 3
+myst_fence_as_directive = ["mermaid"]
 
 # -- Source file suffixes ---------------------------------------------------
 

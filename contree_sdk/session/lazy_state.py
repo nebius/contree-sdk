@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from contree_client.models import OperationEvent
+from contree_client.models import EventDataExit, OperationEvent
 
 
 LazyPhase = Literal["cold", "starting", "running", "draining", "snapshotting", "failed", "closed"]
@@ -61,8 +61,7 @@ class LazyState:
             if self.phase != "snapshotting":
                 self.fail(RuntimeError("LazySession VM ended before a requested snapshot"))
         elif event.type == "exit" and event.spid == 1:
-            if self.phase != "snapshotting":
-                self.fail(RuntimeError("LazySession main process exited before a requested snapshot"))
+            self.main_exited(event)
         elif event.type == "exit" and isinstance(event.spid, int) and event.spid > 1:
             if event.spid in self.active:
                 self.active.remove(event.spid)
@@ -71,6 +70,12 @@ class LazyState:
                 self.early_exits.add(event.spid)
                 return True
         return False
+
+    def main_exited(self, event: OperationEvent) -> None:
+        if isinstance(event.data, EventDataExit) and event.data.timed_out:
+            self.fail(TimeoutError("LazySession VM reached its execution timeout before saving completed"))
+        elif self.phase != "snapshotting":
+            self.fail(RuntimeError("LazySession main process exited before a requested snapshot"))
 
     def wants_snapshot(self, requested: bool) -> bool:
         if self.phase == "running" and requested:

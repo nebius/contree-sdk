@@ -287,6 +287,7 @@ def create_sandbox_session(
     client: ContreeSyncClient | ContreeAsyncClient | None = None,
     client_type: type[ContreeSyncClient | ContreeAsyncClient] | None = None,
     file_transfer: SyncFileTransfer | AsyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> SandboxSessionContext[LazySession, AsyncLazySession]: ...
 
@@ -299,6 +300,7 @@ def create_sandbox_session(
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> SandboxSessionContext[SyncSessionT, NoReturn]: ...
 
@@ -311,20 +313,27 @@ def create_sandbox_session(
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> SandboxSessionContext[NoReturn, AsyncSessionT]: ...
 
 
 def create_sandbox_session(
-    *, session_type: type[SyncExecutor | AsyncExecutor] | None = None, **kwargs: Any
+    *,
+    session_type: type[SyncExecutor | AsyncExecutor] | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
+    **kwargs: Any,
 ) -> SandboxSessionContext[Any, Any]:
     """Create a single-use context supporting both with and async with.
+
+    Pass constructor options for the selected class through session_kwargs.
+    Other keyword arguments configure the factory or its client.
 
     Returns:
         A composed context. See session_maker for all configuration parameters.
 
     """
-    return session_maker(SandboxSessionContext, session_type=session_type, **kwargs)
+    return session_maker(SandboxSessionContext, session_type=session_type, session_kwargs=session_kwargs, **kwargs)
 
 
 @overload
@@ -335,6 +344,7 @@ def create_sync_sandbox_session(
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> SyncSandboxSessionContext[LazySession]: ...
 
@@ -347,20 +357,27 @@ def create_sync_sandbox_session(
     client: ContreeSyncClient | None = None,
     client_type: type[ContreeSyncClient] | None = None,
     file_transfer: SyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> SyncSandboxSessionContext[SyncSessionT]: ...
 
 
 def create_sync_sandbox_session(
-    *, session_type: type[SyncExecutor] | None = None, **kwargs: Any
+    *,
+    session_type: type[SyncExecutor] | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
+    **kwargs: Any,
 ) -> SyncSandboxSessionContext[Any]:
     """Create a sync-only context; its default session is LazySession.
+
+    Pass constructor options for the selected class through session_kwargs.
+    Other keyword arguments configure the factory or its client.
 
     Returns:
         A synchronous context with the configuration accepted by session_maker.
 
     """
-    return session_maker(SyncSandboxSessionContext, session_type=session_type, **kwargs)
+    return session_maker(SyncSandboxSessionContext, session_type=session_type, session_kwargs=session_kwargs, **kwargs)
 
 
 @overload
@@ -371,6 +388,7 @@ def create_async_sandbox_session(
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> AsyncSandboxSessionContext[AsyncLazySession]: ...
 
@@ -383,20 +401,27 @@ def create_async_sandbox_session(
     client: ContreeAsyncClient | None = None,
     client_type: type[ContreeAsyncClient] | None = None,
     file_transfer: AsyncFileTransfer | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> AsyncSandboxSessionContext[AsyncSessionT]: ...
 
 
 def create_async_sandbox_session(
-    *, session_type: type[AsyncExecutor] | None = None, **kwargs: Any
+    *,
+    session_type: type[AsyncExecutor] | None = None,
+    session_kwargs: Mapping[str, Any] | None = None,
+    **kwargs: Any,
 ) -> AsyncSandboxSessionContext[Any]:
     """Create an async-only context; its default session is AsyncLazySession.
+
+    Pass constructor options for the selected class through session_kwargs.
+    Other keyword arguments configure the factory or its client.
 
     Returns:
         An asynchronous context with the configuration accepted by session_maker.
 
     """
-    return session_maker(AsyncSandboxSessionContext, session_type=session_type, **kwargs)
+    return session_maker(AsyncSandboxSessionContext, session_type=session_type, session_kwargs=session_kwargs, **kwargs)
 
 
 def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and client settings
@@ -436,7 +461,8 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
     Connection arguments, an explicit profile/config_path, and a borrowed client
     are separate sources. Without an explicit source, use the client's environment
     profile, then its default INI resolution. client_kwargs is forwarded unchanged
-    to the selected client's from_profile constructor.
+    to the selected client's from_profile constructor. Created clients use
+    RetryPolicy() unless retry is supplied; retry=None disables retries.
 
     The default lazy policy snapshots after 10 idle seconds. Normal exit saves
     pending work; exceptional exit discards unsaved work. Snapshots retain files,
