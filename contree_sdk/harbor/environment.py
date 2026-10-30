@@ -170,13 +170,15 @@ class ConTreeEnvironment(BaseEnvironment):
                 raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
             self._closing = False
             try:
-                await asyncio.wait_for(self._start(), timeout=self.task_env_config.build_timeout_sec)
+                await self._start()
             except BaseException:
-                await _finish_cleanup(self._close_operation(save=False))
+                try:
+                    await _finish_cleanup(self._close_operation(save=False))
+                except Exception:
+                    self.logger.warning("ConTree startup cleanup failed.", exc_info=True)
                 raise
 
     async def _start(self) -> None:
-        startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
         if self._provided_client is None:
             profile = (
                 profiles.resolve_profile(self._profile)
@@ -194,8 +196,6 @@ class ConTreeEnvironment(BaseEnvironment):
             raise RuntimeError("ConTree startup requires a prebuilt image.")
         contree_image = await self._import_image(client, docker_image)
 
-        if startup_deadline <= asyncio.get_running_loop().time():
-            raise TimeoutError("ConTree environment startup timed out while resolving its image")
         response = await client.spawn_instance(
             "sleep",
             contree_image,
