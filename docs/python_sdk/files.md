@@ -110,9 +110,13 @@ that supports it. For a standalone script, use the `asyncio.run(main())` structu
 from {doc}`getting-started`.
 :::
 
-For a local file, use `run(shell="cat > /input.txt", stdin=Path("local.txt"))`. The default lazy sandbox does not support `run(files=...)` while a
-VM is active. The advanced examples below select `ContreeSession` or
-`ContreeAsyncSession` explicitly for startup attachments and per-command images.
+Use `run(files={"/input.txt": Path("local.txt")}, command="cat", args=["/input.txt"])`
+to make a local file available before the command starts. A `LazySession` applies
+the file to its running VM, including on the first call; a `ContreeSession`
+attaches it at operation startup. Directory sources expand into individual files
+on both paths, so empty directories are omitted. Live placement uses mode `0644`
+and the VM runtime user; explicit non-default `UploadFileSpec` ownership or mode
+is rejected for `LazySession`.
 
 ## Advanced: choose a file source
 
@@ -122,7 +126,7 @@ VM is active. The advanced examples below select `ContreeSession` or
 | `files={"/input.txt": "local.txt"}`       | Read a local file; the string is a path, not file content. |
 | `files={"/input.txt": Path("local.txt")}` | Read a local file using a path object.                     |
 | `files=["local.txt"]`                     | Upload the file to `/local.txt`.                           |
-| `files={"/tool.sh": UploadFileSpec(...)}` | Set file ownership and mode.                               |
+| `files={"/tool.sh": UploadFileSpec(...)}` | Set ownership and mode for startup attachments.            |
 
 Destination paths refer to the remote filesystem. Source paths refer to your local
 machine. A duplicate destination in a list raises `ValueError` before execution.

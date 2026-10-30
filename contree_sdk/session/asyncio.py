@@ -21,14 +21,7 @@ from contree_client.models import (
 from contree_client.types import ContreeAsyncClient
 
 from contree_sdk.execution import AsyncExecutor, OperationContext, RunRequest
-from contree_sdk.files import (
-    AsyncClientFileTransfer,
-    AsyncFileTransfer,
-    InputSource,
-    RunFiles,
-    StagedFile,
-    UploadFileSpec,
-)
+from contree_sdk.files import AsyncClientFileTransfer, AsyncFileTransfer, InputSource, RunFiles, StagedFile
 from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_async_operation
@@ -160,21 +153,14 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
                 self.env[key] = value
         await self._save_configuration()
 
-    async def upload_file(self, file: UploadFileSpec) -> FileSpec:
-        return await self.file_transfer.upload(file)
-
-    async def build_files(self, files: RunFiles) -> dict[str, FileSpec] | None:
-        return await self.file_transfer.prepare_files(files)
-
     async def stage_files(self, files: RunFiles) -> HistoryEntry:
         await self.ensure_ready()
         parent_id = self.tip_id
         version = self._position_version
         image_uuid, cwd, env = self.image_uuid, self.cwd, dict(self.env)
         branch = self._active_branch
-        attachments = tuple(
-            (StagedFile.from_spec(path, spec) for path, spec in (await self.build_files(files) or {}).items())
-        )
+        prepared = await self.file_transfer.prepare_files(files)
+        attachments = tuple(StagedFile.from_spec(path, spec) for path, spec in (prepared or {}).items())
         if not attachments:
             raise ValueError("staging requires files")
         node = entry_node(
@@ -744,7 +730,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         branch = self._active_branch
         staged = await self.pending_files(parent_id)
         files = {item.path: item.as_spec() for item in staged}
-        files.update(await self.build_files(request.files) or {})
+        files.update(await self.file_transfer.prepare_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
             data = await self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""

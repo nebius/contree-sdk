@@ -20,7 +20,7 @@ from contree_client.models import (
 from contree_client.types import ContreeSyncClient
 
 from contree_sdk.execution import OperationContext, RunRequest, SyncExecutor
-from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, StagedFile, SyncFileTransfer, UploadFileSpec
+from contree_sdk.files import ClientFileTransfer, InputSource, RunFiles, StagedFile, SyncFileTransfer
 from contree_sdk.inspection import ImageInspector
 from contree_sdk.session.base import exit_code_of, instance_result, new_session_id, require_str, stream_repr_for_stdin
 from contree_sdk.session.cleanup import owned_operation
@@ -70,19 +70,13 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.image_uuid = ""
         self._initialize(image, node_id, tree_kind)
 
-    def upload_file(self, file: UploadFileSpec) -> FileSpec:
-        return self.file_transfer.upload(file)
-
-    def build_files(self, files: RunFiles) -> dict[str, FileSpec] | None:
-        return self.file_transfer.prepare_files(files)
-
     def stage_files(self, files: RunFiles) -> HistoryEntry:
         parent_id = self.tip_id
         version = self._position_version
         image_uuid, cwd, env = self.image_uuid, self.cwd, dict(self.env)
         branch = self._active_branch
         attachments = tuple(
-            (StagedFile.from_spec(path, spec) for path, spec in (self.build_files(files) or {}).items())
+            (StagedFile.from_spec(path, spec) for path, spec in (self.file_transfer.prepare_files(files) or {}).items())
         )
         if not attachments:
             raise ValueError("staging requires files")
@@ -647,7 +641,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         branch = self._active_branch
         staged = self.pending_files(parent_id)
         files = {item.path: item.as_spec() for item in staged}
-        files.update(self.build_files(request.files) or {})
+        files.update(self.file_transfer.prepare_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
             data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""

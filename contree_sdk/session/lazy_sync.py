@@ -19,6 +19,7 @@ from contree_sdk.session.base import require_str
 from contree_sdk.session.contracts import OperationContract, SubprocessContract
 from contree_sdk.session.inspection import SessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
+from contree_sdk.session.live_files import prepare_live_sources
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 from contree_sdk.session.sync import ContreeSession
@@ -70,22 +71,19 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             The effective request.
 
         Raises:
-            ValueError: The request needs a disposable VM or unsupported live uploads.
+            ValueError: The request needs a disposable VM or startup-only options.
 
         """
         request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
         if (
-            request.files
-            or request.preserve_env
+            request.preserve_env
             or request.hostname is not None
             or request.resources_limits is not None
             or request.networking is not None
         ):
-            raise ValueError(
-                "files, preserve_env, hostname, resources_limits and networking require VM startup configuration"
-            )
+            raise ValueError("preserve_env, hostname, resources_limits and networking require VM startup configuration")
         return request
 
     def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
@@ -140,6 +138,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
     def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
         request = self.prepare_request(request)
         stdin = self.session.file_transfer.read_stdin(request.stdin) if request.stdin is not None else None
+        files = self.session.file_transfer.prepare_files(prepare_live_sources(request.files)) if request.files else None
         with self.condition:
             while True:
                 self.state.check()
@@ -166,6 +165,8 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             operation = self.operation
             if operation is None:
                 raise RuntimeError("running LazySession has no operation")
+            if files:
+                operation.apply_files(files)
             self.state.reserve()
             try:
                 self.snapshot_policy.notify(SnapshotEvent.COMMAND_STARTED)

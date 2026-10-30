@@ -107,6 +107,13 @@ cancellation if it does not stop. This happens even when the block raises an exc
 The subprocess shares the operation's live filesystem. It has its own `spid` and
 result, but no separate session-history entry.
 
+To place already-uploaded files in a running operation, pass the prepared
+path-to-`FileSpec` mapping to `operation.apply_files()` (await it for an async
+operation). For example, `operation.apply_files(session.file_transfer.prepare_files({"/input": b"data"}) or {})`.
+The call replaces existing files by default. Live upload uses the VM runtime user
+and mode `0644`; non-default `FileSpec` ownership or mode is rejected. Each file
+is applied separately, so a later failure does not undo earlier attachments.
+
 ## Choose the right handle
 
 | Call                                           | What you receive                                  |

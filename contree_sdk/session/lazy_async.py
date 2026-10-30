@@ -13,6 +13,7 @@ from contree_client.models import InstanceResult, OperationEvent
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import AsyncExecutor, RunRequest
+from contree_sdk.file_io import run_file_io
 from contree_sdk.inspection import AsyncImageInspector
 from contree_sdk.session.asyncio import ContreeAsyncSession
 from contree_sdk.session.base import require_str
@@ -20,6 +21,7 @@ from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncSubprocessContract
 from contree_sdk.session.inspection import AsyncSessionInspector
 from contree_sdk.session.lazy_state import LazyPhase, LazyState
+from contree_sdk.session.live_files import prepare_live_sources
 from contree_sdk.session.models import HistoryEntry
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, IdleSnapshotPolicy, SnapshotEvent
 
@@ -69,22 +71,19 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             The effective request.
 
         Raises:
-            ValueError: The request needs a disposable VM or unsupported live uploads.
+            ValueError: The request needs a disposable VM or startup-only options.
 
         """
         request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeAsyncSession")
         if (
-            request.files
-            or request.preserve_env
+            request.preserve_env
             or request.hostname is not None
             or request.resources_limits is not None
             or request.networking is not None
         ):
-            raise ValueError(
-                "files, preserve_env, hostname, resources_limits and networking require VM startup configuration"
-            )
+            raise ValueError("preserve_env, hostname, resources_limits and networking require VM startup configuration")
         return request
 
     def keepalive_request(self) -> RunRequest:  # noqa: PLR6301 - public extension hook
@@ -143,6 +142,10 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         await self.session.ensure_ready()
         request = self.prepare_request(request)
         stdin = await self.session.file_transfer.read_stdin(request.stdin) if request.stdin is not None else None
+        files = None
+        if request.files:
+            prepared = await run_file_io(prepare_live_sources, request.files)
+            files = await self.session.file_transfer.prepare_files(prepared)
         async with self.condition:
             while True:
                 self.state.check()
@@ -169,6 +172,8 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             operation = self.operation
             if operation is None:
                 raise RuntimeError("running LazySession has no operation")
+            if files:
+                await operation.apply_files(files)
             self.state.reserve()
             try:
                 self.snapshot_policy.notify(SnapshotEvent.COMMAND_STARTED)

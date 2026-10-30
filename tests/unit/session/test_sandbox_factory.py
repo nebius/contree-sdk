@@ -218,13 +218,13 @@ async def test_cache_reuses_uploads_and_borrowed_client_stays_open(asynchronous)
     file = UploadFileSpec(path="/input", source=b"same")
     if isinstance(cache, AsyncMemoryStore):
         async with create_sandbox_session(**options) as session:
-            first = await session.upload_file(file)
-            second = await session.upload_file(file)
+            first = await session.file_transfer.upload(file)
+            second = await session.file_transfer.upload(file)
         entries = (await cache.list_sessions(kind="upload-cache")).items
     else:
         with create_sandbox_session(**options) as session:
-            first = session.upload_file(file)
-            second = session.upload_file(file)
+            first = session.file_transfer.upload(file)
+            second = session.file_transfer.upload(file)
         entries = cache.list_sessions(kind="upload-cache").items
     assert first.uuid == second.uuid == "upload"
     assert len(client.calls_for("ensure_file")) == 1
