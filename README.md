@@ -3,9 +3,9 @@
 [![PyPI version](https://img.shields.io/pypi/v/contree-sdk.svg)](https://pypi.org/project/contree-sdk/)
 [![Python](https://img.shields.io/pypi/pyversions/contree-sdk.svg)](https://pypi.org/project/contree-sdk/)
 
-Run commands in remote sandboxes, save their filesystem changes, and branch from
-recorded checkpoints. The SDK provides sessions, history stores, operation handles,
-Dockerfile builds, and deepagents adapters. `contree-client` provides the transport.
+Use one sandbox session to run commands, read and write files, search contents,
+and list directories. Save the filesystem as an image when you need to continue
+later or try a different approach.
 
 This checkout contains the breaking **0.5 development API**. Install it locally:
 
@@ -15,26 +15,43 @@ pip install -e .
 pip install -e ".[async]"
 ```
 
-## Run a command
+## Use a sandbox session
 
-Configure the endpoint, token, and AI project using the
-[connection guide](docs/python_sdk/getting-started.md#connection-sources).
-Replace `tag:alpine:latest` with an image available on your endpoint.
+The five tools are `run`, `read_file`, `write_file`, `grep`, and `list_dir`.
+Initialize the session [from a token](docs/python_sdk/getting-started.md#create-a-session-from-a-token)
+or [from a saved profile](docs/python_sdk/getting-started.md#create-a-session-from-a-saved-profile).
+Use an image available on your endpoint.
 
 ### Sync
 
-<!-- name: test_readme; fixtures: sandbox_api, capsys -->
+<!-- name: test_readme; fixtures: sandbox_tools_api, capsys -->
 
 ```python
-"""Run a command in a sandbox and print its output."""
+"""Use the five sandbox tools in one session."""
 
 from contree_sdk import create_sandbox_session
 
 
 def main() -> None:
-    with create_sandbox_session(image="tag:alpine:latest") as sandbox:
-        result = sandbox.run("echo", args=["Hello from ConTree!"])
-        print(result.stdout.as_text(), end="")
+    with create_sandbox_session(image="tag:alpine:latest") as sandbox_session:
+        # Write a file in the sandbox.
+        sandbox_session.write_file("/work/message.txt", b"Hello from ConTree!\n")
+
+        # Run a command and print its output.
+        result = sandbox_session.run("cat", args=["/work/message.txt"])
+        print(result.stdout)
+
+        # Read the file as bytes.
+        content = sandbox_session.read_file("/work/message.txt")
+        print(content.decode())
+
+        # Search file contents.
+        matches = sandbox_session.grep("Hello", path="/work/message.txt")
+        print(matches)
+
+        # List the directory with file metadata.
+        directory = sandbox_session.list_dir("/work")
+        print(directory)
 
 
 main()
@@ -43,15 +60,23 @@ main()
 <!--
 name: test_readme
 ```python
-assert capsys.readouterr().out == "Hello from ConTree!\n"
-assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
-assert len(sandbox_api.sync.calls_for("operation_subprocess_kill")) == 1
+assert (
+    capsys.readouterr().out
+    == "Hello from ConTree!\n\nHello from ConTree!\n\n/work/message.txt:1:Hello from ConTree!\n\n-rw-r--r-- 1 root root 20 1970-01-01 00:00 message.txt\n\n"
+)
+client = sandbox_tools_api.sync
+assert len(client.calls_for("spawn_instance")) == 1
+assert len(client.calls_for("operation_subprocess_create")) == 2
+assert client.calls_for("inspect_instance_download")[0].args == ("op-1", "/work/message.txt")
+assert client.calls_for("inspect_instance_grep")[0].kwargs["path"] == "/work/message.txt"
+assert client.calls_for("inspect_instance_list")[0].args == ("op-1", "/work")
+assert len(client.calls_for("operation_subprocess_kill")) == 1
 ```
 -->
 
 ### Async
 
-<!-- name: test_readme_async; fixtures: sandbox_api, capsys -->
+<!-- name: test_readme_async; fixtures: sandbox_tools_api, capsys -->
 
 ```python
 import asyncio
@@ -60,9 +85,25 @@ from contree_sdk import create_sandbox_session
 
 
 async def main() -> None:
-    async with create_sandbox_session(image="tag:alpine:latest") as sandbox:
-        result = await sandbox.run("echo", args=["Hello from ConTree!"])
-        print(result.stdout.as_text(), end="")
+    async with create_sandbox_session(image="tag:alpine:latest") as sandbox_session:
+        # Write a file in the sandbox.
+        await sandbox_session.write_file("/work/message.txt", b"Hello from ConTree!\n")
+
+        # Run a command and print its output.
+        result = await sandbox_session.run("cat", args=["/work/message.txt"])
+        print(result.stdout)
+
+        # Read the file as bytes.
+        content = await sandbox_session.read_file("/work/message.txt")
+        print(content.decode())
+
+        # Search file contents.
+        matches = await sandbox_session.grep("Hello", path="/work/message.txt")
+        print(matches)
+
+        # List the directory with file metadata.
+        directory = await sandbox_session.list_dir("/work")
+        print(directory)
 
 
 asyncio.run(main())
@@ -71,23 +112,32 @@ asyncio.run(main())
 <!--
 name: test_readme_async
 ```python
-assert capsys.readouterr().out == "Hello from ConTree!\n"
-assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
-assert len(sandbox_api.async_client.calls_for("operation_subprocess_kill")) == 1
+assert (
+    capsys.readouterr().out
+    == "Hello from ConTree!\n\nHello from ConTree!\n\n/work/message.txt:1:Hello from ConTree!\n\n-rw-r--r-- 1 root root 20 1970-01-01 00:00 message.txt\n\n"
+)
+client = sandbox_tools_api.async_client
+assert len(client.calls_for("spawn_instance")) == 1
+assert len(client.calls_for("operation_subprocess_create")) == 2
+assert client.calls_for("inspect_instance_download")[0].args == ("op-1", "/work/message.txt")
+assert client.calls_for("inspect_instance_grep")[0].kwargs["path"] == "/work/message.txt"
+assert client.calls_for("inspect_instance_list")[0].args == ("op-1", "/work")
+assert len(client.calls_for("operation_subprocess_kill")) == 1
 ```
 -->
 
-Commands share a VM until a snapshot. Normal context exit saves pending filesystem
-changes. Snapshots are lightweight; take them as often as needed, even after each
-command. A snapshot stops the VM and preserves files, but not processes or memory.
-If files have not changed, it can return the same `image_uuid`.
+The command and file read both print `Hello from ConTree!`. The search prints
+`/work/message.txt:1:Hello from ConTree!`, and the listing shows metadata for `message.txt`.
 
-To save after every command automatically, select `session_type=ContreeSession`
-or `ContreeAsyncSession`. Each command then uses a separate VM and saves its result
-by default. Set `disposable=True` to leave the session image unchanged. See
-[Work with a Session](docs/python_sdk/session-model.md#save-after-every-command).
-See [manual assembly](docs/python_sdk/manual-sandbox.md) when you need direct
-control over the components the factory supplies.
+The default `LazySession` (`AsyncLazySession` for async code) starts a VM on the
+first command and reuses it for later commands. After 10 idle seconds, it saves
+the filesystem and stops the VM automatically. The next command starts a new VM
+from those saved files. Processes and memory do not survive a snapshot.
+Normal context exit also saves pending changes.
+
+To save after each command, select `session_type=ContreeSession` for Sync or
+`session_type=ContreeAsyncSession` for Async. Each command then uses a separate
+VM. See the complete [save-after-every-command examples](docs/python_sdk/getting-started.md#save-after-every-command).
 
 ## Follow a workflow
 

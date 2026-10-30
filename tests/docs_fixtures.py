@@ -7,8 +7,8 @@ from unittest.mock import Mock
 import pytest
 from contree_client.models import (
     DirectoryList,
-    EventDataStream,
     FileResponse,
+    GrepResult,
     InstanceResult,
     InstanceResultState,
     InstanceSpawnResponse,
@@ -19,6 +19,8 @@ from contree_client.models import (
     StreamRepr,
 )
 from contree_client.testing import ContreeAsyncClient, ContreeClient
+
+from tests.unit.session.lazy_clients import event, subprocess_events
 
 
 class DocumentationAPI:
@@ -94,24 +96,12 @@ class DocumentationAPI:
 
     def subprocess(self, stdout: str = "Hello from a subprocess!\n") -> None:
         self.complete(stream=False)
-        events = [
-            OperationEvent(
-                id=1,
-                ts=datetime.now(timezone.utc),
-                type="stdout",
-                spid=2,
-                data=EventDataStream(value=stdout, encoding="ascii"),
-            ),
-            OperationEvent(id=2, ts=datetime.now(timezone.utc), type="exit", spid=2, data={}),
-            OperationEvent(id=3, ts=datetime.now(timezone.utc), type="completion", data={}),
-        ]
+        events = subprocess_events(
+            2, InstanceResult(state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_text(stdout))
+        ) + [event("completion")]
         for client in (self.sync, self.async_client):
             client.mock("follow_operation_events", events)
             client.mock("operation_subprocess_create", 2)
-            client.mock(
-                "operation_subprocess",
-                InstanceResult(state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_text(stdout)),
-            )
 
 
 @pytest.fixture
@@ -222,15 +212,79 @@ def sandbox_api(lazy_api: DocumentationAPI, monkeypatch: pytest.MonkeyPatch) -> 
     """Replace factory transports while retaining profile resolution and SDK lifecycle."""
     lazy_api.command("Hello from ConTree!\n")
 
-    def result(operation_id: str, spid: int) -> InstanceResult:
+    def result(command: str) -> InstanceResult:
         return lazy_api.command_result
 
-    async def async_result(operation_id: str, spid: int) -> InstanceResult:
-        return result(operation_id, spid)
-
-    monkeypatch.setattr(lazy_api.sync, "operation_subprocess", result)
-    monkeypatch.setattr(lazy_api.async_client, "operation_subprocess", async_result)
+    monkeypatch.setattr(lazy_api.sync, "result_for_command", result)
+    monkeypatch.setattr(lazy_api.async_client, "result_for_command", result)
     return lazy_api
+
+
+@pytest.fixture
+def sandbox_profile_api(sandbox_api: DocumentationAPI, tmp_path: Path) -> DocumentationAPI:
+    """Read the documented profile through the real client configuration parser."""
+    import re
+
+    guide = Path(__file__).resolve().parents[1] / "docs/python_sdk/getting-started.md"
+    source = guide.read_text()
+    heading = "### Create a session from a saved profile"
+    if heading not in source:
+        raise ValueError(f"missing saved-profile section in {guide}")
+    section = source.split(heading, 1)[1]
+    match = re.search(r"```ini\n(.*?)\n```", section, re.DOTALL)
+    if match is None:
+        raise ValueError(f"missing saved-profile ini block in {guide}")
+    (tmp_path / "contree.ini").write_text(match[1] + "\n")
+    return sandbox_api
+
+
+@pytest.fixture
+def sandbox_tools_api(sandbox_api: DocumentationAPI) -> DocumentationAPI:
+    """Supply file contents, search matches, and directory entries for the five tools."""
+    content = b"Hello from ConTree!\n"
+    sandbox_api.download(content)
+    directory = DirectoryList.from_dict({
+        "path": "/work",
+        "files": [
+            {
+                "path": "message.txt",
+                "size": len(content),
+                "owner": "root",
+                "group": "root",
+                "uid": 0,
+                "gid": 0,
+                "mode": 0o100644,
+                "mtime": 0,
+                "nlink": 1,
+                "is_dir": False,
+                "is_regular": True,
+                "is_symlink": False,
+                "is_socket": False,
+                "is_fifo": False,
+                "symlink_to": "",
+            }
+        ],
+    })
+    matches = GrepResult.from_dict({
+        "path": "/work/message.txt",
+        "patterns": ["Hello"],
+        "matches": [
+            {
+                "path": "/work/message.txt",
+                "line_number": 1,
+                "absolute_offset": 0,
+                "line_text": content.decode(),
+                "line_bytes": len(content),
+                "submatches": [{"text": "Hello", "start": 0, "end": 5}],
+                "type": "match",
+            }
+        ],
+        "truncated": False,
+    })
+    for client in (sandbox_api.sync, sandbox_api.async_client):
+        client.mock("inspect_instance_list", directory)
+        client.mock("inspect_instance_grep", matches)
+    return sandbox_api
 
 
 @pytest.fixture

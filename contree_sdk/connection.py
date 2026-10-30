@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from contree_client import profiles
+from contree_client import RetryPolicy, profiles
 from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
@@ -105,7 +105,8 @@ class ConnectionConfig:
             from contree_client.httpx import ContreeClient
 
             client_type = ContreeClient
-        client = client_type.from_profile(self.resolve_profile(), **self.client_kwargs)
+        kwargs: dict[str, Any] = {"retry": RetryPolicy(), **self.client_kwargs}
+        client = client_type.from_profile(self.resolve_profile(), **kwargs)
         stack.callback(client.close)
         client.open()
         return client
@@ -119,7 +120,8 @@ class ConnectionConfig:
             from contree_client.aiohttp import ContreeAsyncClient
 
             client_type = ContreeAsyncClient
-        client = client_type.from_profile(self.resolve_profile(), **self.client_kwargs)
+        kwargs: dict[str, Any] = {"retry": RetryPolicy(), **self.client_kwargs}
+        client = client_type.from_profile(self.resolve_profile(), **kwargs)
         stack.push_async_callback(client.close)
         await client.open()
         return client

@@ -1,9 +1,7 @@
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import EllipsisType
 
-from contree_client.models import InstanceResult
 from contree_client.sync import ContreeClient
 from contree_client.types import ContreeSyncClient
 
@@ -16,13 +14,6 @@ ENV GREETING="hello from a built image"
 COPY greet.sh /greet.sh
 RUN chmod +x /greet.sh
 """
-
-
-def stdout_text(result: InstanceResult) -> str:
-    stream = result.stdout
-    if isinstance(stream, EllipsisType):
-        raise TypeError("command produced no stdout")
-    return stream.as_text()
 
 
 def main(client: ContreeSyncClient):
@@ -38,7 +29,7 @@ def main(client: ContreeSyncClient):
         if session is None:
             raise RuntimeError("build produced no session")
         result = session.run(shell="/greet.sh", env={"GREETING": "hello from a built image"})
-        print(f"Output: {stdout_text(result)=}")
+        print(result.stdout)
 
 
 if __name__ == "__main__":
@@ -62,4 +53,4 @@ def test_build_image(doc_api, capsys):
     assert calls[1].args[1] == "image-1"
     assert calls[1].kwargs["env"] == {"GREETING": "hello from a built image"}
     assert client.calls_for("update_image_tag")[0].args == ("image-1", "example/greeter:latest")
-    assert "hello from a built image" in capsys.readouterr().out
+    assert capsys.readouterr().out.endswith("hello from a built image\n\n")

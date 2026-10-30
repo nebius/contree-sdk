@@ -24,14 +24,14 @@ async def main() -> None:
             await session.switch_branch("reverse")
             await session.run(shell="sort -r /input.txt > /result.txt")
             print("Reverse:")
-            print((await session.read_file("/result.txt")).decode(), end="")
+            print((await session.read_file("/result.txt")).decode())
             await session.switch_branch("main")
 
         # Reopen the saved node. Local branch selection is not shared through Store.
         async with AsyncSQLiteStore("workflow.db") as store:
             resumed = ContreeAsyncSession(client, store=store, session_id=session_id, node_id=baseline_node)
             print("Baseline:")
-            print((await resumed.read_file("/result.txt")).decode(), end="")
+            print((await resumed.read_file("/result.txt")).decode())
 
 
 if __name__ == "__main__":
@@ -59,4 +59,4 @@ def test_workflow(doc_api, capsys):
         ("image-1", "/result.txt"),
     ]
     assert len(client.calls_for("resolve_image")) == 1
-    assert capsys.readouterr().out == "Reverse:\npear\napple\nBaseline:\napple\npear\n"
+    assert capsys.readouterr().out == "Reverse:\npear\napple\n\nBaseline:\napple\npear\n\n"

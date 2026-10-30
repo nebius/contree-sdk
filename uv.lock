@@ -531,11 +531,11 @@ wheels = [
 
 [[package]]
 name = "contree-client"
-version = "0.5.1"
+version = "0.5.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a9/d8/8d327cd1c53981af70dfa8676a5d7a11f863cda90cf2b114485c48a667d5/contree_client-0.5.1.tar.gz", hash = "sha256:d50cea691eb53a79c96ee688a70eeb4f0b97528eefe1006df95dea7edbcf38ed", size = 188723, upload-time = "2026-10-27T19:09:33.912Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/02/bff3b8e78fc4e05bab4e3b1e881b07dc6c285ab9eee66fd760582f5db977/contree_client-0.5.3.tar.gz", hash = "sha256:6fffe212c5350f8978177ee875523f49df2a56724854fefa65ca108b6a671225", size = 191848, upload-time = "2026-10-30T14:46:51.872Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/10/8d77ba5d7bf889973e452b2cef3d66997704ad40514208766d5f1ef6d366/contree_client-0.5.1-py3-none-any.whl", hash = "sha256:289bab251988126dff3fe5f27bf9a37a58037c5671a8e325a2f178233aad773f", size = 133387, upload-time = "2026-10-27T19:09:32.476Z" },
+    { url = "https://files.pythonhosted.org/packages/db/cf/9a1245e0e63dea85030cd9a8f1fa06b6ac2072028c7d8d93493a5812d878/contree_client-0.5.3-py3-none-any.whl", hash = "sha256:df5e23460e0bdf5ce2a5b3d90cc84636a7f6ff9305b01ac985f3b753bc718af0", size = 134334, upload-time = "2026-10-30T14:46:50.326Z" },
 ]
 
 [package.optional-dependencies]
@@ -567,6 +567,7 @@ dependencies = [
     { name = "sphinx-inline-tabs" },
     { name = "sphinx-mintlify-output" },
     { name = "sphinxcontrib-log-cabinet" },
+    { name = "sphinxcontrib-mermaid" },
 ]
 
 [package.metadata]
@@ -583,6 +584,7 @@ requires-dist = [
     { name = "sphinx-inline-tabs" },
     { name = "sphinx-mintlify-output" },
     { name = "sphinxcontrib-log-cabinet" },
+    { name = "sphinxcontrib-mermaid", specifier = ">=2.1.1" },
 ]
 
 [[package]]
@@ -629,7 +631,7 @@ langchain = [
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'async'", specifier = ">=0.20" },
     { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'async'" },
-    { name = "contree-client", extras = ["httpx"], specifier = ">=0.5.1" },
+    { name = "contree-client", extras = ["httpx"], specifier = ">=0.5.3" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["async"], marker = "extra == 'dev'" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },
@@ -3107,6 +3109,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/75/26/0687391e10c605a4d0c7ebe118c57c51ecc687128bcdae5803d9b96def81/sphinxcontrib-log-cabinet-1.0.1.tar.gz", hash = "sha256:103b2e62df4e57abb943bea05ee9c2beb7da922222c8b77314ffd6ab9901c558", size = 4072, upload-time = "2019-07-05T23:22:34.596Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/27/e7/dbfc155c1b4c429a9a8149032a56bfb7bab4efabc656abb24ab4619c715d/sphinxcontrib_log_cabinet-1.0.1-py2.py3-none-any.whl", hash = "sha256:3decc888e8e453d1912cd95d50efb0794a4670a214efa65e71a7de277dcfe2cd", size = 4887, upload-time = "2019-07-05T23:22:32.969Z" },
+]
+
+[[package]]
+name = "sphinxcontrib-mermaid"
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "pyyaml" },
+    { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "sphinx", version = "8.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/87/06537dff20aa57df2d0f2afa87edff4afa85dec6f57f03f7acc24f83ff88/sphinxcontrib_mermaid-2.1.1.tar.gz", hash = "sha256:f8d7f1b2f0ad69b7ebdd5cbf532fb4ee107893b5373bc2d0e9634089c0b2cfee", size = 22353, upload-time = "2026-09-01T16:10:23.671Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/6a/5bf2222b8084c7a7bc3ec23d470c91e3e03e82e4ce0bbacaa61f456ce7c1/sphinxcontrib_mermaid-2.1.1-py3-none-any.whl", hash = "sha256:3b9ac1a8e0b5154dec3c0acf9b5c54dd9ba58540e416f20858c300814c25648f", size = 16368, upload-time = "2026-09-01T16:10:22.377Z" },
 ]
 
 [[package]]

@@ -62,7 +62,7 @@ def main() -> None:
             with LazySession(base, snapshot_policy=policy) as sandbox:
                 sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
                 result = sandbox.run("cat", args=["/message.txt"])
-                print(result.stdout.as_text(), end="")
+                print(result.stdout)
 
 
 main()
@@ -75,7 +75,7 @@ assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
 assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
 assert sandbox_api.sync.calls_for("operation_subprocess_kill")[0].args[1] == 1
 assert len(sandbox_api.sync.calls_for("get_operation_status")) == 1
-assert capsys.readouterr().out == "Hello from ConTree!\n"
+assert capsys.readouterr().out == "Hello from ConTree!\n\n"
 ```
 -->
 
@@ -112,7 +112,7 @@ async def main() -> None:
             async with AsyncLazySession(base, snapshot_policy=policy) as sandbox:
                 await sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
                 result = await sandbox.run("cat", args=["/message.txt"])
-                print(result.stdout.as_text(), end="")
+                print(result.stdout)
 
 
 asyncio.run(main())
@@ -125,7 +125,7 @@ assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
 assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
 assert sandbox_api.async_client.calls_for("operation_subprocess_kill")[0].args[1] == 1
 assert len(sandbox_api.async_client.calls_for("get_operation_status")) == 1
-assert capsys.readouterr().out == "Hello from ConTree!\n"
+assert capsys.readouterr().out == "Hello from ConTree!\n\n"
 ```
 -->
 

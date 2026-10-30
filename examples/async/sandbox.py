@@ -2,24 +2,22 @@
 
 import asyncio
 
-from contree_client.models import StreamRepr
-
 from contree_sdk import create_async_sandbox_session
+from contree_sdk.session.lazy_async import AsyncLazySession
 
 
 async def main() -> None:
-    async with create_async_sandbox_session(image="tag:alpine:latest") as session:
+    async with create_async_sandbox_session(image="tag:alpine:latest", session_type=AsyncLazySession) as session:
         await session.run(shell="echo 'Hello from ConTree!' > /message.txt")
         result = await session.run("cat", args=["/message.txt"])
-        if isinstance(result.stdout, StreamRepr):
-            print(result.stdout.as_text(), end="")
+        print(result.stdout)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
 
 
-def test_sandbox(sandbox_api):
+def test_sandbox(sandbox_api, capsys):
     import runpy
 
     runpy.run_path(__file__, run_name="__main__")
@@ -30,3 +28,4 @@ def test_sandbox(sandbox_api):
     assert calls[1].args[1] == "cat"
     assert calls[1].kwargs["args"] == ["/message.txt"]
     assert len(client.calls_for("operation_subprocess_kill")) == 1
+    assert capsys.readouterr().out == "Hello from ConTree!\n\n"

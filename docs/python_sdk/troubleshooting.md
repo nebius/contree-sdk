@@ -113,7 +113,7 @@ from contree_sdk import ContreeSession, create_sandbox_session
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     result = session.run(shell="echo failed >&2; exit 7", disposable=True)
     if result.state.exit_code != 0:
-        print(result.stderr.as_text(), end="")
+        print(result.stderr)
         print("exit:", result.state.exit_code)
 ```
 
@@ -121,7 +121,7 @@ with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:lates
 name: test_nonzero_exit
 ```python
 assert session.image_uuid == "base-image"
-assert capsys.readouterr().out == "failed\nexit: 7\n"
+assert capsys.readouterr().out == "failed\n\nexit: 7\n"
 ```
 -->
 
@@ -143,7 +143,7 @@ from contree_sdk import ContreeAsyncSession, create_sandbox_session
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     result = await session.run(shell="echo failed >&2; exit 7", disposable=True)
     if result.state.exit_code != 0:
-        print(result.stderr.as_text(), end="")
+        print(result.stderr)
         print("exit:", result.state.exit_code)
 ```
 
@@ -151,7 +151,7 @@ async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:a
 name: test_nonzero_exit_async
 ```python
 assert session.image_uuid == "base-image"
-assert capsys.readouterr().out == "failed\nexit: 7\n"
+assert capsys.readouterr().out == "failed\n\nexit: 7\n"
 ```
 -->
 
