@@ -21,12 +21,14 @@ class LazyState:
     snapshots: int = 0
     completion_seen: bool = False
     ready: bool = False
+    snapshot_pending: bool = False
 
     def begin(self) -> None:
         self.phase = "starting"
         self.creating = 0
         self.completion_seen = False
         self.ready = False
+        self.snapshot_pending = False
         self.active.clear()
         self.early_exits.clear()
 

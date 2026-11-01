@@ -32,6 +32,9 @@ from contree_sdk.session.snapshot_policy import (
 from contree_sdk.session.sync import ContreeSession
 
 
+STARTUP_TIMEOUT = 3600.0
+
+
 class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
     """Share one VM across commands; save one history entry per snapshot.
 
@@ -132,8 +135,9 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         future.result()
         return True
 
-    def _start(self) -> None:
+    def _start(self, *, timeout: float | None = None) -> None:
         self.state.begin()
+        self._notify()
         if self.lifecycle_policy.policies[0] is not self.snapshot_policy:
             self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             self.lifecycle_policy = CompositeSnapshotPolicy(self.snapshot_policy, self.duration_policy)
@@ -154,10 +158,24 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             raise TimeoutError("LazySession VM renewal deadline expired during startup")
         self.operation.add_observer(self.observe)
         self.operation.__enter__()  # noqa: PLC2801 - context spans several commands
-        self.state.phase = "running"
+        # Operation.wait_ready() would block its reader in observe(), which needs this condition.
+        # TODO: Review startup and admission concurrency so Operation.wait_ready() can be used directly.
+        if not self.condition.wait_for(
+            lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed",
+            timeout=STARTUP_TIMEOUT if timeout is None else min(timeout, STARTUP_TIMEOUT),
+        ):
+            raise TimeoutError("LazySession VM did not start in time")
+        if self.state.phase == "closed":
+            return
+        if self.state.error is not None:
+            self.state.check()
+        if self.duration_policy.should_snapshot().done():
+            raise TimeoutError("LazySession VM renewal deadline expired during startup")
+        self.state.phase = "draining" if self.state.closing or self.state.snapshot_pending else "running"
         if self.worker is None:
             self.worker = threading.Thread(target=self._control, daemon=True, name=f"lazy-{self.session_id}")
             self.worker.start()
+        self._notify()
 
     def _admit_and_spawn(self, request: RunRequest) -> tuple[OperationContract, SubprocessContract, float | None]:
         request = self.prepare_request(request)
@@ -174,6 +192,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                         self.state.fail(error)
                         self._notify()
                         raise
+                    self.state.check()
                 if self.state.phase == "running":
                     if not starting:
                         try:
@@ -335,7 +354,9 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         if self.state.phase == "cold":
             return self.last_entry
         generation = self.state.snapshots
-        if self.state.phase == "running":
+        if self.state.phase == "starting":
+            self.state.snapshot_pending = True
+        elif self.state.phase == "running":
             self.state.phase = "draining"
         self._notify()
         completed = self.condition.wait_for(
@@ -437,11 +458,12 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                         require_str(self.session.image_uuid, "session has no resolved image")
                     )
                 try:
-                    self._start()
+                    self._start(timeout=None if deadline is None else deadline - monotonic())
                 except BaseException as error:
                     self.state.fail(error)
                     self._notify()
                     raise
+                self.state.check()
                 started = True
             if self.state.phase == "running":
                 if not started:
@@ -482,7 +504,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             RuntimeError: The session fails or closes before inspection starts.
             TimeoutError: Admission or VM startup exceeds the timeout.
 
-        """
+        """  # noqa: DOC502 - the admission helper raises these exceptions
         try:
             with self.condition:
                 source = self._inspection_source_locked(timeout)
@@ -496,17 +518,6 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                     self.operation.shutdown()
             raise
         try:
-            if isinstance(source, str):
-                with self.condition:
-                    if not self.condition.wait_for(
-                        lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed",
-                        timeout=timeout,
-                    ):
-                        raise TimeoutError("LazySession inspection is waiting for VM startup")
-                    if self.state.error is not None:
-                        raise RuntimeError("LazySession failed before inspection") from self.state.error
-                    if self.state.phase == "closed":
-                        raise RuntimeError("LazySession closed before inspection")
             yield source
         finally:
             if isinstance(source, str):

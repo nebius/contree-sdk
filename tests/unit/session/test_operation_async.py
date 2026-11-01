@@ -48,6 +48,7 @@ def exit_code_of(result: InstanceResult) -> int | None:
 
 async def test_wait_ready_can_retry_after_timeout():
     client = LiveAsyncClient()
+    client.auto_spawn = False
     await client.spawn_instance("sleep", "base")
     operation = AsyncOperation(client, "op-1")
     with pytest.raises(TimeoutError):

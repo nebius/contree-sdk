@@ -83,13 +83,14 @@ def subprocess_events(spid: int, result: InstanceResult) -> list[OperationEvent]
 
 
 class LiveClient(ContreeClient):
-    def __init__(self):
+    def __init__(self, *, auto_spawn: bool = True):
         super().__init__()
         self.mock("resolve_image", "base")
         self.sequence = 0
         self.processes = 1
         self.streams = {}
         self.auto_exit = True
+        self.auto_spawn = auto_spawn
         self.create_error = None
         self.wait_error = None
         self.result_image = True
@@ -112,6 +113,8 @@ class LiveClient(ContreeClient):
         self.sequence += 1
         operation_id = f"op-{self.sequence}"
         self.streams[operation_id] = queue.Queue()
+        if self.auto_spawn:
+            self.streams[operation_id].put(event("spawn"))
         return spawn_response(operation_id)
 
     def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:
@@ -168,13 +171,14 @@ class LiveClient(ContreeClient):
 
 
 class LiveAsyncClient(ContreeAsyncClient):
-    def __init__(self):
+    def __init__(self, *, auto_spawn: bool = True):
         super().__init__()
         self.mock("resolve_image", "base")
         self.sequence = 0
         self.processes = 1
         self.streams = {}
         self.auto_exit = True
+        self.auto_spawn = auto_spawn
         self.create_error = None
         self.wait_error = None
         self.result_image = True
@@ -197,6 +201,8 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.sequence += 1
         operation_id = f"op-{self.sequence}"
         self.streams[operation_id] = asyncio.Queue()
+        if self.auto_spawn:
+            self.streams[operation_id].put_nowait(event("spawn"))
         return spawn_response(operation_id)
 
     async def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:

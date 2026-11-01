@@ -33,6 +33,9 @@ from contree_sdk.session.snapshot_policy import (
 )
 
 
+STARTUP_TIMEOUT = 3600.0
+
+
 class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and inspection hooks
     """Share one VM across commands; save one history entry per snapshot.
 
@@ -133,8 +136,9 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         future.result()
         return True
 
-    async def _start(self) -> None:
+    async def _start(self, *, timeout: float | None = None) -> None:
         self.state.begin()
+        self._notify()
         if self.lifecycle_policy.policies[0] is not self.snapshot_policy:
             self.lifecycle_policy.notify(SnapshotEvent.CLOSE)
             self.lifecycle_policy = CompositeSnapshotPolicy(self.snapshot_policy, self.duration_policy)
@@ -156,9 +160,27 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             raise TimeoutError("LazySession VM renewal deadline expired during startup")
         self.operation.add_observer(self.observe)
         await self.operation.__aenter__()  # noqa: PLC2801 - context spans several commands
-        self.state.phase = "running"
+        # Operation.wait_ready() would block its reader in observe(), which needs this condition.
+        # TODO: Review startup and admission concurrency so Operation.wait_ready() can be used directly.
+        try:
+            await asyncio.wait_for(
+                self.condition.wait_for(
+                    lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed"
+                ),
+                timeout=STARTUP_TIMEOUT if timeout is None else min(timeout, STARTUP_TIMEOUT),
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError("LazySession VM did not start in time") from None
+        if self.state.phase == "closed":
+            return
+        if self.state.error is not None:
+            self.state.check()
+        if self.duration_policy.should_snapshot().done():
+            raise TimeoutError("LazySession VM renewal deadline expired during startup")
+        self.state.phase = "draining" if self.state.closing or self.state.snapshot_pending else "running"
         if self.worker is None:
             self.worker = asyncio.create_task(self._control(), name=f"lazy-{self.session_id}")
+        self._notify()
 
     async def _admit_and_spawn(
         self, request: RunRequest
@@ -181,6 +203,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                         self.state.fail(error)
                         self._notify()
                         raise
+                    self.state.check()
                 if self.state.phase == "running":
                     if not starting:
                         try:
@@ -344,7 +367,9 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         if self.state.phase == "cold":
             return self.last_entry
         generation = self.state.snapshots
-        if self.state.phase == "running":
+        if self.state.phase == "starting":
+            self.state.snapshot_pending = True
+        elif self.state.phase == "running":
             self.state.phase = "draining"
         self._notify()
         try:
@@ -455,11 +480,12 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                         require_str(self.session.image_uuid, "session has no resolved image")
                     )
                 try:
-                    await self._start()
+                    await self._start(timeout=None if deadline is None else deadline - loop.time())
                 except BaseException as error:
                     self.state.fail(error)
                     self._notify()
                     raise
+                self.state.check()
                 started = True
             if self.state.phase == "running":
                 if not started:
@@ -513,7 +539,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             RuntimeError: The session fails or closes before inspection starts.
             TimeoutError: Admission or VM startup exceeds the timeout.
 
-        """
+        """  # noqa: DOC502 - the admission helper raises these exceptions
         try:
             async with self.condition:
                 source = await self._inspection_source_locked(timeout)
@@ -527,21 +553,6 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
                     await self.operation.shutdown()
             raise
         try:
-            if isinstance(source, str):
-                async with self.condition:
-                    try:
-                        await asyncio.wait_for(
-                            self.condition.wait_for(
-                                lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed"
-                            ),
-                            timeout=timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        raise TimeoutError("LazySession inspection is waiting for VM startup") from None
-                    if self.state.error is not None:
-                        raise RuntimeError("LazySession failed before inspection") from self.state.error
-                    if self.state.phase == "closed":
-                        raise RuntimeError("LazySession closed before inspection")
             yield source
         finally:
             if isinstance(source, str):

@@ -49,6 +49,7 @@ def exit_code_of(result: InstanceResult) -> int | None:
 
 def test_wait_ready_can_retry_after_timeout():
     client = LiveClient()
+    client.auto_spawn = False
     client.spawn_instance("sleep", "base")
     operation = Operation(client, "op-1")
     with pytest.raises(TimeoutError):

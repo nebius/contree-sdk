@@ -577,3 +577,86 @@ def test_invalid_effective_keepalive_timeout_is_rejected(timeout):
         assert lazy.duration_policy.timer is None
     finally:
         lazy.abort()
+
+
+@pytest.mark.parametrize("inspection", [False, True])
+def test_commands_and_inspections_wait_for_primary_spawn(inspection):
+    client = LiveClient()
+    client.auto_spawn = False
+    base = ContreeSession(client, image="base")
+    if inspection:
+        base.stage_files({"/input": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
+    lazy = LazySession(base)
+
+    def first_request():
+        if inspection:
+            with lazy.inspection_source() as source:
+                assert source == "op-1"
+        else:
+            assert lazy.run("first").state.exit_code == 0
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(first_request)
+            wait_state(lazy, lambda: lazy.phase == "starting")
+            second = pool.submit(lazy.run, "second")
+            assert not first.done()
+            assert not client.calls_for("operation_subprocess_create")
+            client.streams["op-1"].put(event("spawn"))
+            first.result(timeout=2)
+            second.result(timeout=2)
+        assert len(client.calls_for("spawn_instance")) == 1
+    finally:
+        lazy.abort()
+
+
+@pytest.mark.parametrize("finish", ["close", "abort", "snapshot"])
+def test_lifecycle_during_resumed_vm_startup(finish):
+    client = LiveClient()
+    lazy = LazySession(ContreeSession(client, image="base"))
+    lazy.run("initial")
+    lazy.snapshot(timeout=2)
+    client.auto_spawn = False
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            command = pool.submit(lazy.run, "next")
+            wait_state(lazy, lambda: lazy.phase == "starting")
+            finishing = pool.submit(getattr(lazy, finish))
+            if finish != "abort":
+                wait_state(lazy, lambda: lazy.state.closing or lazy.state.snapshot_pending)
+                assert len(client.calls_for("operation_subprocess_kill")) == 1
+                client.auto_spawn = True
+                client.streams["op-2"].put(event("spawn"))
+            finishing.result(timeout=2)
+            if finish == "snapshot":
+                assert command.result(timeout=2).state.exit_code == 0
+                assert client.calls_for("spawn_instance")[-1].args[1] == "image-op-2"
+            else:
+                with pytest.raises(RuntimeError, match="closed"):
+                    command.result(timeout=2)
+                assert lazy.phase == "closed"
+                assert lazy.error is None
+    finally:
+        lazy.abort()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "stream"])
+def test_startup_failure_cleans_up_without_starting_command(failure, monkeypatch):
+    client = LiveClient()
+    client.auto_spawn = False
+    lazy = LazySession(ContreeSession(client, image="base"))
+    if failure == "timeout":
+        monkeypatch.setattr("contree_sdk.session.lazy_sync.STARTUP_TIMEOUT", 0.01)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            command = pool.submit(lazy.run, "first")
+            wait_state(lazy, lambda: lazy.phase == "starting")
+            if failure == "stream":
+                client.streams["op-1"].put(OSError("startup stream failed"))
+            with pytest.raises(TimeoutError if failure == "timeout" else RuntimeError):
+                command.result(timeout=2)
+        assert lazy.phase == "failed"
+        assert not client.calls_for("operation_subprocess_create")
+        assert client.calls_for("cancel_operation")
+    finally:
+        lazy.abort()
