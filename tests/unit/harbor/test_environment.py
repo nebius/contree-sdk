@@ -4,7 +4,6 @@ import tarfile
 from unittest.mock import AsyncMock
 
 import pytest
-from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import EventDataStream, FileResponse, OperationEventType, StreamRepr
 
 
@@ -21,6 +20,7 @@ from contree_sdk.harbor import ConTreeEnvironment
 @pytest.fixture
 def backend(tmp_path, monkeypatch):
     client = LiveAsyncClient()
+    client.auto_main_spawn = True
     client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=4))
     client.mock("apply_instance_file", None)
     monkeypatch.setattr("contree_sdk.harbor.environment.async_import_image", AsyncMock(return_value="base"))
@@ -202,6 +202,7 @@ async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, mon
     monkeypatch.setattr(module.profiles, "resolve_profile", lambda *args: profile)
     monkeypatch.setattr(module.profiles, "from_env", lambda: None)
     monkeypatch.setattr(module, "HttpxAsyncClient", FactoryAsyncClient)
+    monkeypatch.setattr(FactoryAsyncClient, "auto_main_spawn", True)
     env._client = env._provided_client = None
     if startup_fails:
 
@@ -219,24 +220,31 @@ async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, mon
     assert env._client is None
 
 
-async def test_start_retries_control_channel_readiness(backend, monkeypatch):
+async def test_start_waits_for_main_process_before_creating_subprocess(backend):
     client, env = backend
-    create = client.operation_subprocess_create
-    attempts = 0
-
-    async def not_ready_then_create(operation_id, command, **kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise ConflictError(409, "Operation is PENDING, not running")
-        if attempts == 2:
-            raise TooEarlyError(425, f"control channel not connected for operation {operation_id}")
-        return await create(operation_id, command, **kwargs)
-
-    monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
-    await env.start(force_build=False)
-    assert attempts == 3  # two readiness responses, then log-dir creation
+    client.auto_main_spawn = False
+    start = asyncio.create_task(env.start(force_build=False))
+    async with asyncio.timeout(1):
+        while "op-1" not in client.streams:
+            await asyncio.sleep(0)
+    assert not client.calls_for("operation_subprocess_create")
+    await client.streams["op-1"].put(event("spawn"))
+    await start
+    assert len(client.calls_for("operation_subprocess_create")) == 1
     await env.stop(delete=True)
+
+
+async def test_start_readiness_timeout_cancels_unstarted_operation(backend):
+    client, env = backend
+    client.auto_main_spawn = False
+    env._readiness_timeout = 0.01
+
+    with pytest.raises(TimeoutError, match="did not become ready"):
+        await env.start(force_build=False)
+
+    assert client.calls_for("cancel_operation")
+    assert not client.calls_for("operation_subprocess_create")
+    assert env._operation is None
 
 
 async def test_download_file_streams_binary_chunks_without_snapshot(backend, tmp_path, monkeypatch):

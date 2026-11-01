@@ -13,6 +13,6 @@ Tasks need a prebuilt OCI registry image in `[environment].docker_image`. The im
 
 The SDK's `AsyncClientFileTransfer` uploads files to ConTree storage. The client applies them to the live operation. Live file downloads use the running-instance inspection API. Directory uploads merge with existing contents. All Harbor calls on one environment are serialized.
 
-`operation_timeout` defaults to 1,000 seconds per command; Harbor's command timeout overrides it. `vm_timeout` defaults to 3,600 seconds for the whole operation. `snapshot_timeout` defaults to 120 seconds for final shutdown, and `terminate_timeout` defaults to 5 seconds when stopping a timed-out command. File transfers have a 600-second limit. The backend may impose a lower operation lifetime limit.
+`operation_timeout` defaults to 1,000 seconds per command; Harbor's command timeout overrides it. `readiness_timeout` defaults to 120 seconds for the main process to start. Harbor applies `environment.build_timeout_sec` to the full environment setup. `vm_timeout` defaults to 3,600 seconds for the whole operation. `snapshot_timeout` defaults to 120 seconds for final shutdown, and `terminate_timeout` defaults to 5 seconds when stopping a timed-out command. File transfers have a 600-second limit. The backend may impose a lower operation lifetime limit.
 
 An injected `client=ContreeAsyncClient(...)` remains caller-owned. Otherwise, the adapter opens and closes the client from the selected ConTree profile. Harbor's `delete` option has no effect: ConTree manages image retention separately.

@@ -92,6 +92,7 @@ python_sdk/caching
 
 integrations/langchain
 integrations/mini-swe-agent
+integrations/harbor
 ```
 
 ```{toctree}

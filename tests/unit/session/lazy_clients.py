@@ -110,6 +110,8 @@ class LiveClient(ContreeClient):
 
 
 class LiveAsyncClient(ContreeAsyncClient):
+    auto_main_spawn = False
+
     def __init__(self):
         super().__init__()
         self.mock("resolve_image", "base")
@@ -136,6 +138,8 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.sequence += 1
         operation_id = f"op-{self.sequence}"
         self.streams[operation_id] = asyncio.Queue()
+        if self.auto_main_spawn:
+            await self.streams[operation_id].put(event("spawn"))
         return spawn_response(operation_id)
 
     async def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:

@@ -14,7 +14,6 @@ from tempfile import SpooledTemporaryFile
 from typing import Literal
 
 from contree_client import profiles
-from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import EventDataStream, InstanceResult, InstanceResultState, OperationStatus, StreamRepr
 from contree_client.types import ContreeAsyncClient
@@ -75,6 +74,7 @@ class ConTreeEnvironment(BaseEnvironment):
         *args,
         profile: str | None = None,
         operation_timeout: float = 1000,
+        readiness_timeout: float = 120,
         snapshot_timeout: float = 120,
         terminate_timeout: float = 5,
         vm_timeout: float = 3600,
@@ -83,6 +83,7 @@ class ConTreeEnvironment(BaseEnvironment):
     ) -> None:
         for name, value in (
             ("operation_timeout", operation_timeout),
+            ("readiness_timeout", readiness_timeout),
             ("snapshot_timeout", snapshot_timeout),
             ("terminate_timeout", terminate_timeout),
             ("vm_timeout", vm_timeout),
@@ -94,6 +95,7 @@ class ConTreeEnvironment(BaseEnvironment):
             raise TypeError(f"Unknown ConTree environment options: {', '.join(sorted(unknown))}")
         self._profile = profile
         self._operation_timeout = operation_timeout
+        self._readiness_timeout = readiness_timeout
         self._snapshot_timeout = snapshot_timeout
         self._terminate_timeout = terminate_timeout
         self._vm_timeout = vm_timeout
@@ -207,6 +209,7 @@ class ConTreeEnvironment(BaseEnvironment):
             raise TypeError("ConTree operation response has no UUID")
         self._operation = AsyncOperation(client, response.uuid, shutdown_timeout=self._snapshot_timeout)
         await self._operation.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop
+        await self._operation.wait_ready(timeout=self._readiness_timeout)
         self._transfer = AsyncClientFileTransfer(client)
 
         paths = EnvironmentPaths()
@@ -375,22 +378,15 @@ class ConTreeEnvironment(BaseEnvironment):
         uid: int | None,
         gid: int | None,
     ) -> AsyncSubprocessContract:
-        for attempt in range(10):
-            try:
-                return await operation.run(
-                    "/bin/bash",
-                    args=("-c", command),
-                    env=self._merge_env(env),
-                    cwd=cwd if cwd is not None else self.task_env_config.workdir,
-                    uid=uid,
-                    gid=gid,
-                    truncate_output_at=_OUTPUT_LIMIT,
-                )
-            except (ConflictError, TooEarlyError):  # noqa: PERF203 - control channel readiness is transient
-                if attempt == 9:  # noqa: PLR2004 - ten bounded startup attempts
-                    raise
-                await asyncio.sleep(0.1)
-        raise AssertionError("unreachable")
+        return await operation.run(
+            "/bin/bash",
+            args=("-c", command),
+            env=self._merge_env(env),
+            cwd=cwd if cwd is not None else self.task_env_config.workdir,
+            uid=uid,
+            gid=gid,
+            truncate_output_at=_OUTPUT_LIMIT,
+        )
 
     async def _kill_subprocess(self, operation: AsyncOperation, handle: AsyncSubprocessContract) -> None:
         try:
