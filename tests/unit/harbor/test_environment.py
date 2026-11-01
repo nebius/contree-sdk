@@ -70,8 +70,8 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path):
     assert all(call.kwargs["merge"] for call in client.calls_for("apply_instance_file"))
     assert not client.calls_for("operation_subprocess_stdin")
     await env.stop(delete=True)
-    assert not client.calls_for("cancel_operation")
-    assert client.calls_for("get_operation_status")
+    assert client.calls_for("cancel_operation")
+    assert not client.calls_for("get_operation_status")
 
 
 async def test_session_snapshot_restarts_from_saved_image(backend):
@@ -90,31 +90,52 @@ async def test_session_snapshot_restarts_from_saved_image(backend):
 @pytest.mark.parametrize(
     "stop_kwargs", [{}, {"delete": True}, {"delete": False}], ids=["default", "delete", "no-delete"]
 )
-async def test_stop_saves_final_operation_without_tagging(backend, stop_kwargs):
+async def test_stop_aborts_without_saving_for_either_delete_value(backend, stop_kwargs):
     client, env = backend
     await env.start(force_build=False)
     await env.exec("true")
     session = env._lazy_session
     await env.stop(**stop_kwargs)
     assert session.phase == "closed"
-    assert session.last_entry.image_uuid == "image-op-1"
-    assert session.session.image_uuid == "image-op-1"
-    assert not client.calls_for("cancel_operation")
+    assert session.last_entry is None
+    assert session.session.image_uuid == "base"
+    assert len(client.calls_for("cancel_operation")) == 1
     assert not client.calls_for("update_image_tag")
     assert env._lazy_session is None
     assert env._lazy_session_context is None
     assert env._client is client
-    assert len(client.calls_for("get_operation_status")) == 1
+    assert not client.calls_for("get_operation_status")
     await env.stop(**stop_kwargs)
-    assert len(client.calls_for("get_operation_status")) == 1
+    assert len(client.calls_for("cancel_operation")) == 1
 
 
-async def test_failed_close_aborts_operation_and_releases_context(backend):
+async def test_stop_aborts_vm_during_an_active_command(backend):
+    client, env = backend
+    await env.start(force_build=False)
+    client.auto_exit = False
+    client.created.clear()
+    running = asyncio.create_task(env.exec("sleep 100"))
+    await asyncio.wait_for(client.created.wait(), 1)
+
+    await env.stop()
+
+    await asyncio.wait_for(running, 1)
+    assert client.calls_for("cancel_operation")
+    assert env._lazy_session is None
+
+
+async def test_failed_abort_releases_context(backend, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
     session = env._lazy_session
-    client.wait_error = OSError("snapshot failed")
-    with pytest.raises(RuntimeError, match="could not save"):
+    abort = session.abort
+
+    async def fail_after_abort():
+        await abort()
+        raise OSError("abort failed")
+
+    monkeypatch.setattr(session, "abort", fail_after_abort)
+    with pytest.raises(OSError, match="abort failed"):
         await env.stop()
     assert session.phase == "closed"
     assert session.last_entry is None
@@ -212,7 +233,7 @@ async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, mon
     profile = Profile(name="test", url="https://test.invalid", token="token", auth_type="iam")
     monkeypatch.setattr("contree_sdk.connection.ConnectionConfig.resolve_profile", lambda self: profile)
     monkeypatch.setattr(module, "HttpxAsyncClient", FactoryAsyncClient)
-    env._client = env._provided_client = None
+    env._client = None
     if startup_fails:
 
         async def fail_start(*args, **kwargs):

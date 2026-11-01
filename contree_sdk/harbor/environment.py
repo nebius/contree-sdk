@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
-from collections.abc import Awaitable
 from contextlib import aclosing, suppress
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
-from contree_client.models import EventDataStream, InstanceResult, InstanceResultState, OperationEvent, StreamRepr
+from contree_client.models import EventDataStream, InstanceResultState, OperationEvent, StreamRepr
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
@@ -22,6 +21,7 @@ from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create
 from contree_sdk.file_io import extract_tar_download_async
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session import IdleSnapshotPolicy
+from contree_sdk.session.cleanup import await_cleanup
 from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, SnapshotEvent
 
 
@@ -29,29 +29,6 @@ _OUTPUT_LIMIT = 10 * 1024 * 1024
 _TRANSFER_TIMEOUT = 600
 _KEEPALIVE_SLEEP_SECONDS = 2**31 - 1
 # TODO(CONTREE-145): Replace the removed SDK archive helper with Harbor-local extraction.
-
-
-async def _finish_cleanup(cleanup: Awaitable[object]) -> None:
-    """Join cleanup even if Harbor cancels the caller again.
-
-    Raises:
-        asyncio.CancelledError: The caller was cancelled during cleanup.
-
-    """
-    task = asyncio.ensure_future(cleanup)
-    cancelled = False
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:  # noqa: PERF203 - consume each cancellation until cleanup completes
-            cancelled = True
-        except Exception:
-            break
-    if cancelled:
-        with suppress(Exception, asyncio.CancelledError):
-            task.result()
-        raise asyncio.CancelledError
-    task.result()
 
 
 class _NoIdleSnapshotPolicy(AbstractSnapshotPolicy):
@@ -99,11 +76,9 @@ class ConTreeEnvironment(BaseEnvironment):
         self._terminate_timeout = terminate_timeout
         self._vm_timeout = vm_timeout
         self._client = client
-        self._provided_client = client
         self._lazy_session_context: AsyncSandboxSessionContext[AsyncLazySession] | None = None
         self._lazy_session: AsyncLazySession | None = None
         self._lock = asyncio.Lock()
-        self._active_run: asyncio.Task[InstanceResult] | None = None
         self._closing = False
         super().__init__(*args, **kwargs)
 
@@ -175,9 +150,9 @@ class ConTreeEnvironment(BaseEnvironment):
             except BaseException:
                 if self._lazy_session is not None:
                     with suppress(Exception, asyncio.CancelledError):
-                        await _finish_cleanup(self._lazy_session.abort())
+                        await await_cleanup(self._lazy_session.abort())
                 self._lazy_session = None
-                await _finish_cleanup(self._close_session_context())
+                await await_cleanup(self._close_session_context())
                 raise
 
     async def _start(self) -> None:
@@ -239,34 +214,20 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def _close_session_context(self) -> None:
         context, self._lazy_session_context = self._lazy_session_context, None
-        try:
-            if context is not None:
-                await context.__aexit__(None, None, None)
-        finally:
-            self._client = self._provided_client
+        if context is not None:
+            await context.__aexit__(None, None, None)
 
     async def stop(self, delete: bool = True) -> None:
-        """Complete the active operation, save its image, and release resources.
-
-        delete is accepted for Harbor compatibility and has no effect. Images
-        are managed by ConTree; stopping does not delete or tag them.
-        """
+        """Cancel the active VM and release resources; delete is ignored."""
         self._closing = True
-        if self._active_run is not None:
-            self._active_run.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await _finish_cleanup(self._active_run)
-        async with self._lock:
-            session = self._lazy_session
-            try:
-                if session is not None:
-                    await _finish_cleanup(session.close(timeout=self._snapshot_timeout))
-            finally:
-                if session is not None and session.phase != "closed":
-                    with suppress(Exception, asyncio.CancelledError):
-                        await _finish_cleanup(session.abort())
+        session = self._lazy_session
+        try:
+            if session is not None:
+                await await_cleanup(session.abort())
+        finally:
+            async with self._lock:
                 self._lazy_session = None
-                await _finish_cleanup(self._close_session_context())
+                await await_cleanup(self._close_session_context())
 
     async def exec(
         self,
@@ -331,17 +292,11 @@ class ConTreeEnvironment(BaseEnvironment):
                 stream: Literal["stdout", "stderr"] = "stdout" if event.type == "stdout" else "stderr"
                 await output_callback(chunk, stream)
 
-        self._active_run = asyncio.create_task(
-            lazy.execute(
-                request,
-                on_event=on_event if output_callback is not None else None,
-                terminate_timeout=self._terminate_timeout,
-            )
+        result = await lazy.execute(
+            request,
+            on_event=on_event if output_callback is not None else None,
+            terminate_timeout=self._terminate_timeout,
         )
-        try:
-            result = await self._active_run
-        finally:
-            self._active_run = None
 
         if not isinstance(result.state, InstanceResultState) or not isinstance(result.state.exit_code, int):
             raise TypeError("ConTree subprocess returned no exit code")

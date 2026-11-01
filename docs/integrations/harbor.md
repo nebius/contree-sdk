@@ -3,8 +3,7 @@
 The Harbor environment runs task commands as subprocesses in
 one `AsyncLazySession` VM created by `create_async_sandbox_session`. The integration
 uses the standard SDK session and operation classes. Files and background processes remain available between
-commands. A trial's final stop completes the active operation and saves its result
-image. An idle snapshot stops the current VM and starts the next command from its saved image.
+commands. An idle snapshot stops the current VM and starts the next command from its saved image.
 Background processes do not survive that boundary.
 
 The backend targets Harbor 0.22.x and requires Python 3.12 or newer. Install with
@@ -49,11 +48,9 @@ so long-running background processes can remain alive through the trial. A trial
 still requires backend support or a task-specific cleanup and snapshot boundary. A command timeout kills that subprocess and waits for its
 exit; an unconfirmed kill fails the VM.
 
-`stop()` closes the session, saving the final operation's result image and releasing
-owned resources. Harbor's `delete` argument (`--delete` / `--no-delete`) is accepted
-for compatibility and has no effect. Stopping does not delete images or create
-tags; image retention is managed separately by ConTree. If saving fails, cleanup
-aborts the remaining operation and propagates the error.
+`stop()` cancels the active VM and releases owned resources. Harbor's `delete`
+argument (`--delete` / `--no-delete`) has no effect; neither value saves a final
+image or retains a live VM. Earlier idle snapshots remain available.
 Snapshotting an image with unsupported socket inodes can still fail. Use the
 single-VM default for tasks that require those sockets until cleanup or backend
 snapshot support is available.
@@ -63,5 +60,4 @@ The image import timeout and environment setup are bounded by Harbor's
 ConTree's backend command/VM maximum still applies; for example, a prior TB2.1
 stage run rejected requested operation timeouts above 3,600 seconds.
 
-Harbor enters the sandbox context in `start()` and closes it in `stop()`.
-Normal shutdown saves the final image; failure cleanup aborts the operation.
+Harbor enters the sandbox context in `start()` and releases it in `stop()`.
