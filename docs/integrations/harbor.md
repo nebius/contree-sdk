@@ -25,14 +25,9 @@ To use another ConTree profile, add `--ek profile=<<value>>` with the desired pr
 ## Runtime options
 
 The environment keeps one VM running across commands, so files and background
-processes remain available during a trial. To snapshot the filesystem after an
-idle period, set `--ek snapshot_idle_sec=300`. Background processes end at that
-snapshot boundary and do not resume with the next command.
-
-The default command timeout is 1,000 seconds; set `--ek operation_timeout=1800`
-to change it. A timeout supplied by the task takes precedence. The VM lifetime
-defaults to 3,600 seconds (`--ek vm_timeout=SECONDS`) and is subject to the
-backend's limit.
+processes remain available until an idle snapshot. The default idle delay is
+300 seconds; set `--ek snapshot_idle_sec=SECONDS` to change it. Background
+processes end at a snapshot boundary and do not resume with the next command.
 
 ## Implementation
 

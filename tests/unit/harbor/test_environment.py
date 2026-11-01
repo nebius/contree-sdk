@@ -33,7 +33,6 @@ def backend(tmp_path, monkeypatch):
         trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
         task_env_config=EnvironmentConfig(docker_image="alpine:latest"),
         client=client,
-        snapshot_timeout=2,
     )
     return client, env
 
@@ -68,7 +67,10 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
     (nested / "data.bin").write_bytes(b"\x00\xffpayload")
     await env.start(force_build=False)
     assert len(client.calls_for("spawn_instance")) == 1
-    assert client.calls_for("spawn_instance")[0].kwargs["timeout"] == 3600
+    assert env._lazy_session.snapshot_policy.seconds == 300
+    keepalive = client.calls_for("spawn_instance")[0]
+    assert keepalive.args[0] == "sleep"
+    assert keepalive.kwargs["timeout"] is ...
     result = await env.exec("printf hello")
     assert result.return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
@@ -213,7 +215,8 @@ async def test_environment_uses_public_sandbox_factory(backend, monkeypatch):
     await env.start(force_build=False)
     assert len(calls) == 1
     assert calls[0]["client"] is client
-    assert calls[0]["session_kwargs"]["vm_request"].timeout_seconds == env._vm_timeout
+    assert "vm_request" not in calls[0]["session_kwargs"]
+    assert "snapshot_timeout" not in calls[0]["session_kwargs"]
     assert type(env._lazy_session) is AsyncLazySession
     assert type(env._lazy_session.session) is ContreeAsyncSession
     assert type(env._lazy_session.operation).__name__ == "AsyncOperation"

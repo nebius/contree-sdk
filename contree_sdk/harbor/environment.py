@@ -23,11 +23,9 @@ from contree_sdk.file_io import run_file_io, write_download_async
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
-from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, SnapshotEvent
 
 
 _OUTPUT_LIMIT = 10 * 1024 * 1024
-_KEEPALIVE_SLEEP_SECONDS = 2**31 - 1
 
 
 def extract_directory_archive(archive_path: Path, target_dir: Path) -> None:
@@ -36,47 +34,28 @@ def extract_directory_archive(archive_path: Path, target_dir: Path) -> None:
         archive.extractall(target_dir, filter="data")
 
 
-class _NoIdleSnapshotPolicy(AbstractSnapshotPolicy):
-    def notify(self, event: SnapshotEvent) -> None:
-        super().notify(event)
-
-
 class ConTreeEnvironment(BaseEnvironment):
     """Harbor backend using a restartable AsyncLazySession.
 
-    By default the VM stays alive throughout a trial, including file transfers.
-    Set snapshot_idle_sec to opt into idle snapshots and subsequent VM restart;
-    those boundaries preserve files but terminate background processes. An
-    injected low-level async client remains caller-owned.
+    Idle snapshots preserve files but terminate background processes. An injected
+    low-level async client remains caller-owned.
     """
 
     def __init__(
         self,
         *args,
         profile: str | None = None,
-        operation_timeout: float = 1000,
-        snapshot_idle_sec: float | None = None,
-        snapshot_timeout: float = 120,
-        vm_timeout: float = 3600,
+        snapshot_idle_sec: float = 300,
         client: ContreeAsyncClient | None = None,
         **kwargs,
     ) -> None:
-        for name, value in (
-            ("operation_timeout", operation_timeout),
-            ("snapshot_timeout", snapshot_timeout),
-            ("snapshot_idle_sec", snapshot_idle_sec),
-            ("vm_timeout", vm_timeout),
-        ):
-            if value is not None and (not math.isfinite(value) or value <= 0):
-                raise ValueError(f"{name} must be finite and positive")
+        if not math.isfinite(snapshot_idle_sec) or snapshot_idle_sec <= 0:
+            raise ValueError("snapshot_idle_sec must be finite and positive")
         unknown = kwargs.keys() - inspect.signature(BaseEnvironment.__init__).parameters.keys()
         if unknown:
             raise TypeError(f"Unknown ConTree environment options: {', '.join(sorted(unknown))}")
         self._profile = profile
-        self._operation_timeout = operation_timeout
         self._snapshot_idle_sec = snapshot_idle_sec
-        self._snapshot_timeout = snapshot_timeout
-        self._vm_timeout = vm_timeout
         self._client = client
         self._lazy_session_context: AsyncSandboxSessionContext[AsyncLazySession] | None = None
         self._lazy_session: AsyncLazySession | None = None
@@ -166,9 +145,7 @@ class ConTreeEnvironment(BaseEnvironment):
             raise RuntimeError("ConTree startup requires a prebuilt image.")
         contree_image = await self._import_image(client, docker_image)
 
-        policy = (
-            _NoIdleSnapshotPolicy() if self._snapshot_idle_sec is None else IdleSnapshotPolicy(self._snapshot_idle_sec)
-        )
+        policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
         startup_timeout = startup_deadline - asyncio.get_running_loop().time()
         if startup_timeout <= 0:
             raise TimeoutError("ConTree environment startup timed out while resolving its image")
@@ -179,13 +156,7 @@ class ConTreeEnvironment(BaseEnvironment):
             client=client,
             profile=self._profile if client is None else None,
             client_type=HttpxAsyncClient if client is None else None,
-            session_kwargs={
-                "vm_request": RunRequest(
-                    command="sleep", args=(str(_KEEPALIVE_SLEEP_SECONDS),), timeout=self._vm_timeout
-                ),
-                "snapshot_policy": policy,
-                "snapshot_timeout": self._snapshot_timeout,
-            },
+            session_kwargs={"snapshot_policy": policy},
         )
         self._lazy_session = await self._lazy_session_context.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop
 
@@ -269,8 +240,7 @@ class ConTreeEnvironment(BaseEnvironment):
         timeout_sec: float | None = None,
     ) -> ExecResult:
         lazy = self._require_lazy()
-        timeout = self._operation_timeout if timeout_sec is None else timeout_sec
-        if not math.isfinite(timeout) or timeout <= 0:
+        if timeout_sec is not None and (not math.isfinite(timeout_sec) or timeout_sec <= 0):
             raise ValueError("Command timeout must be finite and positive.")
         request = RunRequest(
             command="/bin/bash",
@@ -278,7 +248,7 @@ class ConTreeEnvironment(BaseEnvironment):
             env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
             truncate_output_at=_OUTPUT_LIMIT,
-            timeout=timeout,
+            timeout=timeout_sec,
             uid=uid,
             gid=gid,
         )
