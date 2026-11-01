@@ -53,8 +53,19 @@ def test_harbor_factory(backend):
     assert not any(created.capabilities.model_dump().values())
 
 
-async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path):
+async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch):
     client, env = backend
+    uploaded = []
+
+    async def ensure_file(source, **kwargs):
+        uploaded.append(source.read())
+        return FileResponse(uuid="uploaded", sha256="a" * 64, size=len(uploaded[-1]))
+
+    monkeypatch.setattr(client, "ensure_file", ensure_file)
+    upload_source = tmp_path / "upload"
+    nested = upload_source / "nested"
+    nested.mkdir(parents=True)
+    (nested / "data.bin").write_bytes(b"\x00\xffpayload")
     await env.start(force_build=False)
     assert len(client.calls_for("spawn_instance")) == 1
     assert client.calls_for("spawn_instance")[0].kwargs["timeout"] == 3600
@@ -62,12 +73,18 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path):
     assert result.return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     source = tmp_path / "source.txt"
-    source.write_text("hello")
+    source.write_bytes(b"\x00\xffhello")
     await env.upload_file(source, "/app/source.txt")
-    await env.upload_dir(env.environment_dir, "/work")
+    await env.upload_dir(upload_source, "/work")
     assert len(client.calls_for("spawn_instance")) == 1
     assert len(client.calls_for("apply_instance_file")) == 2
-    assert all(call.kwargs["merge"] for call in client.calls_for("apply_instance_file"))
+    assert {call.args[2] for call in client.calls_for("apply_instance_file")} == {
+        "/app/source.txt",
+        "/work/nested/data.bin",
+    }
+    assert all(call.kwargs["replace"] for call in client.calls_for("apply_instance_file"))
+    assert [call.args[1] for call in client.calls_for("operation_subprocess_create")][-2:] == ["true", "true"]
+    assert uploaded == [b"\x00\xffhello", b"\x00\xffpayload"]
     assert not client.calls_for("operation_subprocess_stdin")
     await env.stop(delete=True)
     assert client.calls_for("cancel_operation")
@@ -299,21 +316,51 @@ async def test_download_dir_uses_live_session_inspector(backend, tmp_path, monke
         member = tarfile.TarInfo("nested/log.txt")
         member.size = len(content)
         tar.addfile(member, io.BytesIO(content))
+        empty = tarfile.TarInfo("empty/")
+        empty.type = tarfile.DIRTYPE
+        tar.addfile(empty)
 
     async def archived(operation_id, path, **kwargs):
         client.record_call("inspect_instance_archive", (operation_id, path), kwargs)
-        yield archive.getvalue()
+        payload = archive.getvalue()
+        yield payload[:100]
+        yield payload[100:]
 
     monkeypatch.setattr(client, "inspect_instance_archive", archived)
     destination = tmp_path / "logs"
     destination.mkdir()
     (destination / "existing.txt").write_text("keep")
+    (destination / "nested").mkdir()
+    (destination / "nested/log.txt").write_text("old")
     try:
         await env.download_dir("/remote/logs", destination)
         assert (destination / "nested/log.txt").read_bytes() == b"log contents\n"
         assert (destination / "existing.txt").read_text() == "keep"
+        assert (destination / "empty").is_dir()
         assert client.calls_for("inspect_instance_archive")[0].args == ("op-1", "/remote/logs")
         assert len(client.calls_for("spawn_instance")) == 1
+    finally:
+        await env.stop()
+
+
+async def test_download_dir_rejects_unsafe_archive_member(backend, tmp_path, monkeypatch):
+    client, env = backend
+    await env.start(force_build=False)
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        content = b"outside"
+        member = tarfile.TarInfo("../outside.txt")
+        member.size = len(content)
+        tar.addfile(member, io.BytesIO(content))
+
+    async def archived(*args, **kwargs):
+        yield archive.getvalue()
+
+    monkeypatch.setattr(client, "inspect_instance_archive", archived)
+    try:
+        with pytest.raises(tarfile.FilterError):
+            await env.download_dir("/remote/logs", tmp_path / "logs")
+        assert not (tmp_path / "outside.txt").exists()
     finally:
         await env.stop()
 

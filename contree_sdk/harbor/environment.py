@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import tarfile
 from contextlib import aclosing, suppress
 from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import InstanceResultState, StreamRepr
@@ -17,7 +19,7 @@ from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, s
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
-from contree_sdk.file_io import extract_tar_download_async
+from contree_sdk.file_io import run_file_io, write_download_async
 from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
@@ -25,9 +27,13 @@ from contree_sdk.session.snapshot_policy import AbstractSnapshotPolicy, Snapshot
 
 
 _OUTPUT_LIMIT = 10 * 1024 * 1024
-_TRANSFER_TIMEOUT = 600
 _KEEPALIVE_SLEEP_SECONDS = 2**31 - 1
-# TODO(CONTREE-145): Replace the removed SDK archive helper with Harbor-local extraction.
+
+
+def extract_directory_archive(archive_path: Path, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive_path, "r:*") as archive:
+        archive.extractall(target_dir, filter="data")
 
 
 class _NoIdleSnapshotPolicy(AbstractSnapshotPolicy):
@@ -296,19 +302,15 @@ class ConTreeEnvironment(BaseEnvironment):
             raise RuntimeError(f"{action} failed (exit {result.return_code}): {result.stderr or result.stdout}")
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
-        # TODO(CONTREE-145): Use current main's live file API; AsyncLazySession has no upload_file.
         async with self._lock:
-            await asyncio.wait_for(
-                self._require_lazy().upload_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT
-            )
+            await self._require_lazy().run("true", files={target_path: source_path})
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         async with self._lock:
             await self._upload_dir(source_dir, target_dir)
 
     async def _upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
-        # TODO(CONTREE-145): Use current main's live file API; AsyncLazySession has no upload_dir.
-        await asyncio.wait_for(self._require_lazy().upload_dir(source_dir, target_dir), timeout=_TRANSFER_TIMEOUT)
+        await self._require_lazy().run("true", files={target_dir: source_dir})
 
     @staticmethod
     def _remote_path(path: str) -> PurePosixPath:
@@ -321,14 +323,14 @@ class ConTreeEnvironment(BaseEnvironment):
         async with self._lock:
             self._remote_path(source_path)
             view = await self._require_lazy().inspect()
-            await asyncio.wait_for(view.download_file(source_path, target_path), timeout=_TRANSFER_TIMEOUT)
+            await view.download_file(source_path, target_path)
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
-        # TODO(CONTREE-145): Extract the archive locally after replacing the removed SDK helper.
         async with self._lock:
             self._remote_path(source_dir)
             view = await self._require_lazy().inspect()
-            async with aclosing(view.archive(source_dir)) as chunks:
-                await asyncio.wait_for(
-                    extract_tar_download_async(chunks, target_dir, path=source_dir), timeout=_TRANSFER_TIMEOUT
-                )
+            with TemporaryDirectory() as temporary:
+                archive_path = Path(temporary) / "download.tar"
+                async with aclosing(view.archive(source_dir)) as chunks:
+                    await write_download_async(chunks, archive_path, path=source_dir)
+                await run_file_io(extract_directory_archive, archive_path, Path(target_dir))
