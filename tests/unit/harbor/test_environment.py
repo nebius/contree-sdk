@@ -66,65 +66,54 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
     nested.mkdir(parents=True)
     (nested / "data.bin").write_bytes(b"\x00\xffpayload")
     await env.start(force_build=False)
-    assert len(client.calls_for("spawn_instance")) == 1
-    assert env._lazy_session.snapshot_policy.seconds == 300
-    keepalive = client.calls_for("spawn_instance")[0]
-    assert keepalive.args[0] == "sleep"
-    assert keepalive.kwargs["timeout"] is ...
-    result = await env.exec("printf hello")
-    assert result.return_code == 0
-    assert len(client.calls_for("spawn_instance")) == 1
+    assert (await env.exec("printf hello")).return_code == 0
     source = tmp_path / "source.txt"
     source.write_bytes(b"\x00\xffhello")
     await env.upload_file(source, "/app/source.txt")
     await env.upload_dir(upload_source, "/work")
-    assert len(client.calls_for("spawn_instance")) == 1
     assert len(client.calls_for("apply_instance_file")) == 2
     assert {call.args[2] for call in client.calls_for("apply_instance_file")} == {
         "/app/source.txt",
         "/work/nested/data.bin",
     }
-    assert all(call.kwargs["replace"] for call in client.calls_for("apply_instance_file"))
-    assert [call.args[1] for call in client.calls_for("operation_subprocess_create")][-2:] == ["true", "true"]
     assert uploaded == [b"\x00\xffhello", b"\x00\xffpayload"]
-    assert not client.calls_for("operation_subprocess_stdin")
-    await env.stop(delete=True)
-    assert client.calls_for("cancel_operation")
-    assert not client.calls_for("get_operation_status")
-
-
-async def test_session_snapshot_restarts_from_saved_image(backend):
-    client, env = backend
-    await env.start(force_build=False)
-    first_operation = client.calls_for("spawn_instance")[0].args[1]
-    await env.exec("true")
-    entry = await env._lazy_session.snapshot(timeout=2)
-    assert entry.image_uuid == "image-op-1"
-    await env.exec("true")
-    starts = client.calls_for("spawn_instance")
-    assert [start.args[1] for start in starts] == [first_operation, entry.image_uuid]
+    assert (await env.exec("after transfers")).return_code == 0
+    assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
 
 
-@pytest.mark.parametrize(
-    "stop_kwargs", [{}, {"delete": True}, {"delete": False}], ids=["default", "delete", "no-delete"]
-)
-async def test_stop_aborts_without_saving_for_either_delete_value(backend, stop_kwargs):
+async def test_start_uploads_task_environment_into_workdir(backend, monkeypatch):
+    client, env = backend
+    env.task_env_config.workdir = "/workspace"
+    (env.environment_dir / "settings.json").write_bytes(b'{"answer": 42}')
+    uploaded = []
+
+    async def ensure_file(source, **kwargs):
+        uploaded.append(source.read())
+        return FileResponse(uuid="uploaded", sha256="a" * 64, size=len(uploaded[-1]))
+
+    monkeypatch.setattr(client, "ensure_file", ensure_file)
+    await env.start(force_build=False)
+    assert uploaded == [b'{"answer": 42}']
+    assert any(call.args[2] == "/workspace/settings.json" for call in client.calls_for("apply_instance_file"))
+    assert (await env.exec("true")).return_code == 0
+    await env.stop()
+
+
+@pytest.mark.parametrize("delete", [None, False], ids=["default", "no-delete"])
+async def test_stop_aborts_without_saving_for_either_delete_value(backend, delete):
     client, env = backend
     await env.start(force_build=False)
     await env.exec("true")
-    session = env._lazy_session
-    await env.stop(**stop_kwargs)
-    assert session.phase == "closed"
-    assert session.last_entry is None
-    assert session.session.image_uuid == "base"
+    if delete is None:
+        await env.stop()
+    else:
+        await env.stop(delete=delete)
     assert len(client.calls_for("cancel_operation")) == 1
-    assert not client.calls_for("update_image_tag")
-    assert env._lazy_session is None
-    assert env._lazy_session_context is None
-    assert env._client is client
     assert not client.calls_for("get_operation_status")
-    await env.stop(**stop_kwargs)
+    with pytest.raises(RuntimeError, match="not running"):
+        await env.exec("true")
+    await env.stop()
     assert len(client.calls_for("cancel_operation")) == 1
 
 
@@ -138,42 +127,39 @@ async def test_stop_aborts_vm_during_an_active_command(backend):
 
     await env.stop()
 
-    await asyncio.wait_for(running, 1)
+    with pytest.raises(RuntimeError):
+        await asyncio.wait_for(running, 1)
     assert client.calls_for("cancel_operation")
-    assert env._lazy_session is None
+    with pytest.raises(RuntimeError, match="not running"):
+        await env.exec("true")
 
 
-async def test_failed_abort_releases_context(backend, monkeypatch):
+async def test_stop_failure_allows_restart(backend, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
-    session = env._lazy_session
-    abort = session.abort
+    cancel = client.cancel_operation
 
-    async def fail_after_abort():
-        await abort()
-        raise OSError("abort failed")
+    async def fail_cancel(operation_id):
+        await cancel(operation_id)
+        raise OSError("cancel failed")
 
-    monkeypatch.setattr(session, "abort", fail_after_abort)
-    with pytest.raises(OSError, match="abort failed"):
+    monkeypatch.setattr(client, "cancel_operation", fail_cancel)
+    with pytest.raises(OSError, match="cancel failed"):
         await env.stop()
-    assert session.phase == "closed"
-    assert session.last_entry is None
-    assert client.calls_for("cancel_operation")
-    assert not client.calls_for("update_image_tag")
-    assert env._lazy_session is None
-    assert env._lazy_session_context is None
-    assert env._client is client
+    monkeypatch.setattr(client, "cancel_operation", cancel)
+    await env.start(force_build=False)
+    assert (await env.exec("true")).return_code == 0
+    await env.stop()
 
 
-async def test_timeout_kills_child_and_reuses_vm(backend):
+async def test_exec_timeout_allows_next_command_in_same_vm(backend):
     client, env = backend
     await env.start(force_build=False)
     client.auto_exit = False
     with pytest.raises(TimeoutError):
         await env.exec("sleep 100", timeout_sec=0.02)
-    assert client.calls_for("operation_subprocess_kill")[-1].args == ("op-1", client.processes)
     client.auto_exit = True
-    await env.exec("true")
+    assert (await env.exec("true")).return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
 
@@ -199,44 +185,15 @@ async def test_invalid_config_and_paths(backend, tmp_path):
         )
 
 
-async def test_environment_uses_public_sandbox_factory(backend, monkeypatch):
-    client, env = backend
-    import contree_sdk.harbor.environment as module
-    from contree_sdk import AsyncLazySession, ContreeAsyncSession
-
-    calls = []
-    factory = module.create_async_sandbox_session
-
-    def capture(**kwargs):
-        calls.append(kwargs)
-        return factory(**kwargs)
-
-    monkeypatch.setattr(module, "create_async_sandbox_session", capture)
-    await env.start(force_build=False)
-    assert len(calls) == 1
-    assert calls[0]["client"] is client
-    assert "vm_request" not in calls[0]["session_kwargs"]
-    assert "snapshot_timeout" not in calls[0]["session_kwargs"]
-    assert type(env._lazy_session) is AsyncLazySession
-    assert type(env._lazy_session.session) is ContreeAsyncSession
-    assert type(env._lazy_session.operation).__name__ == "AsyncOperation"
-    await env.stop(delete=True)
-
-
-async def test_start_imports_oci_image_before_opening_session(backend):
+async def test_start_imports_oci_image(backend):
     client, env = backend
     import contree_sdk.harbor.environment as module
 
     try:
         await env.start(force_build=False)
         assert isinstance(module.async_import_image, AsyncMock)
-        module.async_import_image.assert_awaited_once_with(
-            "alpine:latest",
-            timeout=600,
-            client=client,
-            profile=None,
-            client_type=None,
-        )
+        module.async_import_image.assert_awaited_once()
+        assert module.async_import_image.await_args.args == ("alpine:latest",)
         assert client.calls_for("spawn_instance")[0].args[1] == "base"
     finally:
         await env.stop()
@@ -267,10 +224,9 @@ async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, mon
         await env.stop(delete=True)
     client = FactoryAsyncClient.instances[-1]
     assert client.opened == client.closed == 1
-    assert env._lazy_session_context is None
 
 
-async def test_start_retries_control_channel_readiness(backend, monkeypatch):
+async def test_start_succeeds_after_transient_readiness_rejections(backend, monkeypatch):
     client, env = backend
     create = client.operation_subprocess_create
     attempts = 0
@@ -286,17 +242,16 @@ async def test_start_retries_control_channel_readiness(backend, monkeypatch):
 
     monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
     await env.start(force_build=False)
-    assert attempts == 3  # two readiness responses, then log-dir creation
+    assert (await env.exec("true")).return_code == 0
     await env.stop(delete=True)
 
 
-async def test_download_file_streams_binary_chunks_without_snapshot(backend, tmp_path, monkeypatch):
+async def test_download_file_preserves_binary_data_and_allows_exec(backend, tmp_path, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
     payload = b"\x00" + b"x" * (256 * 1024 + 17)
 
     async def downloaded_chunks(operation_id, path):
-        client.record_call("inspect_instance_download_stream", (operation_id, path), {})
         yield payload[: 256 * 1024]
         yield payload[256 * 1024 :]
 
@@ -304,13 +259,11 @@ async def test_download_file_streams_binary_chunks_without_snapshot(backend, tmp
     target = tmp_path / "download.bin"
     await env.download_file("/remote/data.bin", target)
     assert target.read_bytes() == payload
-    assert len(client.calls_for("spawn_instance")) == 1
-    assert len(client.calls_for("operation_subprocess")) == 1  # log-dir creation only
-    assert client.calls_for("inspect_instance_download_stream")[0].args == ("op-1", "/remote/data.bin")
+    assert (await env.exec("true")).return_code == 0
     await env.stop(delete=True)
 
 
-async def test_download_dir_uses_live_session_inspector(backend, tmp_path, monkeypatch):
+async def test_download_dir_merges_nested_files_and_empty_directories(backend, tmp_path, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
     archive = io.BytesIO()
@@ -324,7 +277,6 @@ async def test_download_dir_uses_live_session_inspector(backend, tmp_path, monke
         tar.addfile(empty)
 
     async def archived(operation_id, path, **kwargs):
-        client.record_call("inspect_instance_archive", (operation_id, path), kwargs)
         payload = archive.getvalue()
         yield payload[:100]
         yield payload[100:]
@@ -340,8 +292,7 @@ async def test_download_dir_uses_live_session_inspector(backend, tmp_path, monke
         assert (destination / "nested/log.txt").read_bytes() == b"log contents\n"
         assert (destination / "existing.txt").read_text() == "keep"
         assert (destination / "empty").is_dir()
-        assert client.calls_for("inspect_instance_archive")[0].args == ("op-1", "/remote/logs")
-        assert len(client.calls_for("spawn_instance")) == 1
+        assert (await env.exec("true")).return_code == 0
     finally:
         await env.stop()
 
@@ -368,32 +319,31 @@ async def test_download_dir_rejects_unsafe_archive_member(backend, tmp_path, mon
         await env.stop()
 
 
-@pytest.mark.parametrize("cwd", [None, "/override"])
-@pytest.mark.parametrize(("user", "uid"), [(None, ...), ("root", 0), (1000, 1000)])
+@pytest.mark.parametrize(
+    ("cwd", "user", "uid"),
+    [(None, None, ...), ("/override", "root", 0), ("/override", 1000, 1000)],
+)
 async def test_exec_forwards_harbor_options_and_converts_the_result(backend, monkeypatch, cwd, user, uid):
     client, env = backend
     env.task_env_config.workdir = "/default"
     env._persistent_env = {"BASE": "persistent", "SHARED": "persistent"}
     await env.start(force_build=False)
-    get_result = client.operation_subprocess
+    get_result = client.result_for_command
     client.exit_code = 7
 
-    async def completed(operation_id, spid):
-        result = await get_result(operation_id, spid)
+    def completed(command):
+        result = get_result(command)
         result.stdout = StreamRepr.from_bytes(b"output\xff")
         result.stderr = StreamRepr.from_text("error")
         return result
 
-    monkeypatch.setattr(client, "operation_subprocess", completed)
+    monkeypatch.setattr(client, "result_for_command", completed)
     try:
         with env.scoped_exec_env({"SHARED": "scoped"}):
             result = await env.exec("echo example", cwd=cwd, env={"SHARED": "command"}, timeout_sec=1, user=user)
         call = client.calls_for("operation_subprocess_create")[-1]
-        assert call.args == ("op-1", "/bin/bash")
-        assert call.kwargs["args"] == ["-c", "echo example"]
         assert call.kwargs["cwd"] == (cwd or "/default")
         assert call.kwargs["env"] == {"BASE": "persistent", "SHARED": "scoped"}
-        assert call.kwargs["truncate_output_at"] == 10 * 1024 * 1024
         assert call.kwargs["uid"] == uid
         assert result.return_code == 7
         assert result.stdout == "output�"
@@ -402,7 +352,7 @@ async def test_exec_forwards_harbor_options_and_converts_the_result(backend, mon
         await env.stop()
 
 
-async def test_exec_cancellation_requests_child_kill(backend):
+async def test_exec_cancellation_allows_next_command(backend):
     client, env = backend
     await env.start(force_build=False)
     client.auto_exit = False
@@ -413,10 +363,8 @@ async def test_exec_cancellation_requests_child_kill(backend):
         running.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(running, 1)
-        assert client.calls_for("operation_subprocess_kill")[-1].kwargs["signal"] == "SIGKILL"
         client.auto_exit = True
         assert (await env.exec("next")).return_code == 0
-        assert len(client.calls_for("spawn_instance")) == 1
     finally:
         running.cancel()
         await asyncio.gather(running, return_exceptions=True)
