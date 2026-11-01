@@ -2,7 +2,7 @@
 icon: file-arrow-up
 ---
 
-# Upload inputs and download results
+# Work with sandbox files
 
 Use `write_file(path, content)` to write bytes into the sandbox. It creates parent
 directories and returns after the write completes. `read_file()` reads the active
@@ -10,8 +10,12 @@ VM without taking a snapshot. The next command reuses that VM, including its
 running processes. A cold session reads its saved image; pending staged files
 start a VM so reads include those inputs.
 
-This example uploads bytes as `/input.txt`, copies them to `/output.txt` remotely,
-and saves the result as `output.txt` in your local working directory.
+Use `session.list_dir(path)` for directory entries and `session.grep(pattern, ...)`
+to search file contents. These methods use the same current filesystem as
+`read_file()`. Both synchronous and asynchronous sessions provide all four methods.
+
+This example writes `/input.txt`, runs a command to copy it to `/output.txt`,
+and reads the result back as bytes.
 Configure a connection as described in {ref}`sandbox-connection`.
 
 ::::{tab} Sync
@@ -25,9 +29,7 @@ sandbox_api.download(b"Hello from a file!\n")
 -->
 
 ```python
-"""Write a file and download the result from the same VM."""
-
-from pathlib import Path
+"""Write and read files in one sandbox session."""
 
 from contree_sdk import create_sandbox_session
 
@@ -37,8 +39,7 @@ def main() -> None:
         session.write_file("/input.txt", b"Hello from a file!\n")
         session.run(shell="cat /input.txt > /output.txt")
         content = session.read_file("/output.txt")
-        Path("output.txt").write_bytes(content)
-        print(content.decode(), end="")
+        print(content.decode())
 
 
 main()
@@ -47,11 +48,10 @@ main()
 <!--
 name: test_files
 ```python
-assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
 assert sandbox_api.sync.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
-assert capsys.readouterr().out == "Hello from a file!\n"
+assert capsys.readouterr().out == "Hello from a file!\n\n"
 ```
 -->
 
@@ -69,7 +69,6 @@ sandbox_api.download(b"Hello from a file!\n")
 
 ```python
 import asyncio
-from pathlib import Path
 
 from contree_sdk import create_sandbox_session
 
@@ -79,8 +78,7 @@ async def main() -> None:
         await session.write_file("/input.txt", b"Hello from a file!\n")
         await session.run(shell="cat /input.txt > /output.txt")
         content = await session.read_file("/output.txt")
-        await asyncio.to_thread(Path("output.txt").write_bytes, content)
-        print(content.decode(), end="")
+        print(content.decode())
 
 
 asyncio.run(main())
@@ -89,17 +87,16 @@ asyncio.run(main())
 <!--
 name: test_files_async
 ```python
-assert Path("output.txt").read_bytes() == b"Hello from a file!\n"
 assert sandbox_api.async_client.calls_for("inspect_instance_download")[0].args == ("op-1", "/output.txt")
 assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
-assert capsys.readouterr().out == "Hello from a file!\n"
+assert capsys.readouterr().out == "Hello from a file!\n\n"
 ```
 -->
 
 ::::
 
-Both stdout and the local `output.txt` contain `Hello from a file!` followed by a newline.
+Both programs print `Hello from a file!`.
 `read_file()` sees both writes without stopping the VM. Normal context exit saves them.
 With `ContreeSession`, each command saves by default; `disposable=True` leaves
 the previous image selected.
@@ -117,6 +114,83 @@ attaches it at operation startup. Directory sources expand into individual files
 on both paths, so empty directories are omitted. Live placement uses mode `0644`
 and the VM runtime user; explicit non-default `UploadFileSpec` ownership or mode
 is rejected for `LazySession`.
+
+## List directories and search files
+
+Use `list_dir()` and `grep()` directly on the session. Both return structured
+results that you can print directly. Directory listings default to a
+detailed format like `ls -l`.
+Paths start at the filesystem root, independently of the command working directory.
+
+::::{tab} Sync
+
+<!-- name: test_session_file_search; fixtures: sandbox_tools_api, capsys -->
+
+```python
+from contree_sdk import create_sandbox_session
+
+
+with create_sandbox_session(image="tag:alpine:latest") as sandbox_session:
+    sandbox_session.write_file("/work/message.txt", b"Hello from ConTree!\n")
+
+    directory = sandbox_session.list_dir("/work")
+    print(directory)
+
+    matches = sandbox_session.grep("Hello", path="/work/message.txt", max_total=20)
+    print(matches)
+```
+
+<!--
+name: test_session_file_search
+```python
+assert directory.path == "/work"
+assert matches.truncated is False
+assert capsys.readouterr().out == (
+    "-rw-r--r-- 1 root root 20 1970-01-01 00:00 message.txt\n\n/work/message.txt:1:Hello from ConTree!\n\n"
+)
+assert sandbox_tools_api.sync.calls_for("inspect_instance_grep")[0].kwargs["max_total"] == 20
+assert len(sandbox_tools_api.sync.calls_for("spawn_instance")) == 1
+```
+-->
+
+::::
+
+::::{tab} Async
+
+<!-- name: async test_session_file_search_async; fixtures: sandbox_tools_api, capsys -->
+
+```python
+from contree_sdk import create_sandbox_session
+
+
+async with create_sandbox_session(image="tag:alpine:latest") as sandbox_session:
+    await sandbox_session.write_file("/work/message.txt", b"Hello from ConTree!\n")
+
+    directory = await sandbox_session.list_dir("/work")
+    print(directory)
+
+    matches = await sandbox_session.grep("Hello", path="/work/message.txt", max_total=20)
+    print(matches)
+```
+
+<!--
+name: test_session_file_search_async
+```python
+assert directory.path == "/work"
+assert matches.truncated is False
+assert capsys.readouterr().out == (
+    "-rw-r--r-- 1 root root 20 1970-01-01 00:00 message.txt\n\n/work/message.txt:1:Hello from ConTree!\n\n"
+)
+assert sandbox_tools_api.async_client.calls_for("inspect_instance_grep")[0].kwargs["max_total"] == 20
+assert len(sandbox_tools_api.async_client.calls_for("spawn_instance")) == 1
+```
+-->
+
+::::
+
+`matches.matches` contains the structured matches. Check `matches.truncated`
+when a search must be complete. Use `glob`, `case`, `before`, and `after` to
+select files and include context lines.
 
 ## Advanced: choose a file source
 
@@ -151,8 +225,6 @@ doc_api.complete(stdout="script output\n")
 -->
 
 ```python
-from contree_client.models import StreamRepr
-
 from contree_sdk import ContreeSession, create_sandbox_session
 from contree_sdk.files import UploadFileSpec
 
@@ -160,8 +232,7 @@ from contree_sdk.files import UploadFileSpec
 with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
     result = session.run("/tool.sh", files={"/tool.sh": script}, disposable=True)
-    if isinstance(result.stdout, StreamRepr):
-        print(result.stdout.as_text(), end="")
+    print(result.stdout)
 ```
 
 <!--
@@ -171,7 +242,7 @@ call = doc_api.sync.calls_for("spawn_instance")[0]
 assert call.args[0] == "/tool.sh"
 assert call.kwargs["files"]["/tool.sh"].mode == "0755"
 assert doc_api.sync.calls_for("ensure_file")[0].args == (b"#!/bin/sh\necho 'script output'\n",)
-assert capsys.readouterr().out == "script output\n"
+assert capsys.readouterr().out == "script output\n\n"
 ```
 -->
 
@@ -187,8 +258,6 @@ doc_api.complete(stdout="script output\n")
 -->
 
 ```python
-from contree_client.models import StreamRepr
-
 from contree_sdk import ContreeAsyncSession, create_sandbox_session
 from contree_sdk.files import UploadFileSpec
 
@@ -196,8 +265,7 @@ from contree_sdk.files import UploadFileSpec
 async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:alpine:latest") as session:
     script = UploadFileSpec(source=b"#!/bin/sh\necho 'script output'\n", mode=0o755)
     result = await session.run("/tool.sh", files={"/tool.sh": script}, disposable=True)
-    if isinstance(result.stdout, StreamRepr):
-        print(result.stdout.as_text(), end="")
+    print(result.stdout)
 ```
 
 <!--
@@ -207,7 +275,7 @@ call = doc_api.async_client.calls_for("spawn_instance")[0]
 assert call.args[0] == "/tool.sh"
 assert call.kwargs["files"]["/tool.sh"].mode == "0755"
 assert doc_api.async_client.calls_for("ensure_file")[0].args == (b"#!/bin/sh\necho 'script output'\n",)
-assert capsys.readouterr().out == "script output\n"
+assert capsys.readouterr().out == "script output\n\n"
 ```
 -->
 

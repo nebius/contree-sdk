@@ -20,11 +20,6 @@ class StdinClient(LiveClient):
             self.streams[response.uuid].put(event("spawn"))
         return response
 
-    def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:
-        spid = super().operation_subprocess_create(operation_id, command, **kwargs)
-        self.streams[operation_id].put(event("spawn", spid))
-        return spid
-
     def operation_subprocess_stdin(self, operation_id: str, spid: int, value: str, **kwargs) -> None:
         self.record_call("operation_subprocess_stdin", (operation_id, spid, value), kwargs)
         if self.write_error is not None:
@@ -50,11 +45,6 @@ class AsyncStdinClient(LiveAsyncClient):
         if self.ready:
             await self.streams[response.uuid].put(event("spawn"))
         return response
-
-    async def operation_subprocess_create(self, operation_id: str, command: str, **kwargs) -> int:
-        spid = await super().operation_subprocess_create(operation_id, command, **kwargs)
-        await self.streams[operation_id].put(event("spawn", spid))
-        return spid
 
     async def operation_subprocess_stdin(self, operation_id: str, spid: int, value: str, **kwargs) -> None:
         self.record_call("operation_subprocess_stdin", (operation_id, spid, value), kwargs)

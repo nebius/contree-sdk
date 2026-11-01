@@ -44,7 +44,7 @@ def main() -> None:
     with SyncSQLiteStore("sessions.db") as store:
         with create_sandbox_session(store=store, session_id="demo") as resumed:
             content = resumed.read_file("/saved.txt")
-            print(content.decode(), end="")
+            print(content.decode())
 
 
 main()
@@ -55,7 +55,7 @@ name: test_resume
 ```python
 assert len(sandbox_api.sync.calls_for("resolve_image")) == 1
 assert sandbox_api.sync.calls_for("inspect_image_download")[0].args == ("image-op-1", "/saved.txt")
-assert capsys.readouterr().out == "saved\n"
+assert capsys.readouterr().out == "saved\n\n"
 ```
 -->
 
@@ -87,7 +87,7 @@ async def main() -> None:
     async with AsyncSQLiteStore("sessions.db") as store:
         async with create_sandbox_session(store=store, session_id="demo") as resumed:
             content = await resumed.read_file("/saved.txt")
-            print(content.decode(), end="")
+            print(content.decode())
 
 
 asyncio.run(main())
@@ -98,7 +98,7 @@ name: test_resume_async
 ```python
 assert len(sandbox_api.async_client.calls_for("resolve_image")) == 1
 assert sandbox_api.async_client.calls_for("inspect_image_download")[0].args == ("image-op-1", "/saved.txt")
-assert capsys.readouterr().out == "saved\n"
+assert capsys.readouterr().out == "saved\n\n"
 ```
 -->
 

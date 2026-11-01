@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 
 import pytest
 from contree_client.models import (
+    EventDataSizeCap,
     EventDataStream,
     FileSpec,
     InstanceResult,
-    InstanceResultState,
     OperationEvent,
     OperationEventType,
+    StreamRepr,
 )
 from contree_client.testing import ContreeClient
 
@@ -18,6 +19,7 @@ from contree_sdk.session import SubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_sync import Operation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import event as live_event
 
 
 @pytest.fixture
@@ -26,6 +28,8 @@ def client() -> ContreeClient:
 
 
 def make_event(id: int, type: OperationEventType, spid, data=None) -> OperationEvent:  # noqa: A002
+    if data is None and type in {"spawn", "exit"}:
+        data = live_event(type, spid).data
     return OperationEvent(
         id=id, ts=datetime.now(timezone.utc), type=type, data=data if data is not None else {}, spid=spid
     )
@@ -242,14 +246,11 @@ class TestRichMode:
 
     def test_run_spawns_subprocess_and_demuxes_its_events(self, client: ContreeClient):
         client.mock("operation_subprocess_create", 2)
-        client.mock(
-            "operation_subprocess",
-            InstanceResult(state=InstanceResultState(exit_code=0)),
-        )
         # exit-time race guard: see test_enter_starts_consumer_thread
         client.mock("operation_subprocess_kill", None)
         client.mock("cancel_operation", None)
         events = [
+            make_event(0, "spawn", 2),
             make_stream_event(1, "stdout", 1, "main output\n"),
             make_stream_event(2, "stdout", 2, "sub output\n"),
             make_event(3, "exit", 2),
@@ -262,7 +263,10 @@ class TestRichMode:
             collected = list(handle)
             result = handle.wait()
 
-        assert [event.id for event in collected] == [2, 3]
+        assert [event.id for event in collected] == [0, 2, 3]
+        assert client.calls_for("operation_subprocess") == []
+        assert isinstance(result.stdout, StreamRepr)
+        assert result.stdout.as_text() == "sub output\n"
         assert exit_code_of(result) == 0
         create_call = client.calls_for("operation_subprocess_create")[0]
         assert create_call.args == ("op-1", "echo sub")
@@ -271,10 +275,10 @@ class TestRichMode:
         # spid=1 finished (and the whole operation completed) before the spawned
         # subprocess's own exit event ever arrived - the handle must not hang forever
         client.mock("operation_subprocess_create", 2)
-        client.mock("operation_subprocess", InstanceResult(state=InstanceResultState(exit_code=-1)))
         client.mock("operation_subprocess_kill", None)
         client.mock("cancel_operation", None)
         events = [
+            make_event(0, "spawn", 2),
             make_stream_event(1, "stdout", 2, "partial\n"),
             make_event(2, "completion", ...),
         ]
@@ -282,16 +286,16 @@ class TestRichMode:
 
         with Operation(client, "op-1") as operation:
             handle = operation.run("sleep 100")
-            result = handle.wait(timeout=2)
-
-        assert exit_code_of(result) == -1
+            with pytest.raises(RuntimeError, match="incomplete"):
+                handle.wait(timeout=2)
+        assert client.calls_for("operation_subprocess") == []
 
     def test_pipe_to_writes_decoded_chunks_to_text_and_binary_streams(self, client: ContreeClient):
         client.mock("operation_subprocess_create", 2)
-        client.mock("operation_subprocess", InstanceResult(state=InstanceResultState(exit_code=0)))
         client.mock("operation_subprocess_kill", None)
         client.mock("cancel_operation", None)
         events = [
+            make_event(0, "spawn", 2),
             make_stream_event(1, "stdout", 2, "out\n"),
             make_stream_event(2, "stderr", 2, "err\n"),
             make_event(3, "exit", 2),
@@ -357,16 +361,17 @@ class TestClaimQueue:
 
 
 def test_wait_after_consuming_exit_and_repeated_wait_do_not_block(client):
-    client.mock("operation_subprocess", InstanceResult(state=InstanceResultState(exit_code=7)))
     operation = Operation(client, "op-1")
     events = queue.Queue()
-    events.put_nowait(make_event(1, "exit", 2))
+    events.put_nowait(make_event(0, "spawn", 2))
+    events.put_nowait(make_event(1, "exit", 2, live_event("exit", 2, exit_code=7).data))
     handle = SubprocessHandle(operation, 2, events)
-    assert len(list(handle)) == 1
+    assert len(list(handle)) == 2
     first = handle.wait(timeout=0.01)
     second = handle.wait(timeout=0.01)
     assert first is second
     assert exit_code_of(first) == 7
+    assert client.calls_for("operation_subprocess") == []
 
 
 def test_stream_failure_is_delivered_to_subprocess_waiter(client):
@@ -401,6 +406,7 @@ class CustomSubprocess(SubprocessHandle):
 class EventOverrideOperation(Operation):
     def open_event_stream(self):
         try:
+            yield make_event(0, "spawn", 2)
             yield make_stream_event(1, "stdout", 2, "custom stream\n")
             yield make_event(2, "exit", 2)
             yield make_event(3, "completion", ...)
@@ -413,7 +419,6 @@ class EventOverrideOperation(Operation):
 
 def test_rich_mode_uses_public_event_and_subprocess_hooks(client):
     client.mock("operation_subprocess_create", 2)
-    client.mock("operation_subprocess", InstanceResult(state=InstanceResultState(exit_code=0)))
     with EventOverrideOperation(client, "op-1") as operation:
         # Let the finite stream finish; the handle must also receive buffered events.
         assert operation.consumer_thread is not None
@@ -426,3 +431,65 @@ def test_rich_mode_uses_public_event_and_subprocess_hooks(client):
     assert operation.source_closed
     assert output.getvalue() == b"custom stream\n"
     assert client.calls_for("follow_operation_events") == []
+    assert client.calls_for("operation_subprocess") == []
+
+
+def test_wait_preserves_output_consumed_by_partial_iteration(client):
+    operation = Operation(client, "op-1")
+    events = queue.Queue()
+    for event in (
+        make_event(0, "spawn", 2),
+        make_stream_event(1, "stdout", 2, "before"),
+        make_stream_event(2, "stdout", 2, " after"),
+        make_stream_event(3, "stderr", 2, "warning"),
+        make_event(4, "exit", 2),
+    ):
+        events.put_nowait(event)
+    handle = SubprocessHandle(operation, 2, events)
+    iterator = iter(handle)
+    assert (next(iterator)).type == "spawn"
+    assert (next(iterator)).type == "stdout"
+    result = handle.wait(timeout=1)
+    assert isinstance(result.stdout, StreamRepr)
+    assert isinstance(result.stderr, StreamRepr)
+    assert result.stdout.as_text() == "before after"
+    assert result.stderr.as_text() == "warning"
+    assert handle.pipe_to() is result
+    assert client.calls_for("operation_subprocess") == []
+
+
+@pytest.mark.parametrize("claim_first", [False, True])
+@pytest.mark.parametrize("cap_first", [False, True])
+def test_global_size_cap_marks_existing_and_future_subprocess_output(client, claim_first, cap_first):
+    cap = make_event(2, "size_cap", None, EventDataSizeCap(limit_bytes=100, file_size=100))
+    events = [make_event(0, "spawn", 2), make_stream_event(1, "stdout", 2, "partial")]
+    events.insert(0 if cap_first else len(events), cap)
+    events.extend((make_event(3, "exit", 2), make_event(4, "completion", None)))
+    client.mock("follow_operation_events", events)
+    operation = Operation(client, "op-1")
+    if claim_first:
+        subprocess_queue = operation.claim_queue(2)
+    operation.pump()
+    if not claim_first:
+        subprocess_queue = operation.claim_queue(2)
+    handle = SubprocessHandle(operation, 2, subprocess_queue)
+    result = handle.wait(timeout=1)
+    assert isinstance(result.stdout, StreamRepr)
+    assert isinstance(result.stderr, StreamRepr)
+    assert result.stdout.as_text() == "partial"
+    assert result.stdout.truncated is True
+    assert result.stderr.truncated is True
+    assert client.calls_for("operation_subprocess") == []
+
+
+def test_malformed_stream_error_is_preserved_for_repeated_wait(client):
+    operation = Operation(client, "op-1")
+    events = queue.Queue()
+    events.put_nowait(make_event(0, "spawn", 2))
+    events.put_nowait(make_event(1, "stdout", 2, EventDataStream(value="??", encoding="base64")))
+    events.put_nowait(make_event(2, "exit", 2))
+    handle = SubprocessHandle(operation, 2, events)
+    for timeout in (1, 2):
+        with pytest.raises(RuntimeError, match="invalid subprocess stdout"):
+            handle.wait(timeout=timeout)
+    assert client.calls_for("operation_subprocess") == []

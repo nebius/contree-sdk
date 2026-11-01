@@ -33,7 +33,9 @@ def test_sync_wait_events_subprocess_and_replay_share_one_reader():
         subprocess_result = pool.submit(handle.wait, timeout=2)
         for item in expected:
             client.streams["op-1"].put(item)
-        assert all_events.result(2) == expected
+        observed = all_events.result(2)
+        assert [item.type for item in observed[:2]] == ["spawn", "stdout"]
+        assert observed[2:] == expected
         assert filtered.result(2) == expected[1:3]
         assert result.result(2) == operation.wait()
         assert subprocess_result.result(2) == handle.wait()
@@ -41,6 +43,7 @@ def test_sync_wait_events_subprocess_and_replay_share_one_reader():
     assert len(client.calls_for("follow_operation_events")) == 1
     assert client.calls_for("follow_operation_events")[0].kwargs == {}
     assert len(client.calls_for("get_operation_status")) == 1
+    assert not client.calls_for("operation_subprocess")
     assert not client.calls_for("wait_operation")
     assert operation.consumer_thread is not None
     assert not operation.consumer_thread.is_alive()
@@ -63,7 +66,9 @@ async def test_async_wait_events_subprocess_and_replay_share_one_reader():
         subprocess_result = asyncio.create_task(handle.wait(timeout=2))
         for item in expected:
             await client.streams["op-1"].put(item)
-        assert await all_events == expected
+        observed = await all_events
+        assert [item.type for item in observed[:2]] == ["spawn", "stdout"]
+        assert observed[2:] == expected
         assert await filtered == expected[1:3]
         assert await result == await operation.wait()
         assert await subprocess_result == await handle.wait()
@@ -71,6 +76,7 @@ async def test_async_wait_events_subprocess_and_replay_share_one_reader():
     assert len(client.calls_for("follow_operation_events")) == 1
     assert client.calls_for("follow_operation_events")[0].kwargs == {}
     assert len(client.calls_for("get_operation_status")) == 1
+    assert not client.calls_for("operation_subprocess")
     assert not client.calls_for("wait_operation")
     assert operation.consumer_task is not None
     assert operation.consumer_task.done()

@@ -22,6 +22,7 @@ from contree_sdk.session.base import encode_stdin_chunk, instance_result, stream
 from contree_sdk.session.contracts import AsyncOperationContract, AsyncOperationObserver, AsyncSubprocessContract
 from contree_sdk.session.live_files import validate_live_files
 from contree_sdk.session.stdin import DEFAULT_STDIN_CHUNK_SIZE, StdinResult, stdin_chunks
+from contree_sdk.session.subprocess_result import SubprocessResult
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
@@ -55,6 +56,7 @@ class AsyncOperation(AsyncOperationContract):
         # own exit) before the caller gets a chance to claim them; buffering here and
         # flushing on registration (see claim_queue()) closes that race
         self.pending_events: dict[int, asyncio.Queue[OperationEvent]] = {}
+        self.size_cap: OperationEvent | None = None
         self.terminal = False
         self.stream_error: Exception | None = None
         self.observers: list[AsyncOperationObserver] = []
@@ -288,16 +290,7 @@ class AsyncOperation(AsyncOperationContract):
                     self.changed.notify_all()
                 if event.type == "completion":
                     break
-                spid = event.spid
-                if not isinstance(spid, int) or spid == 1:
-                    continue
-                async with self.lock:
-                    target = self.queues.get(spid)
-                    if target is None:
-                        buffer = self.pending_events.setdefault(spid, asyncio.Queue())
-                        await buffer.put(event)
-                        continue
-                await target.put(event)
+                await self.route_event(event)
         except asyncio.CancelledError:
             self.stream_error = RuntimeError("operation event reader was cancelled")
             raise
@@ -319,6 +312,27 @@ class AsyncOperation(AsyncOperationContract):
                 self.terminal_event.set()
                 self.changed.notify_all()
 
+    async def route_event(self, event: OperationEvent) -> None:
+        async with self.lock:
+            if event.type == "size_cap":
+                self.size_cap = event
+                for target in (*self.queues.values(), *self.pending_events.values()):
+                    target.put_nowait(event)
+                return
+            spid = event.spid
+            if not isinstance(spid, int) or spid == 1:
+                return
+            target = self.queues.get(spid)
+            if target is not None:
+                target.put_nowait(event)
+                return
+            buffer = self.pending_events.get(spid)
+            if buffer is None:
+                buffer = self.pending_events[spid] = asyncio.Queue()
+                if self.size_cap is not None:
+                    buffer.put_nowait(self.size_cap)
+            buffer.put_nowait(event)
+
     async def _close_event_stream(self, source: AsyncIterator[OperationEvent] | None) -> None:
         close = getattr(source, "aclose", None)
         if close is not None:
@@ -338,6 +352,8 @@ class AsyncOperation(AsyncOperationContract):
             if buffered is not None:
                 while not buffered.empty():
                     subprocess_queue.put_nowait(buffered.get_nowait())
+            elif self.size_cap is not None:
+                subprocess_queue.put_nowait(self.size_cap)
             if self.terminal:
                 subprocess_queue.put_nowait(None)
             else:
@@ -430,15 +446,19 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
         self.queue = events_queue
         self.finished = False
         self.result: InstanceResult | None = None
+        self.accumulator = SubprocessResult()
 
     async def iterate(self) -> AsyncIterator[OperationEvent]:
         while not self.finished:
+            if self.accumulator.error is not None:
+                raise self.accumulator.error
             item = await self.queue.get()
             if item is None:
                 self.finished = True
                 if self.operation.stream_error is not None:
                     raise self.operation.stream_error
                 return
+            self.accumulator.observe(item)
             if item.type == "exit":
                 self.finished = True
             yield item
@@ -452,6 +472,8 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
     async def wait(self, *, timeout: float | None = None) -> InstanceResult:
         deadline = None if timeout is None else time.monotonic() + timeout
         while not self.finished:
+            if self.accumulator.error is not None:
+                raise self.accumulator.error
             remaining: float | None = None
             if deadline is not None:
                 remaining = max(0.0, deadline - time.monotonic())
@@ -461,12 +483,14 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
                 item = await (self.queue.get() if remaining is None else asyncio.wait_for(self.queue.get(), remaining))
             except asyncio.TimeoutError:
                 raise TimeoutError(f"subprocess spid={self.spid} did not exit within {timeout}s") from None
+            if item is not None:
+                self.accumulator.observe(item)
             if item is None or item.type == "exit":
                 self.finished = True
                 if item is None and self.operation.stream_error is not None:
                     raise self.operation.stream_error
         if self.result is None:
-            self.result = await self.operation.client.operation_subprocess(self.operation.uuid, self.spid)
+            self.result = self.accumulator.result()
         return self.result
 
     async def pipe_to(
@@ -478,5 +502,5 @@ class AsyncSubprocessHandle(AsyncSubprocessContract):
             elif event.type == "stderr" and stderr is not None:
                 write_stream_chunk(stderr, event.data)
         if self.result is None:
-            self.result = await self.operation.client.operation_subprocess(self.operation.uuid, self.spid)
+            self.result = self.accumulator.result()
         return self.result

@@ -216,7 +216,8 @@ async def test_overrides_run_after_unpack_before_stop_and_only_touch_archive_ent
     assert " -R " not in command
     calls = [call.operation for call in client.calls]
     assert calls.index("apply_instance_file") < calls.index("operation_subprocess_create")
-    assert calls.index("operation_subprocess") < calls.index("operation_subprocess_kill")
+    assert calls.index("operation_subprocess_create") < calls.index("operation_subprocess_kill")
+    assert not client.calls_for("operation_subprocess")
 
 
 @pytest.mark.parametrize("directory_first", [False, True])

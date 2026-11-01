@@ -10,13 +10,15 @@ from concurrent.futures import Future, InvalidStateError
 from contextlib import suppress
 from enum import Enum
 from math import isfinite
+from time import monotonic
 from typing import Protocol
 
 
 class SnapshotEvent(Enum):
     """Notifications for one policy instance owned by one lazy session.
 
-    RESET starts a new VM cycle. COMMAND_STARTED reserves an accepted command
+    RESET starts a new VM cycle. VM_STARTING precedes the VM spawn request.
+    COMMAND_STARTED reserves an accepted command
     before its subprocess is created. COMMAND_FINISHED confirms its exit event,
     including nonzero exits. INSPECTION_STARTED/FINISHED bracket a live filesystem
     request, including its stream. They affect idle time, not command counts.
@@ -24,6 +26,7 @@ class SnapshotEvent(Enum):
     """
 
     RESET = "reset"
+    VM_STARTING = "vm_starting"
     COMMAND_STARTED = "command_started"
     COMMAND_FINISHED = "command_finished"
     INSPECTION_STARTED = "inspection_started"
@@ -141,6 +144,76 @@ class IdleSnapshotPolicy(AbstractSnapshotPolicy):
                 if self._active == 0 and not self.future.done():
                     generation = self._generation
                     self._timer = self.timer_factory(self.seconds, lambda: self._expired(generation))
+
+
+class DurationSnapshotPolicy(AbstractSnapshotPolicy):
+    """Request a snapshot after a fixed VM lifetime, including startup time."""
+
+    def __init__(
+        self,
+        seconds: float,
+        *,
+        timer_factory: TimerFactory = _start_timer,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        if not isfinite(seconds) or seconds <= 0:
+            raise ValueError("duration seconds must be finite and positive")
+        super().__init__()
+        self.seconds = seconds
+        self.timer_factory = timer_factory
+        self.clock = clock
+        self.lock = threading.RLock()
+        self.timer: SnapshotTimer | None = None
+        self.started_at: float | None = None
+        self.generation = 0
+
+    def start_deferred(self) -> None:
+        """Record startup time; set_duration later arms the effective deadline."""
+        with self.lock:
+            if self.started_at is None and not self.future.done():
+                self.started_at = self.clock()
+
+    def set_duration(self, seconds: float) -> None:
+        """Update the deadline relative to the original VM startup time.
+
+        Raises:
+            ValueError: The duration is not finite and positive.
+
+        """
+        if not isfinite(seconds) or seconds <= 0:
+            raise ValueError("duration seconds must be finite and positive")
+        with self.lock:
+            self.seconds = seconds
+            self.schedule_timer()
+
+    def schedule_timer(self) -> None:
+        self.generation += 1
+        if self.timer is not None:
+            self.timer.cancel()
+            self.timer = None
+        if self.started_at is None or self.future.done():
+            return
+        remaining = self.seconds - (self.clock() - self.started_at)
+        if remaining <= 0:
+            _resolve(self.future)
+        else:
+            generation = self.generation
+            self.timer = self.timer_factory(remaining, lambda: self.expired(generation))
+
+    def expired(self, generation: int) -> None:
+        with self.lock:
+            if generation == self.generation:
+                _resolve(self.future)
+
+    def notify(self, event: SnapshotEvent) -> None:
+        with self.lock:
+            super().notify(event)
+            if event in {SnapshotEvent.RESET, SnapshotEvent.CLOSE}:
+                self.started_at = None
+                self.schedule_timer()
+            elif event is SnapshotEvent.VM_STARTING and self.started_at is None and not self.future.done():
+                self.start_deferred()
+                self.schedule_timer()
 
 
 class CommandCountSnapshotPolicy(AbstractSnapshotPolicy):

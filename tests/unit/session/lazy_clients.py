@@ -4,10 +4,15 @@ import asyncio
 import queue
 import threading
 from collections.abc import AsyncGenerator, Iterator
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
 from contree_client.models import (
+    EventDataExit,
+    EventDataSpawn,
+    EventDataStream,
+    EventResources,
     InstanceResult,
     InstanceResultState,
     InstanceSpawnResponse,
@@ -22,8 +27,59 @@ from contree_client.testing import Call, ContreeAsyncClient, ContreeClient
 from tests.unit.session.factories import operation_response, spawn_response
 
 
-def event(kind: OperationEventType, spid: int = 1) -> OperationEvent:
-    return OperationEvent(id=1, ts=datetime.now(timezone.utc), type=kind, spid=spid, data={})
+def event(kind: OperationEventType, spid: int = 1, *, exit_code: int = 0) -> OperationEvent:
+    data = {}
+    if kind == "spawn":
+        data = EventDataSpawn(
+            pid=spid,
+            command="command",
+            args=[],
+            shell=False,
+            cwd="/",
+            uid=0,
+            gid=0,
+            timeout=0,
+            truncate_at=1048576,
+        )
+    elif kind == "exit":
+        data = EventDataExit(
+            pid=spid,
+            code=exit_code,
+            signal=-1,
+            timed_out=False,
+            duration_ms=1,
+            resources=EventResources(
+                user_time_us=0,
+                sys_time_us=0,
+                max_rss_kb=0,
+                shared_memory=0,
+                unshared_memory=0,
+                swaps=0,
+                minor_faults=0,
+                major_faults=0,
+                voluntary_ctx_switches=0,
+                involuntary_ctx_switches=0,
+                block_input_ops=0,
+                block_output_ops=0,
+                ipc_msgs_sent=0,
+                ipc_msgs_received=0,
+                signals_received=0,
+            ),
+        )
+    elif kind in {"stdout", "stderr", "stdin"}:
+        data = EventDataStream.from_text("")
+    return OperationEvent(id=1, ts=datetime.now(timezone.utc), type=kind, spid=spid, data=data)
+
+
+def subprocess_events(spid: int, result: InstanceResult) -> list[OperationEvent]:
+    events = [event("spawn", spid)]
+    for name, stream in (("stdout", result.stdout), ("stderr", result.stderr)):
+        if isinstance(stream, StreamRepr):
+            events.append(replace(event(name, spid), data=EventDataStream.from_bytes(stream.as_bytes())))
+    state = result.state
+    exit_code = state.exit_code if isinstance(state, InstanceResultState) and isinstance(state.exit_code, int) else 0
+    events.append(event("exit", spid, exit_code=exit_code))
+    return events
 
 
 class LiveClient(ContreeClient):
@@ -45,6 +101,9 @@ class LiveClient(ContreeClient):
         self.results = {}
         self.exit_code = 0
 
+    def result_for_command(self, command: str) -> InstanceResult:
+        return InstanceResult(state=InstanceResultState(exit_code=self.exit_code), stdout=StreamRepr.from_text(command))
+
     def record_call(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         self.calls.append(Call(name, args, kwargs))
 
@@ -64,11 +123,10 @@ class LiveClient(ContreeClient):
             raise self.create_error
         self.processes += 1
         spid = self.processes
-        self.results[operation_id, spid] = InstanceResult(
-            state=InstanceResultState(exit_code=self.exit_code), stdout=StreamRepr.from_text(command)
-        )
-        if self.auto_exit:
-            self.streams[operation_id].put(event("exit", spid))
+        self.results[operation_id, spid] = self.result_for_command(command)
+        events = subprocess_events(spid, self.results[operation_id, spid])
+        for item in events if self.auto_exit else events[:-1]:
+            self.streams[operation_id].put(item)
         return spid
 
     def follow_operation_events(self, operation_id: str, **kwargs) -> Iterator[OperationEvent]:
@@ -128,6 +186,9 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.results = {}
         self.exit_code = 0
 
+    def result_for_command(self, command: str) -> InstanceResult:
+        return InstanceResult(state=InstanceResultState(exit_code=self.exit_code), stdout=StreamRepr.from_text(command))
+
     def record_call(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         self.calls.append(Call(name, args, kwargs))
 
@@ -147,11 +208,10 @@ class LiveAsyncClient(ContreeAsyncClient):
             raise self.create_error
         self.processes += 1
         spid = self.processes
-        self.results[operation_id, spid] = InstanceResult(
-            state=InstanceResultState(exit_code=self.exit_code), stdout=StreamRepr.from_text(command)
-        )
-        if self.auto_exit:
-            await self.streams[operation_id].put(event("exit", spid))
+        self.results[operation_id, spid] = self.result_for_command(command)
+        events = subprocess_events(spid, self.results[operation_id, spid])
+        for item in events if self.auto_exit else events[:-1]:
+            await self.streams[operation_id].put(item)
         return spid
 
     async def follow_operation_events(self, operation_id: str, **kwargs) -> AsyncGenerator[OperationEvent, None]:

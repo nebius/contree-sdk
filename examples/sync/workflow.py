@@ -23,14 +23,14 @@ def main() -> None:
             session.switch_branch("reverse")
             session.run(shell="sort -r /input.txt > /result.txt")
             print("Reverse:")
-            print((session.read_file("/result.txt")).decode(), end="")
+            print((session.read_file("/result.txt")).decode())
             session.switch_branch("main")
 
         # Reopen the saved node. Local branch selection is not shared through Store.
         with SyncSQLiteStore("workflow.db") as store:
             resumed = ContreeSession(client, store=store, session_id=session_id, node_id=baseline_node)
             print("Baseline:")
-            print((resumed.read_file("/result.txt")).decode(), end="")
+            print((resumed.read_file("/result.txt")).decode())
 
 
 if __name__ == "__main__":
@@ -58,4 +58,4 @@ def test_workflow(doc_api, capsys):
         ("image-1", "/result.txt"),
     ]
     assert len(client.calls_for("resolve_image")) == 1
-    assert capsys.readouterr().out == "Reverse:\npear\napple\nBaseline:\napple\npear\n"
+    assert capsys.readouterr().out == "Reverse:\npear\napple\n\nBaseline:\napple\npear\n\n"

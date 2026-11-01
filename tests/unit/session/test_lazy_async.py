@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 
 import pytest
 from contree_client.models import FileResponse, InstanceResultState, OperationStatus, StreamRepr
@@ -6,6 +7,7 @@ from contree_client.models import FileResponse, InstanceResultState, OperationSt
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
+from contree_sdk.session.snapshot_policy import DurationSnapshotPolicy
 from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveAsyncClient, event
 from tests.unit.session.timers import ManualTimers
@@ -21,9 +23,11 @@ async def test_shared_vm_snapshot_and_next_image():
     base = ContreeAsyncSession(client, image="base")
     async with AsyncLazySession(base) as lazy:
         assert not client.calls_for("spawn_instance")
-        assert (await lazy.run("first")).stdout == StreamRepr.from_text("first")
-        assert (await lazy.run("second")).stdout == StreamRepr.from_text("second")
+        assert (await lazy.run("first")).stdout == StreamRepr(value="first", encoding="ascii", truncated=False)
+        assert (await lazy.run("second")).stdout == StreamRepr(value="second", encoding="ascii", truncated=False)
         assert len(client.calls_for("spawn_instance")) == 1
+        assert client.calls_for("spawn_instance")[0].kwargs["timeout"] == 3600
+        assert client.calls_for("spawn_instance")[0].kwargs["args"] == ["infinity"]
         assert len(client.calls_for("follow_operation_events")) == 1
         assert len((await base.history())[0]) == 1
         entry = await lazy.snapshot(timeout=2)
@@ -71,6 +75,47 @@ async def test_run_files_rejects_unsupported_live_metadata_before_start():
     assert not client.calls_for("spawn_instance")
 
 
+async def test_vm_deadline_drains_and_resumes_from_snapshot(monkeypatch):
+    timers = ManualTimers()
+    monkeypatch.setattr(
+        "contree_sdk.session.lazy_async.DurationSnapshotPolicy",
+        lambda seconds: DurationSnapshotPolicy(seconds, timer_factory=timers.start),
+    )
+    client = LiveAsyncClient()
+    async with AsyncLazySession(
+        ContreeAsyncSession(client, image="base"),
+        snapshot_policy=IdleSnapshotPolicy(1000),
+        vm_timeout=60,
+        snapshot_timeout=10,
+    ) as lazy:
+        await lazy.run("first")
+        timers.advance(49)
+        await lazy.run("second")
+        assert len(client.calls_for("spawn_instance")) == 1
+        client.auto_exit = False
+        handle = await lazy.spawn("active")
+        timers.advance(1)
+        await wait_state(lazy, lambda: lazy.phase == "draining")
+        assert not client.calls_for("operation_subprocess_kill")
+        following = asyncio.create_task(lazy.run("next"))
+        await asyncio.sleep(0)
+        assert len(client.calls_for("operation_subprocess_create")) == 3
+        client.auto_exit = True
+        await client.streams["op-1"].put(event("exit", handle.spid))
+        assert (await asyncio.wait_for(following, 2)).stdout == StreamRepr(
+            value="next", encoding="ascii", truncated=False
+        )
+        assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
+        assert all(call.kwargs["timeout"] == 60 for call in client.calls_for("spawn_instance"))
+    assert all(timer.cancelled for timer in timers.timers)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 30, float("inf"), float("nan")])
+async def test_invalid_vm_timeout(timeout):
+    with pytest.raises(ValueError, match="vm_timeout"):
+        AsyncLazySession(ContreeAsyncSession(LiveAsyncClient(), image="base"), vm_timeout=timeout)
+
+
 async def test_snapshot_with_unchanged_image_stops_vm_and_records_checkpoint(monkeypatch):
     client = LiveAsyncClient()
 
@@ -115,6 +160,31 @@ async def test_idle_timer_waits_for_exit_without_user_wait():
         await wait_state(lazy, lambda: lazy.phase == "cold")
     finally:
         await lazy.abort()
+
+
+async def test_real_idle_timer_saves_without_another_session_call_across_vm_cycles():
+    client = LiveAsyncClient()
+    policy = IdleSnapshotPolicy(0.02)
+    base = ContreeAsyncSession(client, image="base")
+    lazy = AsyncLazySession(base, snapshot_policy=policy)
+    try:
+        for cycle in (1, 2):
+            client.saving.clear()
+            await lazy.run(f"command-{cycle}")
+            await asyncio.wait_for(client.saving.wait(), 1)
+            await wait_state(lazy, lambda: lazy.state.phase == "cold")
+            assert lazy.state.snapshots == cycle
+            assert base.image_uuid == f"image-op-{cycle}"
+            assert policy._timer is None
+        assert [call.args[1] for call in client.calls_for("spawn_instance")] == ["base", "image-op-1"]
+        assert len(client.calls_for("operation_subprocess_kill")) == 2
+    finally:
+        await lazy.abort()
+    assert lazy.worker is not None
+    assert lazy.worker.done()
+    assert policy.should_snapshot().cancelled()
+    assert policy._timer is None
+    assert lazy.duration_policy.timer is None
 
 
 async def test_parallel_commands_reserve_exact_count_and_wait_for_snapshot():
@@ -173,7 +243,9 @@ async def test_nonzero_result_creation_error_and_navigation():
     client.exit_code = 3
     base = ContreeAsyncSession(client, image="base")
     lazy = AsyncLazySession(base)
-    assert (await lazy.run("false")).state == InstanceResultState(exit_code=3)
+    state = (await lazy.run("false")).state
+    assert isinstance(state, InstanceResultState)
+    assert state.exit_code == 3
     with pytest.raises(RuntimeError, match="snapshot"):
         await lazy.rollback()
     with pytest.raises(ValueError, match="disposable"):
@@ -397,5 +469,126 @@ async def test_rejected_snapshot_does_not_restart_from_stale_image():
         with pytest.raises(RuntimeError):
             await lazy.run("read")
         assert len(client.calls_for("spawn_instance")) == 1
+    finally:
+        await lazy.abort()
+
+
+@pytest.mark.parametrize("override", ["keepalive", "prepare_request"])
+@pytest.mark.parametrize(("vm_timeout", "effective_timeout", "startup"), [(3600, 60, 20), (60, 120, 55)])
+async def test_vm_deadline_uses_effective_timeout_and_original_start_time(
+    override, vm_timeout, effective_timeout, startup
+):
+    timers = ManualTimers()
+
+    class SlowClient(LiveAsyncClient):
+        async def spawn_instance(self, command, image, **kwargs):
+            response = await super().spawn_instance(command, image, **kwargs)
+            timers.advance(startup)
+            return response
+
+    class CustomSession(ContreeAsyncSession):
+        def prepare_request(self, request):
+            request = super().prepare_request(request)
+            if override == "prepare_request" and request.command == "sleep":
+                return replace(request, timeout=effective_timeout)
+            return request
+
+    class CustomLazy(AsyncLazySession):
+        def keepalive_request(self):
+            request = super().keepalive_request()
+            return replace(request, timeout=effective_timeout) if override == "keepalive" else request
+
+    client = SlowClient()
+    lazy = CustomLazy(CustomSession(client, image="base"), snapshot_timeout=10, vm_timeout=vm_timeout)
+    lazy.duration_policy.timer_factory = timers.start
+    lazy.duration_policy.clock = lambda: timers.now
+    async with lazy:
+        await lazy.run("first")
+        assert client.calls_for("spawn_instance")[0].kwargs["timeout"] == effective_timeout
+        deadline = effective_timeout - 10
+        assert lazy.duration_policy.seconds == deadline
+        assert timers.timers[-1].deadline == deadline
+        timers.advance(deadline - startup - 1)
+        await lazy.run("second")
+        assert len(client.calls_for("spawn_instance")) == 1
+        timers.advance(1)
+        await wait_state(lazy, lambda: lazy.phase == "cold")
+        effective_timeout *= 2
+        startup = deadline + 5
+        await lazy.run("third")
+        assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
+        assert timers.timers[-1].deadline == deadline + effective_timeout - 10
+        assert not lazy.duration_policy.should_snapshot().done()
+    assert all(timer.cancelled for timer in timers.timers)
+
+
+@pytest.mark.parametrize("inspection", [False, True])
+async def test_vm_deadline_expiring_during_startup_rejects_admission(inspection):
+    timers = ManualTimers()
+
+    class SlowClient(LiveAsyncClient):
+        async def spawn_instance(self, command, image, **kwargs):
+            response = await super().spawn_instance(command, image, **kwargs)
+            timers.advance(60)
+            return response
+
+    client = SlowClient()
+    base = ContreeAsyncSession(client, image="base")
+    if inspection:
+        await base.stage_files({"/input": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
+    lazy = AsyncLazySession(base, vm_timeout=60, snapshot_timeout=10)
+    lazy.duration_policy.timer_factory = timers.start
+    lazy.duration_policy.clock = lambda: timers.now
+    try:
+        if inspection:
+            with pytest.raises(TimeoutError, match="renewal deadline expired during startup"):
+                async with lazy.inspection_source():
+                    pytest.fail("inspection was admitted after the deadline")
+        else:
+            with pytest.raises(TimeoutError, match="renewal deadline expired during startup"):
+                await lazy.run("first")
+        assert not client.calls_for("operation_subprocess_create")
+        assert client.calls_for("cancel_operation")
+        assert lazy.worker is None
+        assert all(timer.cancelled for timer in timers.timers)
+    finally:
+        await lazy.abort()
+
+
+async def test_inspection_spawn_failure_cancels_duration_timer_without_worker():
+    timers = ManualTimers()
+
+    class FailedSpawnClient(LiveAsyncClient):
+        async def spawn_instance(self, command, image, **kwargs):
+            raise OSError("spawn failed")
+
+    base = ContreeAsyncSession(FailedSpawnClient(), image="base")
+    await base.stage_files({"/input": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
+    lazy = AsyncLazySession(base)
+    lazy.duration_policy.timer_factory = timers.start
+    try:
+        with pytest.raises(OSError, match="spawn failed"):
+            async with lazy.inspection_source():
+                pytest.fail("inspection was admitted after spawn failure")
+        assert lazy.worker is None
+        assert lazy.duration_policy.should_snapshot().cancelled()
+        assert all(timer.cancelled for timer in timers.timers)
+    finally:
+        await lazy.abort()
+
+
+@pytest.mark.parametrize("timeout", [None, 0, -1, 30])
+async def test_invalid_effective_keepalive_timeout_is_rejected(timeout):
+    class CustomLazy(AsyncLazySession):
+        def keepalive_request(self):
+            return replace(super().keepalive_request(), timeout=timeout)
+
+    client = LiveAsyncClient()
+    lazy = CustomLazy(ContreeAsyncSession(client, image="base"))
+    try:
+        with pytest.raises(ValueError, match="keepalive timeout"):
+            await lazy.run("first")
+        assert not client.calls_for("operation_subprocess_create")
+        assert lazy.duration_policy.timer is None
     finally:
         await lazy.abort()

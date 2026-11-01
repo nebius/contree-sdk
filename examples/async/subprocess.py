@@ -9,13 +9,6 @@ from contree_client.types import ContreeAsyncClient as ContreeAsyncClientBase
 from contree_sdk.session import ContreeAsyncSession
 
 
-def stdout_text(result: InstanceResult) -> str:
-    stream = result.stdout
-    if isinstance(stream, EllipsisType):
-        raise TypeError("command produced no stdout")
-    return stream.as_text()
-
-
 def exit_code(result: InstanceResult) -> int:
     state = result.state
     if isinstance(state, EllipsisType) or isinstance(state.exit_code, EllipsisType):
@@ -29,11 +22,13 @@ async def main(client: ContreeAsyncClientBase):
     async with session.run(shell="sleep 300") as operation:
         subprocess = await operation.run("echo", args=["hello from a subspawn"])
         result = await subprocess.wait()
-        print(f"Subprocess: {stdout_text(result)=}, {exit_code(result)=}")
+        print(result.stdout)
+        print(f"Exit code: {exit_code(result)}")
 
         second = await operation.run("echo", args=["another one"])
         result = await second.wait()
-        print(f"Second subprocess: {stdout_text(result)=}, {exit_code(result)=}")
+        print(result.stdout)
+        print(f"Exit code: {exit_code(result)}")
 
 
 async def run_with_client() -> None:
@@ -49,13 +44,26 @@ def test_subprocess(doc_api, capsys):
     import runpy
 
     from contree_client.models import InstanceResult, InstanceResultState, StreamRepr
+    from tests.unit.session.lazy_clients import event, subprocess_events
 
     doc_api.subprocess(stdout="hello from a subspawn\n")
     client = doc_api.async_client
     client.mock("operation_subprocess_create", 3)
+    client.mocks["follow_operation_events"].clear()
     client.mock(
-        "operation_subprocess",
-        InstanceResult(state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_text("another one\n")),
+        "follow_operation_events",
+        [
+            *subprocess_events(
+                2,
+                InstanceResult(
+                    state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_text("hello from a subspawn\n")
+                ),
+            ),
+            *subprocess_events(
+                3, InstanceResult(state=InstanceResultState(exit_code=0), stdout=StreamRepr.from_text("another one\n"))
+            ),
+            event("completion"),
+        ],
     )
     runpy.run_path(__file__, run_name="__main__")
 
@@ -63,7 +71,6 @@ def test_subprocess(doc_api, capsys):
     assert len(calls) == 2
     assert calls[0].kwargs["args"] == ["hello from a subspawn"]
     assert calls[1].kwargs["args"] == ["another one"]
-    assert [call.args for call in client.calls_for("operation_subprocess")] == [("operation-1", 2), ("operation-1", 3)]
+    assert not client.calls_for("operation_subprocess")
     output = capsys.readouterr().out
-    assert "hello from a subspawn" in output
-    assert "another one" in output
+    assert output == "hello from a subspawn\n\nExit code: 0\nanother one\n\nExit code: 0\n"

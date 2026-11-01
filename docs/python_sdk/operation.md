@@ -131,7 +131,7 @@ once. A sync `run()` returns a result and cannot be used as an operation context
 ## Stream the main process
 
 Iterate `operation.events()` when you need live output without additional processes.
-Decode stream payloads before displaying them.
+Print stream payloads directly; `print()` adds a newline after each payload.
 
 ::::{tab} Sync
 
@@ -152,14 +152,14 @@ with create_sandbox_session(session_type=ContreeSession, image="tag:alpine:lates
     operation = session.spawn(shell="echo hello")
     for event in operation.events():
         if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
-            print(event.data.as_text(), end="")
+            print(event.data)
     operation.wait()
 ```
 
 <!--
 name: test_stream_events
 ```python
-assert capsys.readouterr().out == "hello\n"
+assert capsys.readouterr().out == "hello\n\n"
 assert doc_api.sync.calls_for("follow_operation_events")[0].args == ("operation-1",)
 assert len(doc_api.sync.calls_for("follow_operation_events")) == 1
 assert not doc_api.sync.calls_for("wait_operation")
@@ -187,14 +187,14 @@ async with create_sandbox_session(session_type=ContreeAsyncSession, image="tag:a
     operation = await session.spawn(shell="echo hello")
     async for event in operation.events():
         if event.type in {"stdout", "stderr"} and isinstance(event.data, EventDataStream):
-            print(event.data.as_text(), end="")
+            print(event.data)
     await operation.wait()
 ```
 
 <!--
 name: test_stream_events_async
 ```python
-assert capsys.readouterr().out == "hello\n"
+assert capsys.readouterr().out == "hello\n\n"
 assert doc_api.async_client.calls_for("follow_operation_events")[0].args == ("operation-1",)
 assert len(doc_api.async_client.calls_for("follow_operation_events")) == 1
 assert not doc_api.async_client.calls_for("wait_operation")

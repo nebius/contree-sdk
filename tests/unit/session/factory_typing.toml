@@ -38,6 +38,25 @@ assert_type(create_async_sandbox_session(session_type=None), AsyncSandboxSession
 '''
 
 [[cases]]
+name = "session_constructor_options_preserve_selected_type"
+code = '''
+from types import MappingProxyType
+options = MappingProxyType({"tree_kind": "custom"})
+assert_type(
+    create_sandbox_session(session_type=CustomSync, session_kwargs=options),
+    SandboxSessionContext[CustomSync, NoReturn],
+)
+assert_type(
+    create_sync_sandbox_session(session_type=CustomSync, session_kwargs=options),
+    SyncSandboxSessionContext[CustomSync],
+)
+assert_type(
+    create_async_sandbox_session(session_type=CustomAsync, session_kwargs=options),
+    AsyncSandboxSessionContext[CustomAsync],
+)
+'''
+
+[[cases]]
 name = "explicit_context_types"
 code = '''
 assert_type(create_sandbox_session(session_type=CustomSync), SandboxSessionContext[CustomSync, NoReturn])

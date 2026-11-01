@@ -12,15 +12,21 @@ from contree_client.models import (
 )
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
-from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient, event
+from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient, event, subprocess_events
 
 
 def mock_copy_completion(client: ContreeClient | ContreeAsyncClient, response: OperationResponse) -> None:
-    client.mock("follow_operation_events", [event("spawn"), event("exit", 2), event("completion")])
+    client.mock(
+        "follow_operation_events",
+        [
+            event("spawn"),
+            *subprocess_events(2, InstanceResult(state=InstanceResultState(exit_code=0))),
+            event("completion"),
+        ],
+    )
     client.mock("get_operation_status", response)
     client.mock("apply_instance_file", None)
     client.mock("operation_subprocess_create", 2)
-    client.mock("operation_subprocess", InstanceResult(state=InstanceResultState(exit_code=0)))
     client.mock("operation_subprocess_kill", None)
 
 

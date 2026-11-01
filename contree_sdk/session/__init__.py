@@ -18,6 +18,7 @@ from contree_sdk.session.snapshot_policy import (
     AbstractSnapshotPolicy,
     CommandCountSnapshotPolicy,
     CompositeSnapshotPolicy,
+    DurationSnapshotPolicy,
     IdleSnapshotPolicy,
     SnapshotEvent,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "CompositeSnapshotPolicy",
     "ContreeAsyncSession",
     "ContreeSession",
+    "DurationSnapshotPolicy",
     "HistoryEntry",
     "IdleSnapshotPolicy",
     "LazySession",

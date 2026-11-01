@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import ssl
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from contree_client import RetryPolicy
 from contree_client.models import FileResponse, StreamRepr
 from contree_client.profiles import Profile, ProfileError
 from contree_client.testing import ContreeAsyncClient as StubAsyncClient
@@ -24,6 +26,13 @@ from contree_sdk.session import IdleSnapshotPolicy, ZeroExitCommitPolicy
 from contree_sdk.store import AsyncMemoryStore, SyncMemoryStore
 from contree_sdk.upload_cache import AsyncCachedFileTransfer, CachedFileTransfer
 from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient
+
+
+@pytest.mark.parametrize("factory", [create_sandbox_session, create_sync_sandbox_session, create_async_sandbox_session])
+def test_session_constructor_options_are_explicit(factory):
+    parameter = inspect.signature(factory).parameters["session_kwargs"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
 
 
 class FactoryClient(LiveClient):
@@ -139,7 +148,8 @@ async def test_default_async_is_lazy_and_commits_once(profile):
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
-async def test_custom_class_receives_components_and_options(profile, asynchronous):
+@pytest.mark.parametrize("explicit_factory", [False, True])
+async def test_custom_class_receives_components_and_options(profile, asynchronous, explicit_factory):
     class CustomLazy(LazySession):
         def __init__(self, session, *, label, **kwargs):
             super().__init__(session, **kwargs)
@@ -169,13 +179,18 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
             "label": "selected",
             "snapshot_policy": policy,
             "snapshot_timeout": 7,
+            "vm_timeout": 120,
             "client": None,
             "store": None,
             "cwd": "/ignored",
         },
     }
     original_kwargs = options["session_kwargs"].copy()
-    context = create_sandbox_session(**options)
+    if explicit_factory:
+        factory = create_async_sandbox_session if asynchronous else create_sync_sandbox_session
+    else:
+        factory = create_sandbox_session
+    context = factory(**options)
     if asynchronous:
         async with context as session:
             assert session.phase == "cold"
@@ -187,6 +202,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     assert session.session_id == "custom"
     assert session.snapshot_policy is policy
     assert session.snapshot_timeout == 7
+    assert session.vm_timeout == 120
     assert session.session.store is store
     assert options["session_kwargs"] == original_kwargs
     assert isinstance(session.session.file_transfer, (CachedFileTransfer, AsyncCachedFileTransfer))
@@ -285,7 +301,7 @@ def test_explicit_profile_and_all_client_parameters(profile):
         "base_url": profile.url,
         "project": profile.project,
         "timeout": 12,
-        "retry": None,
+        "retry": RetryPolicy(),
         "identity": "test/1",
         "ssl_context": tls,
     }

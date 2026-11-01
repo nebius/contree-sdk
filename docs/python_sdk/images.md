@@ -48,7 +48,7 @@ def main() -> None:
     image = sync_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
     with create_sandbox_session(image=image) as sandbox:
         result = sandbox.run("echo", args=["Hello from an imported image!"])
-        print(result.stdout.as_text(), end="")
+        print(result.stdout)
 
 
 main()
@@ -62,7 +62,7 @@ assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
 assert client.calls_for("wait_operation")[0].args == ("operation-1",)
 assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
 assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
-assert capsys.readouterr().out == "Hello from an imported image!\n"
+assert capsys.readouterr().out == "Hello from an imported image!\n\n"
 ```
 -->
 
@@ -94,7 +94,7 @@ async def main() -> None:
     image = await async_import_image("docker://mirror.gcr.io/library/alpine:latest", tag="alpine:latest")
     async with create_sandbox_session(image=image) as sandbox:
         result = await sandbox.run("echo", args=["Hello from an imported image!"])
-        print(result.stdout.as_text(), end="")
+        print(result.stdout)
 
 
 asyncio.run(main())
@@ -108,7 +108,7 @@ assert client.calls_for("import_image")[0].kwargs["tag"] == "alpine:latest"
 assert client.calls_for("wait_operation")[0].args == ("operation-1",)
 assert client.calls_for("spawn_instance")[0].args[1] == "image-1"
 assert client.calls_for("operation_subprocess_create")[0].kwargs["args"] == ["Hello from an imported image!"]
-assert capsys.readouterr().out == "Hello from an imported image!\n"
+assert capsys.readouterr().out == "Hello from an imported image!\n\n"
 ```
 -->
 

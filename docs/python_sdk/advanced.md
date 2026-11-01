@@ -103,7 +103,7 @@ def main() -> None:
         image = sync_build_image("build-context", client=client)
         with create_sandbox_session(image=image, client=client) as sandbox:
             content = sandbox.read_file("/built.txt")
-            print(content.decode(), end="")
+            print(content.decode())
 
 
 main()
@@ -115,7 +115,7 @@ name: test_shared_client_sync
 assert len(doc_api.sync.calls_for("import_image")) == 1
 assert len(doc_api.sync.calls_for("spawn_instance")) == 1
 assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
+assert capsys.readouterr().out == "Hello from a built image!\n\n"
 ```
 -->
 
@@ -158,7 +158,7 @@ async def main() -> None:
         image = await async_build_image("build-context", client=client)
         async with create_sandbox_session(image=image, client=client) as sandbox:
             content = await sandbox.read_file("/built.txt")
-            print(content.decode(), end="")
+            print(content.decode())
 
 
 asyncio.run(main())
@@ -170,7 +170,7 @@ name: test_shared_client_async
 assert len(doc_api.async_client.calls_for("import_image")) == 1
 assert len(doc_api.async_client.calls_for("spawn_instance")) == 1
 assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
+assert capsys.readouterr().out == "Hello from a built image!\n\n"
 ```
 -->
 
@@ -186,6 +186,20 @@ a compatible notebook. Complete programs use `asyncio.run(main())`.
 `session_type=AsyncLazySession` with a synchronous `with` raises `TypeError`
 before creating a client. The same rule applies to `client_type` and supplied
 store, file transfer, and client objects.
+
+Lazy sessions accept `vm_timeout` (default `3600`) and `snapshot_timeout`
+(default `30`) through `session_kwargs`. The VM timeout must exceed the snapshot
+timeout and fit the server's limit. The session records when VM startup begins.
+After startup, it schedules a snapshot using the effective request timeout minus
+`snapshot_timeout` and the elapsed startup time. When the timer expires, the session stops
+accepting commands, drains active commands and inspections, and saves a snapshot.
+This timer applies alongside the selected snapshot policy. Active commands must
+finish before the server's hard deadline; a snapshot cannot preserve running processes.
+
+Subprocess `wait()` and `pipe_to()` assemble their result from the shared event
+stream without an extra HTTP request. `resources.cost` is not populated because
+the server calculates it separately. Use `client.operation_subprocess(operation.uuid,
+handle.spid)` for the full server result, with `await` for an async client.
 
 ::::{tab} Sync
 
@@ -265,6 +279,11 @@ stops the VM and can return the same image UUID if files have not changed.
 | `client`                      | Borrow an already configured client. Cannot be combined with connection settings or `client_type`.                                                                                                                          |
 | `client_type`                 | Select a contree-client class. Defaults are HTTPX for sync and aiohttp for async.                                                                                                                                           |
 | Other keyword arguments       | Forwarded unchanged to the client constructor through `from_profile`, including `timeout`, `retry`, `identity`, TLS and backend-specific settings. Credentials follow {ref}`sandbox-connection`; use `url`, not `base_url`. |
+
+Sandbox, image import, and image build helpers use `contree_client.RetryPolicy()`
+for clients they create. Pass `retry=RetryPolicy(...)` to customize the policy,
+or `retry=None` to disable retries. A supplied `client=` keeps its configuration.
+Retry decisions and delays remain the responsibility of contree-client.
 
 Uploaded-file cache entries are separated by endpoint, project, and token. The
 cache does not replace history storage or enable uploads to an already running

@@ -132,7 +132,7 @@ with create_sandbox_session(image="tag:alpine:latest", session_type=ContreeSessi
 
     # Start another VM from that image and read the saved file.
     result = session.run("cat", args=["/status.txt"])
-    print(result.stdout.as_text(), end="")
+    print(result.stdout)
 ```
 
 <!--
@@ -142,7 +142,7 @@ spawns = doc_api.sync.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base-image", "image-1"]
 assert all(call.kwargs["disposable"] is False for call in spawns)
 assert session.image_uuid == "image-2"
-assert capsys.readouterr().out == "ready\n"
+assert capsys.readouterr().out == "ready\n\n"
 ```
 -->
 
@@ -168,7 +168,7 @@ async with create_sandbox_session(image="tag:alpine:latest", session_type=Contre
 
     # Start another VM from that image and read the saved file.
     result = await session.run("cat", args=["/status.txt"])
-    print(result.stdout.as_text(), end="")
+    print(result.stdout)
 ```
 
 <!--
@@ -178,7 +178,7 @@ spawns = doc_api.async_client.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base-image", "image-1"]
 assert all(call.kwargs["disposable"] is False for call in spawns)
 assert session.image_uuid == "image-2"
-assert capsys.readouterr().out == "ready\n"
+assert capsys.readouterr().out == "ready\n\n"
 ```
 -->
 
@@ -233,7 +233,7 @@ def main() -> None:
     with create_sandbox_session(image=image_uuid) as fork:
         assert fork.session_id != source.session_id
         result = fork.run("cat", args=["/choice.txt"])
-        print(result.stdout.as_text(), end="")
+        print(result.stdout)
 
         # Change only the new session. The source image stays unchanged.
         fork.run(shell="echo experiment > /choice.txt")
@@ -245,7 +245,7 @@ main()
 <!--
 name: test_session_from_snapshot
 ```python
-assert capsys.readouterr().out == "baseline\n"
+assert capsys.readouterr().out == "baseline\n\n"
 spawns = sandbox_api.sync.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base", "image-op-1"]
 resolved = sandbox_api.sync.calls_for("resolve_image")
@@ -285,7 +285,7 @@ async def main() -> None:
     async with create_sandbox_session(image=image_uuid) as fork:
         assert fork.session_id != source.session_id
         result = await fork.run("cat", args=["/choice.txt"])
-        print(result.stdout.as_text(), end="")
+        print(result.stdout)
 
         # Change only the new session. The source image stays unchanged.
         await fork.run(shell="echo experiment > /choice.txt")
@@ -297,7 +297,7 @@ asyncio.run(main())
 <!--
 name: test_session_from_snapshot_async
 ```python
-assert capsys.readouterr().out == "baseline\n"
+assert capsys.readouterr().out == "baseline\n\n"
 spawns = sandbox_api.async_client.calls_for("spawn_instance")
 assert [call.args[1] for call in spawns] == ["base", "image-op-1"]
 resolved = sandbox_api.async_client.calls_for("resolve_image")

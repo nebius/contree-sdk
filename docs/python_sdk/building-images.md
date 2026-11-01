@@ -70,7 +70,7 @@ def main() -> None:
     image = sync_build_image("build-context")
     with create_sandbox_session(image=image) as sandbox:
         content = sandbox.read_file("/built.txt")
-        print(content.decode(), end="")
+        print(content.decode())
 
 
 main()
@@ -86,7 +86,7 @@ source_file = doc_api.sync.calls_for("ensure_file")[0].args[0]
 assert source_file.closed
 assert not Path(source_file.name).exists()
 assert doc_api.sync.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
+assert capsys.readouterr().out == "Hello from a built image!\n\n"
 ```
 -->
 
@@ -113,7 +113,7 @@ async def main() -> None:
     image = await async_build_image("build-context")
     async with create_sandbox_session(image=image) as sandbox:
         content = await sandbox.read_file("/built.txt")
-        print(content.decode(), end="")
+        print(content.decode())
 
 
 asyncio.run(main())
@@ -125,7 +125,7 @@ name: test_build_async
 assert doc_api.async_client.calls_for("spawn_instance")[0].kwargs["disposable"] is False
 assert doc_api.async_client.calls_for("ensure_file")[0].args[0].closed
 assert doc_api.async_client.calls_for("inspect_image_download")[0].args == ("image-1", "/built.txt")
-assert capsys.readouterr().out == "Hello from a built image!\n"
+assert capsys.readouterr().out == "Hello from a built image!\n\n"
 ```
 -->
 
