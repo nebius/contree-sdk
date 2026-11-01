@@ -7,12 +7,11 @@ import inspect
 import math
 from contextlib import aclosing, suppress
 from pathlib import Path, PurePosixPath
-from typing import Literal
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
-from contree_client.models import EventDataStream, InstanceResultState, OperationEvent, StreamRepr
+from contree_client.models import InstanceResultState, StreamRepr
 from contree_client.types import ContreeAsyncClient
-from harbor.environments.base import BaseEnvironment, ExecResult, OutputCallback
+from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
 from harbor.models.trial.paths import EnvironmentPaths
@@ -52,7 +51,6 @@ class ConTreeEnvironment(BaseEnvironment):
         operation_timeout: float = 1000,
         snapshot_idle_sec: float | None = None,
         snapshot_timeout: float = 120,
-        terminate_timeout: float = 5,
         vm_timeout: float = 3600,
         client: ContreeAsyncClient | None = None,
         **kwargs,
@@ -60,7 +58,6 @@ class ConTreeEnvironment(BaseEnvironment):
         for name, value in (
             ("operation_timeout", operation_timeout),
             ("snapshot_timeout", snapshot_timeout),
-            ("terminate_timeout", terminate_timeout),
             ("snapshot_idle_sec", snapshot_idle_sec),
             ("vm_timeout", vm_timeout),
         ):
@@ -73,7 +70,6 @@ class ConTreeEnvironment(BaseEnvironment):
         self._operation_timeout = operation_timeout
         self._snapshot_idle_sec = snapshot_idle_sec
         self._snapshot_timeout = snapshot_timeout
-        self._terminate_timeout = terminate_timeout
         self._vm_timeout = vm_timeout
         self._client = client
         self._lazy_session_context: AsyncSandboxSessionContext[AsyncLazySession] | None = None
@@ -254,7 +250,6 @@ class ConTreeEnvironment(BaseEnvironment):
                 env=env,
                 uid=uid,
                 timeout_sec=timeout_sec,
-                output_callback=self._output_callback(),
             )
 
     async def _execute(
@@ -266,7 +261,6 @@ class ConTreeEnvironment(BaseEnvironment):
         uid: int | None = None,
         gid: int | None = None,
         timeout_sec: float | None = None,
-        output_callback: OutputCallback | None = None,
     ) -> ExecResult:
         lazy = self._require_lazy()
         timeout = self._operation_timeout if timeout_sec is None else timeout_sec
@@ -283,20 +277,7 @@ class ConTreeEnvironment(BaseEnvironment):
             gid=gid,
         )
 
-        async def on_event(event: OperationEvent) -> None:
-            if (
-                output_callback is not None
-                and event.type in {"stdout", "stderr"}
-                and isinstance(event.data, EventDataStream)
-            ) and (chunk := event.data.as_text()):
-                stream: Literal["stdout", "stderr"] = "stdout" if event.type == "stdout" else "stderr"
-                await output_callback(chunk, stream)
-
-        result = await lazy.execute(
-            request,
-            on_event=on_event if output_callback is not None else None,
-            terminate_timeout=self._terminate_timeout,
-        )
+        result = await lazy.execute(request)
 
         if not isinstance(result.state, InstanceResultState) or not isinstance(result.state.exit_code, int):
             raise TypeError("ConTree subprocess returned no exit code")

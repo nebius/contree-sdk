@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
-from contree_client.models import EventDataStream, FileResponse, OperationEventType, StreamRepr
+from contree_client.models import FileResponse, StreamRepr
 
 
 pytest.importorskip("harbor")
@@ -13,7 +13,7 @@ pytest.importorskip("harbor")
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
-from tests.unit.session.lazy_clients import LiveAsyncClient, event
+from tests.unit.session.lazy_clients import LiveAsyncClient
 
 from contree_sdk.harbor import ConTreeEnvironment
 
@@ -352,59 +352,11 @@ async def test_exec_forwards_harbor_options_and_converts_the_result(backend, mon
         await env.stop()
 
 
-async def test_exec_streams_only_its_process_with_best_effort_text(backend, monkeypatch):
-    client, env = backend
-    await env.start(force_build=False)
-    create = client.operation_subprocess_create
-    client.auto_exit = False
-    received = []
-
-    async def create_output(operation_id, command, **kwargs):
-        spid = await create(operation_id, command, **kwargs)
-        chunks: list[tuple[OperationEventType, bytes]] = [
-            ("stdout", b"\xe2\x82"),
-            ("stderr", b"err "),
-            ("stdout", b"\xac"),
-            ("stderr", b"\xe2"),
-        ]
-        for kind, data in chunks:
-            chunk = event(kind, spid)
-            chunk.data = EventDataStream.from_bytes(data)
-            client.streams[operation_id].put_nowait(chunk)
-        client.streams[operation_id].put_nowait(event("exit", spid))
-        return spid
-
-    def reject_history_scan(**kwargs):
-        raise AssertionError("Command output must use the subprocess queue")
-
-    async def callback(text, stream):
-        received.append((text, stream))
-
-    monkeypatch.setattr(client, "operation_subprocess_create", create_output)
-    monkeypatch.setattr(env._lazy_session.operation, "events", reject_history_scan)
-    try:
-        with env.scoped_output_callback(callback):
-            await env.exec("first")
-            await env.exec("second")
-        assert received == [("�", "stdout"), ("err ", "stderr"), ("�", "stdout"), ("�", "stderr")] * 2
-        assert len(client.calls_for("spawn_instance")) == 1
-    finally:
-        await env.stop()
-
-
-@pytest.mark.parametrize("confirmed", [True, False])
-async def test_exec_cancellation_confirms_kill_or_aborts_the_operation(backend, monkeypatch, confirmed):
+async def test_exec_cancellation_requests_child_kill(backend):
     client, env = backend
     await env.start(force_build=False)
     client.auto_exit = False
     client.created.clear()
-    env._terminate_timeout = 0.02
-    if not confirmed:
-
-        async def unconfirmed_kill(operation_id, spid, **kwargs):
-            client.record_call("operation_subprocess_kill", (operation_id, spid), kwargs)
-
-        monkeypatch.setattr(client, "operation_subprocess_kill", unconfirmed_kill)
     running = asyncio.create_task(env.exec("sleep 100"))
     try:
         await asyncio.wait_for(client.created.wait(), 1)
@@ -412,43 +364,10 @@ async def test_exec_cancellation_confirms_kill_or_aborts_the_operation(backend, 
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(running, 1)
         assert client.calls_for("operation_subprocess_kill")[-1].kwargs["signal"] == "SIGKILL"
-        if confirmed:
-            assert not client.calls_for("cancel_operation")
-            client.auto_exit = True
-            assert (await env.exec("next")).return_code == 0
-            assert len(client.calls_for("spawn_instance")) == 1
-        else:
-            assert client.calls_for("cancel_operation")
-            assert env._lazy_session.phase == "closed"
+        client.auto_exit = True
+        assert (await env.exec("next")).return_code == 0
+        assert len(client.calls_for("spawn_instance")) == 1
     finally:
         running.cancel()
         await asyncio.gather(running, return_exceptions=True)
-        await env.stop()
-
-
-async def test_output_callback_failure_kills_child_and_reuses_vm(backend, monkeypatch):
-    client, env = backend
-    await env.start(force_build=False)
-    client.auto_exit = False
-
-    async def create_output(operation_id, command, **kwargs):
-        spid = await original_create(operation_id, command, **kwargs)
-        output = event("stdout", spid)
-        output.data = EventDataStream.from_bytes(b"hello")
-        client.streams[operation_id].put_nowait(output)
-        return spid
-
-    async def fail_callback(text, stream):
-        raise ValueError("callback failed")
-
-    original_create = client.operation_subprocess_create
-    monkeypatch.setattr(client, "operation_subprocess_create", create_output)
-    try:
-        with env.scoped_output_callback(fail_callback), pytest.raises(ValueError, match="callback failed"):
-            await env.exec("echo hello")
-        assert client.calls_for("operation_subprocess_kill")
-        client.auto_exit = True
-        assert (await env.exec("true")).return_code == 0
-        assert len(client.calls_for("spawn_instance")) == 1
-    finally:
         await env.stop()
