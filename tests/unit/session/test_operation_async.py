@@ -16,6 +16,7 @@ from contree_sdk.session import AsyncSubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_async import AsyncOperation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveAsyncClient, event
 
 
 @pytest.fixture
@@ -124,6 +125,51 @@ class TestSimpleMode:
         result = await operation.wait()
 
         assert result is not None
+
+
+class TestReady:
+    async def test_wait_ready_uses_main_spawn_and_can_be_repeated(self):
+        client = LiveAsyncClient()
+        await client.spawn_instance("sleep", "base")
+        operation = AsyncOperation(client, "op-1")
+        await client.streams["op-1"].put(event("spawn"))
+
+        await operation.wait_ready(timeout=1)
+        await operation.wait_ready(timeout=0)
+
+        assert client.calls_for("cancel_operation") == []
+        await client.streams["op-1"].put(event("completion"))
+        await asyncio.wait_for(operation.terminal_event.wait(), 1)
+
+    async def test_wait_ready_timeout_keeps_operation_running(self):
+        client = LiveAsyncClient()
+        await client.spawn_instance("sleep", "base")
+        operation = AsyncOperation(client, "op-1")
+        await client.streams["op-1"].put(event("spawn", 2))
+
+        with pytest.raises(TimeoutError, match="did not become ready"):
+            await operation.wait_ready(timeout=0.01)
+        assert client.calls_for("cancel_operation") == []
+
+        await client.streams["op-1"].put(event("spawn"))
+        await operation.wait_ready(timeout=1)
+        await client.streams["op-1"].put(event("completion"))
+        await asyncio.wait_for(operation.terminal_event.wait(), 1)
+
+    @pytest.mark.parametrize("failure", ["exit", "completion", "stream"])
+    async def test_wait_ready_reports_failure_before_spawn(self, failure):
+        client = LiveAsyncClient()
+        await client.spawn_instance("sleep", "base")
+        operation = AsyncOperation(client, "op-1")
+        await client.streams["op-1"].put(ValueError("stream failed") if failure == "stream" else event(failure))
+
+        with pytest.raises(ValueError if failure == "stream" else RuntimeError):
+            await operation.wait_ready(timeout=1)
+
+        assert client.calls_for("cancel_operation") == []
+        if failure == "exit":
+            await client.streams["op-1"].put(event("completion"))
+            await asyncio.wait_for(operation.terminal_event.wait(), 1)
 
 
 class TestShutdown:

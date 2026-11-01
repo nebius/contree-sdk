@@ -204,6 +204,18 @@ class Operation(OperationContract):
                 self.client.cancel_operation(self.uuid)
                 self.cancel_requested = True
 
+    def wait_ready(self, *, timeout: float | None = None) -> None:
+        self._start_reader()
+        with self.changed:
+            if not self.changed.wait_for(
+                lambda: 1 in self.spawned or 1 in self.exited or self.terminal_event.is_set(), timeout=timeout
+            ):
+                raise TimeoutError(f"operation {self.uuid} did not become ready in time")
+            if self.stream_error is not None:
+                raise self.stream_error
+            if self.terminal_event.is_set() or 1 in self.exited:
+                raise RuntimeError(f"operation {self.uuid} ended before it became ready")
+
     def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
             self._start_reader()

@@ -98,6 +98,10 @@ class OperationContract(ABC):
     def cancel(self) -> None: ...
 
     @abstractmethod
+    def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait until process 1 starts; timeout leaves the operation running."""
+
+    @abstractmethod
     def wait(self, *, timeout: float | None = None) -> InstanceResult: ...
 
     @abstractmethod
@@ -168,6 +172,10 @@ class AsyncOperationContract(ABC):
 
     @abstractmethod
     async def cancel(self) -> None: ...
+
+    @abstractmethod
+    async def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait until process 1 starts; timeout leaves the operation running."""
 
     @abstractmethod
     async def wait(self, *, timeout: float | None = None) -> InstanceResult: ...

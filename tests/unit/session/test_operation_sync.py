@@ -16,6 +16,7 @@ from contree_sdk.session import SubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_sync import Operation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveClient, event
 
 
 @pytest.fixture
@@ -124,6 +125,51 @@ class TestSimpleMode:
         result = operation.wait()
 
         assert result is not None
+
+
+class TestReady:
+    def test_wait_ready_uses_main_spawn_and_can_be_repeated(self):
+        client = LiveClient()
+        client.spawn_instance("sleep", "base")
+        operation = Operation(client, "op-1")
+        client.streams["op-1"].put(event("spawn"))
+
+        operation.wait_ready(timeout=1)
+        operation.wait_ready(timeout=0)
+
+        assert client.calls_for("cancel_operation") == []
+        client.streams["op-1"].put(event("completion"))
+        assert operation.terminal_event.wait(1)
+
+    def test_wait_ready_timeout_keeps_operation_running(self):
+        client = LiveClient()
+        client.spawn_instance("sleep", "base")
+        operation = Operation(client, "op-1")
+        client.streams["op-1"].put(event("spawn", 2))
+
+        with pytest.raises(TimeoutError, match="did not become ready"):
+            operation.wait_ready(timeout=0.01)
+        assert client.calls_for("cancel_operation") == []
+
+        client.streams["op-1"].put(event("spawn"))
+        operation.wait_ready(timeout=1)
+        client.streams["op-1"].put(event("completion"))
+        assert operation.terminal_event.wait(1)
+
+    @pytest.mark.parametrize("failure", ["exit", "completion", "stream"])
+    def test_wait_ready_reports_failure_before_spawn(self, failure):
+        client = LiveClient()
+        client.spawn_instance("sleep", "base")
+        operation = Operation(client, "op-1")
+        client.streams["op-1"].put(ValueError("stream failed") if failure == "stream" else event(failure))
+
+        with pytest.raises(ValueError if failure == "stream" else RuntimeError):
+            operation.wait_ready(timeout=1)
+
+        assert client.calls_for("cancel_operation") == []
+        if failure == "exit":
+            client.streams["op-1"].put(event("completion"))
+            assert operation.terminal_event.wait(1)
 
 
 class TestShutdown:

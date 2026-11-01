@@ -224,6 +224,24 @@ class AsyncOperation(AsyncOperationContract):
                 await self.client.cancel_operation(self.uuid)
                 self.cancel_requested = True
 
+    async def wait_ready(self, *, timeout: float | None = None) -> None:
+        await self._start_reader()
+        async with self.changed:
+            if 1 not in self.spawned and 1 not in self.exited and not self.terminal_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        self.changed.wait_for(
+                            lambda: 1 in self.spawned or 1 in self.exited or self.terminal_event.is_set()
+                        ),
+                        timeout=timeout,
+                    )
+                except TimeoutError as error:
+                    raise TimeoutError(f"operation {self.uuid} did not become ready in time") from error
+            if self.stream_error is not None:
+                raise self.stream_error
+            if self.terminal_event.is_set() or 1 in self.exited:
+                raise RuntimeError(f"operation {self.uuid} ended before it became ready")
+
     async def wait(self, *, timeout: float | None = None) -> InstanceResult:
         try:
             await self._start_reader()
