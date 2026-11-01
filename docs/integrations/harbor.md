@@ -27,13 +27,13 @@ export CONTREE_TOKEN="your-api-key"
 export CONTREE_PROJECT="your-ai-project"
 ```
 
-| Variable | Purpose |
-| --- | --- |
-| `CONTREE_URL` | ConTree API endpoint. |
-| `CONTREE_TOKEN` or `NEBIUS_API_KEY` | Authentication token. |
-| `CONTREE_PROJECT` or `NEBIUS_AI_PROJECT` | AI project that runs the sandbox. |
-| `CONTREE_PROFILE` | Saved profile name; otherwise, use the active profile from the configuration files. |
-| `CONTREE_HOME` | Directory containing `cli.ini` and `auth.ini`. Defaults to `$XDG_CONFIG_HOME/contree`, or `~/.config/contree`. |
+| Variable                                 | Purpose                                                                                                        |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `CONTREE_URL`                            | ConTree API endpoint.                                                                                          |
+| `CONTREE_TOKEN` or `NEBIUS_API_KEY`      | Authentication token.                                                                                          |
+| `CONTREE_PROJECT` or `NEBIUS_AI_PROJECT` | AI project that runs the sandbox.                                                                              |
+| `CONTREE_PROFILE`                        | Saved profile name; otherwise, use the active profile from the configuration files.                            |
+| `CONTREE_HOME`                           | Directory containing `cli.ini` and `auth.ini`. Defaults to `$XDG_CONFIG_HOME/contree`, or `~/.config/contree`. |
 
 Without an explicit `profile` option, environment credentials take priority when
 both URL and token are set; otherwise, the client loads a saved profile.
@@ -48,11 +48,11 @@ for more about credentials, saved profiles, and configuration files.
 Pass ConTree-specific options with `--ek NAME=VALUE`, or through
 `environment.kwargs` in a Harbor job configuration.
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `profile` | Automatic selection | Saved ConTree profile name, for example `--ek profile=work`. |
-| `snapshot_idle_sec` | `300` | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=600`. |
-| `client` | Created from the connection configuration | Python only: supply an async ConTree client. It provides the connection instead of `profile` and remains caller-owned. |
+| Option              | Default                                   | Description                                                                                                            |
+| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `profile`           | Automatic selection                       | Saved ConTree profile name, for example `--ek profile=work`.                                                           |
+| `snapshot_idle_sec` | `300`                                     | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=600`.                     |
+| `client`            | Created from the connection configuration | Python only: supply an async ConTree client. It provides the connection instead of `profile` and remains caller-owned. |
 
 The environment keeps one VM running across commands, so files and background
 processes remain available until an idle snapshot. Background processes end at
