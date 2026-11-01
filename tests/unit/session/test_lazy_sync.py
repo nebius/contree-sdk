@@ -8,6 +8,7 @@ from contree_client.models import FileResponse, InstanceResultState, OperationSt
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
+from contree_sdk.session.base import exit_code_of
 from contree_sdk.session.snapshot_policy import DurationSnapshotPolicy
 from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveClient, event
@@ -593,7 +594,7 @@ def test_commands_and_inspections_wait_for_primary_spawn(inspection):
             with lazy.inspection_source() as source:
                 assert source == "op-1"
         else:
-            assert lazy.run("first").state.exit_code == 0
+            assert exit_code_of(lazy.run("first")) == 0
 
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -629,7 +630,7 @@ def test_lifecycle_during_resumed_vm_startup(finish):
                 client.streams["op-2"].put(event("spawn"))
             finishing.result(timeout=2)
             if finish == "snapshot":
-                assert command.result(timeout=2).state.exit_code == 0
+                assert exit_code_of(command.result(timeout=2)) == 0
                 assert client.calls_for("spawn_instance")[-1].args[1] == "image-op-2"
             else:
                 with pytest.raises(RuntimeError, match="closed"):

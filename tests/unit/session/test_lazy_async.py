@@ -7,6 +7,7 @@ from contree_client.models import FileResponse, InstanceResultState, OperationSt
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
+from contree_sdk.session.base import exit_code_of
 from contree_sdk.session.snapshot_policy import DurationSnapshotPolicy
 from tests.unit.session.factories import operation_response
 from tests.unit.session.lazy_clients import LiveAsyncClient, event
@@ -608,7 +609,7 @@ async def test_commands_and_inspections_wait_for_primary_spawn(inspection):
             async with lazy.inspection_source() as source:
                 assert source == "op-1"
         else:
-            assert (await lazy.run("first")).state.exit_code == 0
+            assert exit_code_of(await lazy.run("first")) == 0
 
     try:
         first = asyncio.create_task(first_request())
@@ -644,7 +645,7 @@ async def test_lifecycle_during_resumed_vm_startup(finish):
             await client.streams["op-2"].put(event("spawn"))
             await asyncio.wait_for(finishing, 2)
         if finish == "snapshot":
-            assert (await asyncio.wait_for(command, 2)).state.exit_code == 0
+            assert exit_code_of(await asyncio.wait_for(command, 2)) == 0
             assert client.calls_for("spawn_instance")[-1].args[1] == "image-op-2"
         else:
             with pytest.raises(RuntimeError, match="closed"):
