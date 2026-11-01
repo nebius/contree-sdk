@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import suppress
 from typing import IO
 
+from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import FileSpec, InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeSyncClient
 
@@ -22,6 +23,7 @@ from contree_sdk.session.subprocess_result import SubprocessResult
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
+SUBPROCESS_READY_TIMEOUT = 30.0
 
 
 class Operation(OperationContract):
@@ -225,6 +227,27 @@ class Operation(OperationContract):
                 self.cancel()
             raise
 
+    def wait_ready(self, *, timeout: float | None = None) -> None:
+        """Wait for the primary process. Timeout leaves the operation running.
+
+        Raises:
+            TimeoutError: The primary process did not start before timeout.
+            RuntimeError: The operation ended before it became ready.
+
+        """
+        self._start_reader()
+        with self.changed:
+            ready = self.changed.wait_for(
+                lambda: 1 in self.spawned or 1 in self.exited or self.completion_received or self.terminal,
+                timeout=timeout,
+            )
+            if not ready:
+                raise TimeoutError(f"operation {self.uuid} did not start in time")
+            if self.stream_error is not None:
+                raise self.stream_error
+            if 1 not in self.spawned or 1 in self.exited or self.completion_received or self.terminal:
+                raise RuntimeError(f"operation {self.uuid} ended before it became ready")
+
     def _completed_result(self) -> InstanceResult:
         if self.stream_error is not None:
             raise self.stream_error
@@ -356,18 +379,29 @@ class Operation(OperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
-        spid = self.client.operation_subprocess_create(
-            self.uuid,
-            command,
-            args=list(args) if args else ...,
-            shell=shell,
-            env=env if env is not None else ...,
-            cwd=cwd if cwd is not None else ...,
-            uid=uid if uid is not None else ...,
-            gid=gid if gid is not None else ...,
-            stdin=stdin_repr,
-            truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
-        )
+        deadline = time.monotonic() + SUBPROCESS_READY_TIMEOUT
+        while True:
+            try:
+                spid = self.client.operation_subprocess_create(
+                    self.uuid,
+                    command,
+                    args=list(args) if args else ...,
+                    shell=shell,
+                    env=env if env is not None else ...,
+                    cwd=cwd if cwd is not None else ...,
+                    uid=uid if uid is not None else ...,
+                    gid=gid if gid is not None else ...,
+                    stdin=stdin_repr,
+                    truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
+                )
+                break
+            except (TooEarlyError, ConflictError) as error:
+                if isinstance(error, ConflictError) and "PENDING" not in str(error.error):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(remaining, error.retry_after or 1))
         return self.create_subprocess(spid, self.claim_queue(spid))
 
     def create_subprocess(self, spid: int, events_queue: queue.Queue[OperationEvent | None]) -> SubprocessContract:

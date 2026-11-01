@@ -3,6 +3,7 @@ import io
 from datetime import datetime, timezone
 
 import pytest
+from contree_client.exceptions import ServerError, TooEarlyError
 from contree_client.models import (
     EventDataSizeCap,
     EventDataStream,
@@ -19,6 +20,7 @@ from contree_sdk.session import AsyncSubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_async import AsyncOperation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveAsyncClient
 from tests.unit.session.lazy_clients import event as live_event
 
 
@@ -42,6 +44,52 @@ def make_stream_event(id: int, type: OperationEventType, spid: int, text: str) -
 def exit_code_of(result: InstanceResult) -> int | None:
     state = or_none(result.state)
     return None if state is None else or_none(state.exit_code)
+
+
+async def test_wait_ready_can_retry_after_timeout():
+    client = LiveAsyncClient()
+    await client.spawn_instance("sleep", "base")
+    operation = AsyncOperation(client, "op-1")
+    with pytest.raises(TimeoutError):
+        await operation.wait_ready(timeout=0.01)
+    ready = asyncio.create_task(operation.wait_ready(timeout=2))
+    await client.streams["op-1"].put(live_event("spawn"))
+    await asyncio.wait_for(ready, 2)
+    await operation.cancel()
+    await operation.shutdown()
+
+
+async def test_run_retries_only_pre_admission_for_standalone_operation(monkeypatch):
+    client = LiveAsyncClient()
+    await client.spawn_instance("sleep", "base")
+    create = client.operation_subprocess_create
+    attempts = 0
+
+    async def not_ready_then_create(operation_id, command, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TooEarlyError(425, "control channel not connected")
+        return await create(operation_id, command, **kwargs)
+
+    monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
+    async with AsyncOperation(client, "op-1") as operation:
+        assert (await operation.run("echo")).spid == 2
+    assert attempts == 2
+
+    attempts = 0
+
+    async def ambiguous_create(operation_id, command, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise ServerError(504, "guest spawn timed out")
+
+    monkeypatch.setattr(client, "operation_subprocess_create", ambiguous_create)
+    await client.spawn_instance("sleep", "base")
+    async with AsyncOperation(client, "op-2") as operation:
+        with pytest.raises(ServerError):
+            await operation.run("echo")
+    assert attempts == 1
 
 
 class TestSimpleMode:

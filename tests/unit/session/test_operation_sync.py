@@ -1,8 +1,10 @@
 import io
 import queue
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pytest
+from contree_client.exceptions import TooEarlyError
 from contree_client.models import (
     EventDataSizeCap,
     EventDataStream,
@@ -19,6 +21,7 @@ from contree_sdk.session import SubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_sync import Operation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveClient
 from tests.unit.session.lazy_clients import event as live_event
 
 
@@ -42,6 +45,39 @@ def make_stream_event(id: int, type: OperationEventType, spid: int, text: str) -
 def exit_code_of(result: InstanceResult) -> int | None:
     state = or_none(result.state)
     return None if state is None else or_none(state.exit_code)
+
+
+def test_wait_ready_can_retry_after_timeout():
+    client = LiveClient()
+    client.spawn_instance("sleep", "base")
+    operation = Operation(client, "op-1")
+    with pytest.raises(TimeoutError):
+        operation.wait_ready(timeout=0.01)
+    with ThreadPoolExecutor() as pool:
+        ready = pool.submit(operation.wait_ready, timeout=2)
+        client.streams["op-1"].put(live_event("spawn"))
+        ready.result(timeout=2)
+    operation.cancel()
+    operation.shutdown()
+
+
+def test_run_retries_too_early_for_standalone_operation(monkeypatch):
+    client = LiveClient()
+    client.spawn_instance("sleep", "base")
+    create = client.operation_subprocess_create
+    attempts = 0
+
+    def not_ready_then_create(operation_id, command, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TooEarlyError(425, "control channel not connected")
+        return create(operation_id, command, **kwargs)
+
+    monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
+    with Operation(client, "op-1") as operation:
+        assert operation.run("echo").spid == 2
+    assert attempts == 2
 
 
 class TestSimpleMode:

@@ -104,6 +104,9 @@ class OperationContract(ABC):
     def wait(self, *, timeout: float | None = None) -> InstanceResult: ...
 
     @abstractmethod
+    def wait_ready(self, *, timeout: float | None = None) -> None: ...
+
+    @abstractmethod
     def __enter__(self) -> Self: ...
 
     @abstractmethod
@@ -177,6 +180,9 @@ class AsyncOperationContract(ABC):
 
     @abstractmethod
     async def wait(self, *, timeout: float | None = None) -> InstanceResult: ...
+
+    @abstractmethod
+    async def wait_ready(self, *, timeout: float | None = None) -> None: ...
 
     @abstractmethod
     async def __aenter__(self) -> Self: ...
