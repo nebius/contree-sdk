@@ -64,6 +64,7 @@ class AsyncOperation(AsyncOperationContract):
         self.observers: list[AsyncOperationObserver] = []
         self.terminal_event = asyncio.Event()
         self.consumer_task: asyncio.Task[None] | None = None
+        self.reader_stop_requested = False
         self.lock = asyncio.Lock()
         self.history: list[OperationEvent] = []
         self.spawned: set[int] = set()
@@ -318,7 +319,8 @@ class AsyncOperation(AsyncOperationContract):
                     break
                 await self.route_event(event)
         except asyncio.CancelledError:
-            self.stream_error = RuntimeError("operation event reader was cancelled")
+            if not self.reader_stop_requested:
+                self.stream_error = RuntimeError("operation event reader was cancelled")
             raise
         except Exception as error:
             self.stream_error = error
@@ -460,11 +462,10 @@ class AsyncOperation(AsyncOperationContract):
         finally:
             if self.consumer_task is not None:
                 try:
-                    await asyncio.wait_for(self.consumer_task, timeout=self.shutdown_timeout)
-                except asyncio.TimeoutError:
-                    self.consumer_task.cancel()
+                    await asyncio.wait({self.consumer_task}, timeout=self.shutdown_timeout)
                 finally:
                     if not self.consumer_task.done():
+                        self.reader_stop_requested = True
                         self.consumer_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await self.consumer_task

@@ -179,6 +179,7 @@ class LiveAsyncClient(ContreeAsyncClient):
         self.streams = {}
         self.auto_exit = True
         self.auto_spawn = auto_spawn
+        self.stream_timeout: float | None = 5
         self.create_error = None
         self.wait_error = None
         self.result_image = True
@@ -223,7 +224,7 @@ class LiveAsyncClient(ContreeAsyncClient):
     async def follow_operation_events(self, operation_id: str, **kwargs) -> AsyncGenerator[OperationEvent, None]:
         self.record_call("follow_operation_events", (operation_id,), kwargs)
         while True:
-            item = await asyncio.wait_for(self.streams[operation_id].get(), 5)
+            item = await asyncio.wait_for(self.streams[operation_id].get(), self.stream_timeout)
             if isinstance(item, Exception):
                 raise item
             if item is None:

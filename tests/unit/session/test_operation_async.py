@@ -267,6 +267,52 @@ class TestShutdown:
         assert operation.cancel_requested
         assert operation.terminal
 
+    @pytest.mark.parametrize("cancel_first", [False, True])
+    async def test_shutdown_closes_reader_when_cancel_does_not_end_stream(self, client, cancel_first):
+        closed = asyncio.Event()
+
+        class OpenStreamOperation(AsyncOperation):
+            async def open_event_stream(self):
+                try:
+                    yield live_event("spawn")
+                    await asyncio.Event().wait()
+                finally:
+                    closed.set()
+
+        client.mock("cancel_operation", None)
+        client.mock("operation_subprocess_kill", None)
+        operation = OpenStreamOperation(client, "op-1", shutdown_timeout=0.01)
+        await operation.wait_ready(timeout=1)
+        if cancel_first:
+            await operation.cancel()
+
+        await operation.shutdown()
+        await operation.shutdown()
+
+        assert closed.is_set()
+        assert operation.stream_error is None
+        assert len(client.calls_for("cancel_operation")) == 1
+
+    @pytest.mark.parametrize("failure", ["cancel", "transport"])
+    async def test_shutdown_preserves_unexpected_reader_failure(self, failure):
+        client = LiveAsyncClient()
+        await client.spawn_instance("sleep", "base")
+        operation = AsyncOperation(client, "op-1", shutdown_timeout=0.01)
+        await operation.wait_ready(timeout=1)
+        if failure == "cancel":
+            assert operation.consumer_task is not None
+            operation.consumer_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await operation.consumer_task
+        else:
+            await client.streams["op-1"].put(OSError("stream failed"))
+            await asyncio.wait_for(operation.terminal_event.wait(), 1)
+
+        error = RuntimeError if failure == "cancel" else OSError
+        message = "operation event reader was cancelled" if failure == "cancel" else "stream failed"
+        with pytest.raises(error, match=message):
+            await operation.shutdown()
+
 
 class TestRichMode:
     async def test_run_outside_with_block_raises(self, client: ContreeAsyncClient):

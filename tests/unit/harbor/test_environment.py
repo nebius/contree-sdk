@@ -134,6 +134,25 @@ async def test_stop_aborts_vm_during_an_active_command(backend):
         await env.exec("true")
 
 
+async def test_stop_succeeds_when_cancel_does_not_end_event_stream(backend, monkeypatch):
+    client, env = backend
+    client.stream_timeout = None
+
+    async def cancel_without_events(operation_id):
+        client.record_call("cancel_operation", (operation_id,), {})
+
+    monkeypatch.setattr(client, "cancel_operation", cancel_without_events)
+    await env.start(force_build=False)
+    assert (await env.exec("true")).return_code == 0
+
+    await asyncio.wait_for(env.stop(), 12)
+
+    assert len(client.calls_for("cancel_operation")) == 1
+    with pytest.raises(RuntimeError, match="not running"):
+        await env.exec("true")
+    await env.stop()
+
+
 async def test_stop_failure_allows_restart(backend, monkeypatch):
     client, env = backend
     await env.start(force_build=False)
