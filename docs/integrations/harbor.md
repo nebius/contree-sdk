@@ -51,7 +51,7 @@ Pass ConTree-specific options with `--ek NAME=VALUE`, or through
 | Option              | Default                                   | Description                                                                                                            |
 | ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `profile`           | Automatic selection                       | Saved ConTree profile name, for example `--ek profile=work`.                                                           |
-| `snapshot_idle_sec` | `300`                                     | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=600`.                     |
+| `snapshot_idle_sec` | `1200` (20 minutes)                       | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=1800`.                    |
 | `client`            | Created from the connection configuration | Python only: supply an async ConTree client. It provides the connection instead of `profile` and remains caller-owned. |
 
 The environment keeps one VM running across commands, so files and background

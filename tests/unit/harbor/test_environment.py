@@ -1,6 +1,8 @@
 import asyncio
 import io
+import logging
 import tarfile
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -52,8 +54,9 @@ def test_harbor_factory(backend):
     assert not any(created.capabilities.model_dump().values())
 
 
-async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch):
+async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch, caplog):
     client, env = backend
+    caplog.set_level(logging.DEBUG, logger=env.logger.name)
     uploaded = []
 
     async def ensure_file(source, **kwargs):
@@ -80,6 +83,35 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
     assert (await env.exec("after transfers")).return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
+    assert "upload_file source=" in caplog.text
+    assert "upload_dir source=" in caplog.text
+    assert "stop finished elapsed_sec=" in caplog.text
+
+
+async def test_debug_logs_identify_snapshot_resume_without_command_contents(backend, caplog):
+    client, env = backend
+    env._snapshot_idle_sec = 0.02
+    caplog.set_level(logging.DEBUG, logger=env.logger.name)
+    await env.start(force_build=False)
+    try:
+        await asyncio.wait_for(client.saving.wait(), 1)
+        await env._require_lazy().snapshot(timeout=1)
+        await env.exec("printf secret-command", env={"TOKEN": "secret-env"})
+        records = [record for record in caplog.records if record.name == env.logger.name]
+        messages = [record.getMessage() for record in records]
+        assert all(record.levelno == logging.DEBUG for record in records)
+        assert all(datetime.fromisoformat(message.split()[0]).utcoffset() == timedelta(0) for message in messages)
+        assert any(
+            "phase=cold operation=None" in message and "snapshot_operation=op-1" in message for message in messages
+        )
+        assert any("operation=op-2" in message and "snapshot_image=image-op-1" in message for message in messages)
+        assert "idle snapshot timer armed idle_sec=0.02" in caplog.text
+        assert "idle snapshot timer expired idle_sec=0.02" in caplog.text
+        assert "exec result return_code=0" in caplog.text
+        assert "secret-command" not in caplog.text
+        assert "secret-env" not in caplog.text
+    finally:
+        await env.stop()
 
 
 async def test_start_uploads_task_environment_into_workdir(backend, monkeypatch):
@@ -171,8 +203,9 @@ async def test_stop_failure_allows_restart(backend, monkeypatch):
     await env.stop()
 
 
-async def test_exec_timeout_allows_next_command_in_same_vm(backend):
+async def test_exec_timeout_allows_next_command_in_same_vm(backend, caplog):
     client, env = backend
+    caplog.set_level(logging.DEBUG, logger=env.logger.name)
     await env.start(force_build=False)
     client.auto_exit = False
     with pytest.raises(TimeoutError):
@@ -181,6 +214,10 @@ async def test_exec_timeout_allows_next_command_in_same_vm(backend):
     assert (await env.exec("true")).return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
+    assert any(
+        "exec failed elapsed_sec=" in record.getMessage() and "error_type=TimeoutError" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 async def test_invalid_config_and_paths(backend, tmp_path):

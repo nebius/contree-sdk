@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import math
 import tarfile
-from contextlib import aclosing, suppress
+from collections.abc import Callable, Iterator
+from contextlib import aclosing, contextmanager, suppress
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
+from time import monotonic
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import InstanceResultState, StreamRepr
@@ -45,7 +49,7 @@ class ConTreeEnvironment(BaseEnvironment):
         self,
         *args,
         profile: str | None = None,
-        snapshot_idle_sec: float = 300,
+        snapshot_idle_sec: float = 1200,
         client: ContreeAsyncClient | None = None,
         **kwargs,
     ) -> None:
@@ -119,22 +123,65 @@ class ConTreeEnvironment(BaseEnvironment):
             raise RuntimeError("ConTree environment is not running; call start() first.")
         return self._lazy_session
 
+    def _log_debug(self, message: str, *args: object) -> None:
+        if not self.logger.isEnabledFor(logging.DEBUG):
+            return
+        lazy = self._lazy_session
+        operation = lazy.operation if lazy is not None else None
+        context = operation.context if operation is not None else None
+        snapshot = lazy.last_entry if lazy is not None else None
+        self.logger.debug(
+            "%s ConTree session=%s phase=%s operation=%s image=%s snapshot_operation=%s snapshot_image=%s " + message,
+            datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            self.session_id,
+            lazy.phase if lazy is not None else None,
+            operation.uuid if operation is not None else None,
+            context.image_uuid if context is not None else None,
+            snapshot.operation_uuid if snapshot is not None else None,
+            snapshot.image_uuid if snapshot is not None else None,
+            *args,
+        )
+
+    @contextmanager
+    def _log_action(self, action: str) -> Iterator[None]:
+        started = monotonic()
+        self._log_debug("%s started", action)
+        try:
+            yield
+        except BaseException as error:
+            self._log_debug(
+                "%s failed elapsed_sec=%.3f error_type=%s", action, monotonic() - started, type(error).__name__
+            )
+            raise
+        else:
+            self._log_debug("%s finished elapsed_sec=%.3f", action, monotonic() - started)
+
+    def snapshot_timer(self, seconds: float, callback: Callable[[], None]) -> asyncio.TimerHandle:
+        self._log_debug("idle snapshot timer armed idle_sec=%s", seconds)
+
+        def expired() -> None:
+            self._log_debug("idle snapshot timer expired idle_sec=%s", seconds)
+            callback()
+
+        return asyncio.get_running_loop().call_later(seconds, expired)
+
     async def start(self, force_build: bool) -> None:
-        async with self._lock:
-            if self._lazy_session is not None:
-                raise RuntimeError("ConTree environment is already started.")
-            if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
-                raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
-            self._closing = False
-            try:
-                await asyncio.wait_for(self._start(), timeout=self.task_env_config.build_timeout_sec)
-            except BaseException:
+        with self._log_action("start"):
+            async with self._lock:
                 if self._lazy_session is not None:
-                    with suppress(Exception, asyncio.CancelledError):
-                        await await_cleanup(self._lazy_session.abort())
-                self._lazy_session = None
-                await await_cleanup(self._close_session_context())
-                raise
+                    raise RuntimeError("ConTree environment is already started.")
+                if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
+                    raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
+                self._closing = False
+                try:
+                    await asyncio.wait_for(self._start(), timeout=self.task_env_config.build_timeout_sec)
+                except BaseException:
+                    if self._lazy_session is not None:
+                        with suppress(Exception, asyncio.CancelledError):
+                            await await_cleanup(self._lazy_session.abort())
+                    self._lazy_session = None
+                    await await_cleanup(self._close_session_context())
+                    raise
 
     async def _start(self) -> None:
         startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
@@ -143,9 +190,12 @@ class ConTreeEnvironment(BaseEnvironment):
         docker_image = self.task_env_config.docker_image
         if docker_image is None:
             raise RuntimeError("ConTree startup requires a prebuilt image.")
-        contree_image = await self._import_image(client, docker_image)
+        self._log_debug("configuration snapshot_idle_sec=%s", self._snapshot_idle_sec)
+        with self._log_action("import_image"):
+            contree_image = await self._import_image(client, docker_image)
+            self._log_debug("import_image resolved image=%s", contree_image)
 
-        policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
+        policy = IdleSnapshotPolicy(self._snapshot_idle_sec, timer_factory=self.snapshot_timer)
         startup_timeout = startup_deadline - asyncio.get_running_loop().time()
         if startup_timeout <= 0:
             raise TimeoutError("ConTree environment startup timed out while resolving its image")
@@ -192,15 +242,17 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def stop(self, delete: bool = True) -> None:
         """Cancel the active VM and release resources; delete is ignored."""
-        self._closing = True
-        session = self._lazy_session
-        try:
-            if session is not None:
-                await await_cleanup(session.abort())
-        finally:
-            async with self._lock:
-                self._lazy_session = None
-                await await_cleanup(self._close_session_context())
+        with self._log_action("stop"):
+            self._log_debug("stop requested delete=%s", delete)
+            self._closing = True
+            session = self._lazy_session
+            try:
+                if session is not None:
+                    await await_cleanup(session.abort())
+            finally:
+                async with self._lock:
+                    self._lazy_session = None
+                    await await_cleanup(self._close_session_context())
 
     async def exec(
         self,
@@ -253,18 +305,21 @@ class ConTreeEnvironment(BaseEnvironment):
             gid=gid,
         )
 
-        result = await lazy.execute(request)
+        with self._log_action("exec"):
+            self._log_debug("exec options cwd=%s uid=%s gid=%s timeout_sec=%s", request.cwd, uid, gid, timeout_sec)
+            result = await lazy.execute(request)
 
-        if not isinstance(result.state, InstanceResultState) or not isinstance(result.state.exit_code, int):
-            raise TypeError("ConTree subprocess returned no exit code")
-        for stream in (result.stdout, result.stderr):
-            if isinstance(stream, StreamRepr) and stream.truncated is True:
-                self.logger.warning("ConTree command output was truncated at %s bytes per stream.", _OUTPUT_LIMIT)
-        return ExecResult(
-            stdout=result.stdout.as_text() if isinstance(result.stdout, StreamRepr) else "",
-            stderr=result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else "",
-            return_code=result.state.exit_code,
-        )
+            if not isinstance(result.state, InstanceResultState) or not isinstance(result.state.exit_code, int):
+                raise TypeError("ConTree subprocess returned no exit code")
+            self._log_debug("exec result return_code=%s", result.state.exit_code)
+            for stream in (result.stdout, result.stderr):
+                if isinstance(stream, StreamRepr) and stream.truncated is True:
+                    self.logger.warning("ConTree command output was truncated at %s bytes per stream.", _OUTPUT_LIMIT)
+            return ExecResult(
+                stdout=result.stdout.as_text() if isinstance(result.stdout, StreamRepr) else "",
+                stderr=result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else "",
+                return_code=result.state.exit_code,
+            )
 
     @staticmethod
     def _check_result(result: ExecResult, action: str) -> None:
@@ -273,14 +328,16 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         async with self._lock:
-            await self._require_lazy().run("true", files={target_path: source_path})
+            with self._log_action(f"upload_file source={source_path} target={target_path}"):
+                await self._require_lazy().run("true", files={target_path: source_path})
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         async with self._lock:
             await self._upload_dir(source_dir, target_dir)
 
     async def _upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
-        await self._require_lazy().run("true", files={target_dir: source_dir})
+        with self._log_action(f"upload_dir source={source_dir} target={target_dir}"):
+            await self._require_lazy().run("true", files={target_dir: source_dir})
 
     @staticmethod
     def _remote_path(path: str) -> PurePosixPath:
@@ -291,16 +348,18 @@ class ConTreeEnvironment(BaseEnvironment):
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         async with self._lock:
-            self._remote_path(source_path)
-            view = await self._require_lazy().inspect()
-            await view.download_file(source_path, target_path)
+            with self._log_action(f"download_file source={source_path} target={target_path}"):
+                self._remote_path(source_path)
+                view = await self._require_lazy().inspect()
+                await view.download_file(source_path, target_path)
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
         async with self._lock:
-            self._remote_path(source_dir)
-            view = await self._require_lazy().inspect()
-            with TemporaryDirectory() as temporary:
-                archive_path = Path(temporary) / "download.tar"
-                async with aclosing(view.archive(source_dir)) as chunks:
-                    await write_download_async(chunks, archive_path, path=source_dir)
-                await run_file_io(extract_directory_archive, archive_path, Path(target_dir))
+            with self._log_action(f"download_dir source={source_dir} target={target_dir}"):
+                self._remote_path(source_dir)
+                view = await self._require_lazy().inspect()
+                with TemporaryDirectory() as temporary:
+                    archive_path = Path(temporary) / "download.tar"
+                    async with aclosing(view.archive(source_dir)) as chunks:
+                        await write_download_async(chunks, archive_path, path=source_dir)
+                    await run_file_io(extract_directory_archive, archive_path, Path(target_dir))
