@@ -8,7 +8,7 @@ import logging
 import math
 import tarfile
 from collections.abc import Callable, Iterator
-from contextlib import aclosing, contextmanager, suppress
+from contextlib import AsyncExitStack, aclosing, contextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
@@ -16,6 +16,7 @@ from time import monotonic
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import InstanceResultState, StreamRepr
+from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
@@ -24,7 +25,6 @@ from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
 from contree_sdk.file_io import run_file_io, write_download_async
-from contree_sdk.sandbox import AsyncSandboxSessionContext
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
 
@@ -48,9 +48,9 @@ class ConTreeEnvironment(BaseEnvironment):
     def __init__(
         self,
         *args,
-        profile: str | None = None,
-        snapshot_idle_sec: float = 1200,
-        client: ContreeAsyncClient | None = None,
+        snapshot_idle_sec: float = 20 * 60,
+        contree_profile: str | Profile | None = None,
+        contree_client: ContreeAsyncClient | None = None,
         **kwargs,
     ) -> None:
         if not math.isfinite(snapshot_idle_sec) or snapshot_idle_sec <= 0:
@@ -58,10 +58,10 @@ class ConTreeEnvironment(BaseEnvironment):
         unknown = kwargs.keys() - inspect.signature(BaseEnvironment.__init__).parameters.keys()
         if unknown:
             raise TypeError(f"Unknown ConTree environment options: {', '.join(sorted(unknown))}")
-        self._profile = profile
+        self.contree_profile = contree_profile
         self._snapshot_idle_sec = snapshot_idle_sec
-        self._client = client
-        self._lazy_session_context: AsyncSandboxSessionContext[AsyncLazySession] | None = None
+        self.contree_client = contree_client
+        self.stack = AsyncExitStack()
         self._lazy_session: AsyncLazySession | None = None
         self._lock = asyncio.Lock()
         self._closing = False
@@ -94,11 +94,10 @@ class ConTreeEnvironment(BaseEnvironment):
             raise ValueError("build_timeout_sec must be finite and positive")
         self._validate_mounts()
 
-        if config.cpus is not None or config.memory_mb is not None or config.storage_mb is not None:
-            # ConTree doesn't enforce resources.
-            pass
+        # TODO(CONTREE-243): Forward Harbor resource settings when the SDK supports LazySession VM resources.
 
     def _validate_mounts(self) -> None:
+        # Harbor requests host bind mounts for standard logs; cloud backends transfer these paths instead.
         paths = EnvironmentPaths()
         allowed = {
             str(paths.agent_dir): self.trial_paths.agent_dir,
@@ -106,8 +105,7 @@ class ConTreeEnvironment(BaseEnvironment):
             str(paths.verifier_dir): self.trial_paths.verifier_dir,
             str(paths.artifacts_dir): self.trial_paths.artifacts_dir / "logs" / "artifacts",
         }
-        # Harbor supplies its log mounts even for cloud environments. Only
-        # those exact mounts can be replaced by its non-mounted copy workflow.
+        # Only these exact writable log mounts can use Harbor's upload/download workflow.
         for mount in self._mounts:
             expected = allowed.get(mount["target"])
             if (
@@ -130,6 +128,7 @@ class ConTreeEnvironment(BaseEnvironment):
         operation = lazy.operation if lazy is not None else None
         context = operation.context if operation is not None else None
         snapshot = lazy.last_entry if lazy is not None else None
+        # Harbor's logger routes these records to its per-trial and job file handlers.
         self.logger.debug(
             "%s ConTree session=%s phase=%s operation=%s image=%s snapshot_operation=%s snapshot_image=%s " + message,
             datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
@@ -180,12 +179,12 @@ class ConTreeEnvironment(BaseEnvironment):
                         with suppress(Exception, asyncio.CancelledError):
                             await await_cleanup(self._lazy_session.abort())
                     self._lazy_session = None
-                    await await_cleanup(self._close_session_context())
+                    await await_cleanup(self.stack.aclose())
                     raise
 
     async def _start(self) -> None:
         startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
-        client = self._client
+        client = self.contree_client
 
         docker_image = self.task_env_config.docker_image
         if docker_image is None:
@@ -200,15 +199,16 @@ class ConTreeEnvironment(BaseEnvironment):
         if startup_timeout <= 0:
             raise TimeoutError("ConTree environment startup timed out while resolving its image")
 
-        self._lazy_session_context = create_async_sandbox_session(
-            image=contree_image,
-            session_id=self.session_id,
-            client=client,
-            profile=self._profile if client is None else None,
-            client_type=HttpxAsyncClient if client is None else None,
-            session_kwargs={"snapshot_policy": policy},
+        self._lazy_session = await self.stack.enter_async_context(
+            create_async_sandbox_session(
+                image=contree_image,
+                session_id=self.session_id,
+                client=client,
+                profile=self.contree_profile if client is None else None,
+                client_type=HttpxAsyncClient if client is None else None,
+                session_kwargs={"snapshot_policy": policy},
+            )
         )
-        self._lazy_session = await self._lazy_session_context.__aenter__()  # noqa: PLC2801 - spans Harbor start/stop
 
         paths = EnvironmentPaths()
         dirs = [str(paths.agent_dir), str(paths.verifier_dir), str(paths.artifacts_dir)]
@@ -231,14 +231,9 @@ class ConTreeEnvironment(BaseEnvironment):
             source,
             timeout=math.ceil(self.task_env_config.build_timeout_sec),
             client=client,
-            profile=self._profile if client is None else None,
+            profile=self.contree_profile if client is None else None,
             client_type=HttpxAsyncClient if client is None else None,
         )
-
-    async def _close_session_context(self) -> None:
-        context, self._lazy_session_context = self._lazy_session_context, None
-        if context is not None:
-            await context.__aexit__(None, None, None)
 
     async def stop(self, delete: bool = True) -> None:
         """Cancel the active VM and release resources; delete is ignored."""
@@ -252,7 +247,7 @@ class ConTreeEnvironment(BaseEnvironment):
             finally:
                 async with self._lock:
                     self._lazy_session = None
-                    await await_cleanup(self._close_session_context())
+                    await await_cleanup(self.stack.aclose())
 
     async def exec(
         self,

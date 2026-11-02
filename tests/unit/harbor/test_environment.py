@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import FileResponse, StreamRepr
+from contree_client.profiles import Profile
 
 
 pytest.importorskip("harbor")
@@ -34,7 +35,7 @@ def backend(tmp_path, monkeypatch):
         session_id="test__env",
         trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
         task_env_config=EnvironmentConfig(docker_image="alpine:latest"),
-        client=client,
+        contree_client=client,
     )
     return client, env
 
@@ -48,7 +49,7 @@ def test_harbor_factory(backend):
         session_id="factory",
         trial_paths=environment.trial_paths,
         task_env_config=environment.task_env_config,
-        client=environment._client,
+        contree_client=environment.contree_client,
     )
     assert isinstance(created, ConTreeEnvironment)
     assert not any(created.capabilities.model_dump().values())
@@ -57,6 +58,8 @@ def test_harbor_factory(backend):
 async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch, caplog):
     client, env = backend
     caplog.set_level(logging.DEBUG, logger=env.logger.name)
+    close_client = AsyncMock()
+    monkeypatch.setattr(client, "close", close_client)
     uploaded = []
 
     async def ensure_file(source, **kwargs):
@@ -83,6 +86,7 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
     assert (await env.exec("after transfers")).return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
+    close_client.assert_not_awaited()
     assert "upload_file source=" in caplog.text
     assert "upload_dir source=" in caplog.text
     assert "stop finished elapsed_sec=" in caplog.text
@@ -256,17 +260,26 @@ async def test_start_imports_oci_image(backend):
 
 
 @pytest.mark.parametrize("startup_fails", [False, True])
-async def test_factory_owned_client_closes_on_stop_and_failed_start(backend, monkeypatch, startup_fails):
+@pytest.mark.parametrize("profile_object", [False, True], ids=["profile-name", "profile-object"])
+async def test_factory_owned_client_closes_on_stop_and_failed_start(
+    backend, monkeypatch, startup_fails, profile_object
+):
     _, env = backend
-    from contree_client.profiles import Profile
     from tests.unit.session.test_sandbox_factory import FactoryAsyncClient
 
     import contree_sdk.harbor.environment as module
 
     profile = Profile(name="test", url="https://test.invalid", token="token", auth_type="iam")
-    monkeypatch.setattr("contree_sdk.connection.ConnectionConfig.resolve_profile", lambda self: profile)
+    monkeypatch.setattr("contree_client.profiles.load_profiles", lambda path=None: ({"test": profile}, "test"))
     monkeypatch.setattr(module, "HttpxAsyncClient", FactoryAsyncClient)
-    env._client = None
+    env = ConTreeEnvironment(
+        environment_dir=env.environment_dir,
+        environment_name="test",
+        session_id="profile__env",
+        trial_paths=env.trial_paths,
+        task_env_config=env.task_env_config,
+        contree_profile=profile if profile_object else "test",
+    )
     if startup_fails:
 
         async def fail_start(*args, **kwargs):

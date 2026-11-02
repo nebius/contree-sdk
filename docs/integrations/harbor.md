@@ -35,9 +35,9 @@ export CONTREE_PROJECT="your-ai-project"
 | `CONTREE_PROFILE`                        | Saved profile name; otherwise, use the active profile from the configuration files.                            |
 | `CONTREE_HOME`                           | Directory containing `cli.ini` and `auth.ini`. Defaults to `$XDG_CONFIG_HOME/contree`, or `~/.config/contree`. |
 
-Without an explicit `profile` option, environment credentials take priority when
+Without an explicit `contree_profile` option, environment credentials take priority when
 both URL and token are set; otherwise, the client loads a saved profile.
-`--ek profile=work` selects that saved profile directly, taking priority over the
+`--ek contree_profile=work` selects that saved profile directly, taking priority over the
 environment variables.
 
 See [SDK connection configuration](../python_sdk/getting-started.md#connection-sources)
@@ -48,11 +48,11 @@ for more about credentials, saved profiles, and configuration files.
 Pass ConTree-specific options with `--ek NAME=VALUE`, or through
 `environment.kwargs` in a Harbor job configuration.
 
-| Option              | Default                                   | Description                                                                                                            |
-| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `profile`           | Automatic selection                       | Saved ConTree profile name, for example `--ek profile=work`.                                                           |
-| `snapshot_idle_sec` | `1200` (20 minutes)                       | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=1800`.                    |
-| `client`            | Created from the connection configuration | Python only: supply an async ConTree client. It provides the connection instead of `profile` and remains caller-owned. |
+| Option              | Default                                   | Description                                                                                                |
+| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `contree_profile`   | Automatic selection                       | Saved profile name (`--ek contree_profile=work`), or a `contree_client.profiles.Profile` object in Python. |
+| `snapshot_idle_sec` | `1200` (20 minutes)                       | Positive idle delay in seconds before saving a snapshot, for example `--ek snapshot_idle_sec=1800`.        |
+| `contree_client`    | Created from the connection configuration | Python only: supply an async ConTree client. It replaces `contree_profile` and remains caller-owned.       |
 
 The environment keeps one VM running across commands, so files and background
 processes remain available until an idle snapshot. Background processes end at
