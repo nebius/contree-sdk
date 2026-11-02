@@ -122,8 +122,6 @@ class ConTreeEnvironment(BaseEnvironment):
         return self._lazy_session
 
     def _log_debug(self, message: str, *args: object) -> None:
-        if not self.logger.isEnabledFor(logging.DEBUG):
-            return
         lazy = self._lazy_session
         operation = lazy.operation if lazy is not None else None
         context = operation.context if operation is not None else None
