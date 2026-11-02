@@ -58,10 +58,10 @@ class ConTreeEnvironment(BaseEnvironment):
         unknown = kwargs.keys() - inspect.signature(BaseEnvironment.__init__).parameters.keys()
         if unknown:
             raise TypeError(f"Unknown ConTree environment options: {', '.join(sorted(unknown))}")
-        self.contree_profile = contree_profile
+        self._contree_profile = contree_profile
         self._snapshot_idle_sec = snapshot_idle_sec
-        self.contree_client = contree_client
-        self.stack = AsyncExitStack()
+        self._contree_client = contree_client
+        self._stack = AsyncExitStack()
         self._lazy_session: AsyncLazySession | None = None
         self._lock = asyncio.Lock()
         self._closing = False
@@ -179,12 +179,12 @@ class ConTreeEnvironment(BaseEnvironment):
                         with suppress(Exception, asyncio.CancelledError):
                             await await_cleanup(self._lazy_session.abort())
                     self._lazy_session = None
-                    await await_cleanup(self.stack.aclose())
+                    await await_cleanup(self._stack.aclose())
                     raise
 
     async def _start(self) -> None:
         startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
-        client = self.contree_client
+        client = self._contree_client
 
         docker_image = self.task_env_config.docker_image
         if docker_image is None:
@@ -199,12 +199,12 @@ class ConTreeEnvironment(BaseEnvironment):
         if startup_timeout <= 0:
             raise TimeoutError("ConTree environment startup timed out while resolving its image")
 
-        self._lazy_session = await self.stack.enter_async_context(
+        self._lazy_session = await self._stack.enter_async_context(
             create_async_sandbox_session(
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
-                profile=self.contree_profile if client is None else None,
+                profile=self._contree_profile if client is None else None,
                 client_type=HttpxAsyncClient if client is None else None,
                 session_kwargs={"snapshot_policy": policy},
             )
@@ -231,7 +231,7 @@ class ConTreeEnvironment(BaseEnvironment):
             source,
             timeout=math.ceil(self.task_env_config.build_timeout_sec),
             client=client,
-            profile=self.contree_profile if client is None else None,
+            profile=self._contree_profile if client is None else None,
             client_type=HttpxAsyncClient if client is None else None,
         )
 
@@ -247,7 +247,7 @@ class ConTreeEnvironment(BaseEnvironment):
             finally:
                 async with self._lock:
                     self._lazy_session = None
-                    await await_cleanup(self.stack.aclose())
+                    await await_cleanup(self._stack.aclose())
 
     async def exec(
         self,

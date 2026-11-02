@@ -49,7 +49,7 @@ def test_harbor_factory(backend):
         session_id="factory",
         trial_paths=environment.trial_paths,
         task_env_config=environment.task_env_config,
-        contree_client=environment.contree_client,
+        contree_client=environment._contree_client,
     )
     assert isinstance(created, ConTreeEnvironment)
     assert not any(created.capabilities.model_dump().values())
