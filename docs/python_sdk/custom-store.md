@@ -34,17 +34,13 @@ from contree_sdk.store import SessionInfo, SyncSQLiteStore
 
 
 class RetainedSQLiteStore(SyncSQLiteStore):
-    def create_session(
-        self, session_id: str, *, kind: str = "session", ttl: float | None = None
-    ) -> SessionInfo:
+    def create_session(self, session_id: str, *, kind: str = "session", ttl: float | None = None) -> SessionInfo:
         lifetime = 7 * 24 * 60 * 60 if ttl is None else ttl
         return super().create_session(session_id, kind=kind, ttl=lifetime)
 
 
 with RetainedSQLiteStore("history.db") as store:
-    with create_sandbox_session(
-        image="tag:alpine:latest", store=store, session_id="my-project"
-    ) as session:
+    with create_sandbox_session(image="tag:alpine:latest", store=store, session_id="my-project") as session:
         session.run(shell="echo saved > /saved.txt")
 
 with RetainedSQLiteStore("history.db") as store:
@@ -88,17 +84,13 @@ from contree_sdk.store import AsyncSQLiteStore, SessionInfo
 
 
 class RetainedSQLiteStore(AsyncSQLiteStore):
-    async def create_session(
-        self, session_id: str, *, kind: str = "session", ttl: float | None = None
-    ) -> SessionInfo:
+    async def create_session(self, session_id: str, *, kind: str = "session", ttl: float | None = None) -> SessionInfo:
         lifetime = 7 * 24 * 60 * 60 if ttl is None else ttl
         return await super().create_session(session_id, kind=kind, ttl=lifetime)
 
 
 async with RetainedSQLiteStore("history.db") as store:
-    async with create_sandbox_session(
-        image="tag:alpine:latest", store=store, session_id="my-project"
-    ) as session:
+    async with create_sandbox_session(image="tag:alpine:latest", store=store, session_id="my-project") as session:
         await session.run(shell="echo saved > /saved.txt")
 
 async with RetainedSQLiteStore("history.db") as store:

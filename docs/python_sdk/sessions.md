@@ -197,7 +197,6 @@ assert capsys.readouterr().out == "saved\n\n"
 assert len(sandbox_api.sync.calls_for("resolve_image")) == 1
 assert sandbox_api.sync.calls_for("spawn_instance")[1].args[1] == "image-op-1"
 
-
 with SyncSQLiteStore("sessions.db") as reopened:
     nodes = reopened.list_nodes("my-project").items
     assert any(node.data.get("image_uuid") == "image-op-2" for node in nodes)
@@ -238,18 +237,11 @@ name: test_store_resume_async
 assert capsys.readouterr().out == "saved\n\n"
 assert len(sandbox_api.async_client.calls_for("resolve_image")) == 1
 assert sandbox_api.async_client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
-import asyncio
+from contree_sdk.store import SyncSQLiteStore
 
-
-
-
-async def main() -> None:
-    async with AsyncSQLiteStore("sessions.db") as reopened:
-        nodes = (await reopened.list_nodes("my-project")).items
-        assert any(node.data.get("image_uuid") == "image-op-2" for node in nodes)
-
-
-asyncio.run(main())
+with SyncSQLiteStore("sessions.db") as reopened:
+    nodes = reopened.list_nodes("my-project").items
+    assert any(node.data.get("image_uuid") == "image-op-2" for node in nodes)
 ```
 -->
 
