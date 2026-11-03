@@ -4,12 +4,18 @@ This guide defines responsibilities, dependency boundaries, and extension contra
 
 Locate definitions by class or function name before editing. Read their implementation, contract tests, and relevant guides. Obtain current signatures, defaults, limits, supported capabilities, and development commands from their authoritative sources. Keep this document focused on obligations that an implementation must preserve.
 
+Report missing guidance or conflicts with the implementation or user instructions. Correct confirmed discrepancies; do not present uncertain behavior as an established contract.
+
 ## System boundaries
 
 - The SDK owns execution orchestration, session history, snapshot coordination, file workflows, result reuse, builders, and framework adapters.
 - `contree-client` owns the ConTree API contract, transports, authentication, profiles, retry behavior, wire models, and event decoding. Use its public interfaces.
 - The ConTree service owns remote execution, filesystem images, uploaded content, and remote retention. A local reference does not retain a remote object.
 - Applications select components and own dependencies they supply. Components must not close borrowed dependencies.
+
+Consult the [client source](https://github.com/nebius/contree-client) for transport behavior and public client interfaces. The client is generated from the [OpenAPI specification](https://github.com/nebius/contree-client/blob/master/api/v1/spec.yaml), which defines API operations, schemas, and wire contracts. Check the SDK's selected client version before relying on behavior from the client's development branch.
+
+ConTree executes commands in MicroVMs started from filesystem images. The SDK models a sandbox across operation and image transitions. Session history, the selected position, and local branch names belong to SDK components. Server links between operations and images describe provenance; they do not replace SDK session history.
 
 Arrows below mean “uses.” They describe responsibility dependencies, not a file layout or a complete import graph.
 
@@ -124,6 +130,8 @@ Preserve its single-consumption rule and the effective request captured by the o
 
 These executor implementations provide continuity within an active VM and compose a saved session for history. They own admission, active commands, filesystem reservations, snapshot coordination, and restart decisions. The wrapped session owns request policy, operation creation, history, and commits.
 
+Minimize idle VM resource use. Snapshot policies let the SDK stop idle execution and resume from saved files when work returns. Do not require an indefinitely running VM to preserve filesystem continuity.
+
 | Extension point               | Responsibility                                                                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `prepare_request`             | Delegate shared request policy, then enforce the options valid for commands inside an existing VM. It remains synchronous in both modes. |
@@ -138,7 +146,7 @@ Lazy `spawn`/`spawn_request` returns a subprocess contract. It does not return t
 
 Snapshot coordination must close admission, drain accepted commands and filesystem reservations, stop the VM, and retain its confirmed image before allowing a restart. A command finishing does not mean its filesystem has been saved. A rejected or failed snapshot must not restart from old state while claiming the changes survived.
 
-A snapshot preserves filesystem state, not processes, memory, or sockets. The same filesystem can retain the same image identity across different history entries. Navigation requires a saved boundary; it does not merge filesystems or undo external side effects.
+A snapshot preserves filesystem state, not processes, memory, or sockets. The same filesystem can retain the same image identity across different history entries. Forking starts independent execution from the same saved image; rollback selects an earlier saved state for subsequent execution. Navigation requires a saved boundary; it does not merge filesystems or undo external side effects.
 
 `close` saves pending work. `abort` discards unsaved work but must respect an already-running snapshot. Context exit must preserve the distinction between normal completion and exceptional exit. Timers request saving; the wrapper coordinates it and must still respect the service's execution deadline.
 
@@ -172,6 +180,10 @@ Async consumers must not cancel a shared policy future when one waiter is cancel
 ### `OperationContract` and `AsyncOperationContract`
 
 These ABCs define one remote operation. A handle exposes its identity, optional execution context, and latest response. A UUID-only reattached handle can be observed but cannot supply missing session context for a history commit.
+
+`spid` means Spawn Process ID. It identifies a process tree spawned by the user through ConTree, not an operating-system PID. In particular, `spid=1` does not mean system PID 1.
+
+A VM operation starts with a main command whose process tree has `spid=1`. When the main process exits, the operation ends; running subprocesses do not extend its lifetime. Keepalive and shutdown implementations must respect this boundary. Drain accepted work before stopping the main process to produce a snapshot.
 
 | Required surface               | Obligation                                                                                                                                          |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -421,7 +433,13 @@ A component's access to another component does not transfer responsibility. Pref
 - Keep authored technical text in English and preserve unrelated working-tree changes. Do not commit or push without explicit user approval.
 - Pull request descriptions explain the problem and resulting behavior; omit test-plan sections and test-command/result lists.
 
+Use clear names and structure to explain code. Keep comments, docstrings, and guides focused on rationale, contracts, and non-obvious constraints. Do not restate the implementation or record each edit in prose.
+
 Use `uv` for Python environments and commands. Read current dependency and tool configuration in `pyproject.toml`, available Make targets, pytest configuration, and CI before selecting checks. Use the relevant Make target where it runs the required tests. Do not copy the current command inventory or CI matrix into this guide.
+
+Before pushing, run the applicable CI linters, formatters, and type checks after the final edit. Check their actual file coverage, including embedded code in documentation. Passing tests or one formatter does not replace these checks.
+
+Read existing tests before adding a case or module. Extend an appropriate scenario when possible. Add tests for a specific risk or contract, not to mirror implementation details. Organize tests by responsibility; shared contract and integration tests can span modules.
 
 Verify the contract that changed, including rejection and cleanup paths:
 
