@@ -1,5 +1,9 @@
 # Tree stores
 
+For a step-by-step introduction to memory, SQLite, and continuing saved sessions,
+start with {doc}`../sessions`. To implement another backend, see
+{doc}`../custom-store` in Advanced Usage.
+
 `SyncStore` and `AsyncStore` store immutable trees. Sessions, Docker builds, and
 upload reuse share one Store. Helpers and direct
 constructors accept it through `store=`. The Store holds references; images and files remain

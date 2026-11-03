@@ -99,6 +99,7 @@ integrations/mini-swe-agent
 :maxdepth: 1
 :hidden:
 
+python_sdk/custom-store
 python_sdk/customization
 python_sdk/migration
 python_sdk/troubleshooting

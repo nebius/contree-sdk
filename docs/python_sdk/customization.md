@@ -201,27 +201,10 @@ protocols from `contree_sdk.files`.
 
 ## Implement history storage
 
-Implement `SyncStore` or `AsyncStore` from `contree_sdk.store`. The same interface
-supports session history and reusable results. The core operation is
-`append(session_id, node)`: save an immutable node with an explicit parent.
-
-Preserve these guarantees across all clients of your backend:
-
-- A parent belongs to the same live tree; a tree has one root.
-- Repeating an identical node succeeds without a duplicate. Reusing its identity
-  with different contents raises `NodeConflictError` without overwriting data.
-- Reads and writes detach JSON values from caller-owned objects.
-- Tree and node kind filters apply before cursor pagination.
-- `get_nodes()` reads up to 1000 known identities atomically, preserving input
-  order and `None` slots for missing nodes. Implement it as a batch read when
-  network round trips are expensive.
-- TTL and deletion cover the tree. Reads and append do not renew expiry.
-
-See {doc}`reference/store` for the complete contract. Store does not implement
-branch switching, command execution, or Docker hashing. Session handles local
-navigation and serializes its payloads into nodes. Staging records contain
-attachments and applied paths. Detached completion saves its response and result
-in one node, using the identity recorded before collection.
+Inherit `SyncStore` or `AsyncStore` to keep history in your own database or service.
+Pass the implementation through `store=`. See {doc}`custom-store` for executable
+extension examples, required methods, and storage guarantees. For standard memory
+and SQLite usage, start with {doc}`sessions`.
 
 ## Store reusable results
 

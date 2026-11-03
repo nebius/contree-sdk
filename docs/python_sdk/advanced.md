@@ -37,19 +37,10 @@ import and build helpers use a persistent SQLite Store by default. See
 
 ### Bring your own storage
 
-`SyncStore` and `AsyncStore` are the public storage interfaces. The SDK includes
-Memory and SQLite implementations. Subclass the matching interface to implement
-Redis or PostgreSQL storage. One Store holds both history and reusable results.
-Tree kinds separate their purposes.
-
-Store contains typed trees of immutable nodes. Session owns the selected position
-and local branch names. See [Implement history storage](customization.md#implement-history-storage)
-for atomic insertion, pagination, and retention requirements.
-
-Pass your Store through `store=` to helpers, sessions, and builders. Use sync implementations with sync APIs and async implementations
-with async APIs. The SDK uses these interfaces, so changing the storage backend
-does not require changing its execution code. Your application owns and closes
-the supplied components.
+Start with {doc}`sessions` to choose memory or SQLite storage, save work, and
+continue a previous session. For your own database or service, implement
+`SyncStore` or `AsyncStore` and pass it through `store=`. See {doc}`custom-store`
+in Advanced Usage for an example and the storage requirements.
 
 (shared-image-client)=
 
