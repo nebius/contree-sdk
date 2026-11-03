@@ -1,8 +1,8 @@
 # Architecture and extension rules
 
-This guide defines responsibilities, dependency boundaries, and extension contracts for ConTree SDK. Use it to decide where new behavior belongs.
+This guide defines responsibilities, dependency boundaries, and extension contracts for the ConTree SDK. Use it to decide where new behavior belongs.
 
-Locate definitions by class or function name before editing. Read their implementation, contract tests, and relevant guides. Obtain current signatures, defaults, limits, supported capabilities, and development commands from their authoritative sources. Keep this document focused on obligations that an implementation must preserve.
+Locate definitions by class or function name before editing. Read their implementations, contract tests, and relevant guides. Obtain current signatures, defaults, limits, supported capabilities, and development commands from their authoritative sources. Keep this document focused on obligations that an implementation must preserve.
 
 Report missing guidance or conflicts with the implementation or user instructions. Correct confirmed discrepancies; do not present uncertain behavior as an established contract.
 
@@ -11,13 +11,23 @@ Report missing guidance or conflicts with the implementation or user instruction
 - The SDK owns execution orchestration, session history, snapshot coordination, file workflows, result reuse, builders, and framework adapters.
 - `contree-client` owns the ConTree API contract, transports, authentication, profiles, retry behavior, wire models, and event decoding. Use its public interfaces.
 - The ConTree service owns remote execution, filesystem images, uploaded content, and remote retention. A local reference does not retain a remote object.
-- Applications select components and own dependencies they supply. Components must not close borrowed dependencies.
+- Applications select components and own the dependencies they supply. Components must not close borrowed dependencies.
+
+The SDK does not require execution or storage on the consumer's machine. Files and Store backends can be remote. Apply this boundary to every existing SDK entity and extension. Local paths and SQLite are implementation choices, not requirements of the core contracts. Do not assume a shared host filesystem or durable local storage across consumers.
+
+Every concrete implementation must document its resource location and lifetime in both public docstrings and user documentation. Include required local files, directories, and process memory. Distinguish optional local I/O from a deployment model that requires the consumer to remain on one machine.
+
+When correctness depends on durable state stored on one machine, both documentation and docstrings must explicitly state the machine dependency and prohibit ephemeral storage in that configuration. Explain what is lost or becomes inaccessible when the machine or storage is replaced.
+
+For each implementation-specific restriction, document a concrete way to remove the dependency. Name the replaceable sync/async contract and the public injection or configuration parameter in both documentation and docstrings. Provide a minimal replacement example in the documentation and reference it from the docstring. Show how to supply an alternative implementation without copying orchestration. A warning alone is insufficient. If the required extension point is missing, add it to the owning SDK component instead of making the restriction unavoidable.
+
+Using a remote Store does not by itself make existing session or operation state shared between workers. Distributed coordination requires an explicit implementation and contract.
 
 Consult the [client source](https://github.com/nebius/contree-client) for transport behavior and public client interfaces. The client is generated from the [OpenAPI specification](https://github.com/nebius/contree-client/blob/master/api/v1/spec.yaml), which defines API operations, schemas, and wire contracts. Check the SDK's selected client version before relying on behavior from the client's development branch.
 
 ConTree executes commands in MicroVMs started from filesystem images. The SDK models a sandbox across operation and image transitions. Session history, the selected position, and local branch names belong to SDK components. Server links between operations and images describe provenance; they do not replace SDK session history.
 
-Arrows below mean “uses.” They describe responsibility dependencies, not a file layout or a complete import graph.
+Arrows below mean “uses.” They describe dependencies between components, not a file layout or a complete import graph.
 
 ```mermaid
 flowchart TB
@@ -48,6 +58,16 @@ flowchart TB
 
 Both session families implement executor contracts. A lazy session composes a saved session; it does not inherit its implementation. Store contracts remain independent of execution, builders, and transport.
 
+## Extensibility contract
+
+The SDK follows a simple pattern: abstract classes define the sync and async contracts; concrete classes implement them. For example, `SyncStore` and `AsyncStore` define storage contracts, while Memory and SQLite classes provide implementations.
+
+Consumers depend on the matching contract, not a particular implementation. Accept compatible custom implementations and preserve supplied instances, subclasses, and configuration through factories and wrappers. A default implementation is a convenience, not a restriction.
+
+Implementations must remain extensible through public, overridable behavior. Do not hide behavior or bypass an override merely to reduce the API surface. If changing one behavior requires copying orchestration, add the extension point to its owning component. Extensions preserve the contract; they need not copy the default mechanism or deployment choices.
+
+Responsibility boundaries identify where to extend behavior. The hooks listed below are not an exhaustive whitelist. Any restriction on extension needs a concrete contract invariant and an explanation. Verify substitutability through normal public entry points using a custom implementation or subclass.
+
 ## Construction and resource ownership
 
 ### Connection and sandbox configuration
@@ -55,6 +75,8 @@ Both session families implement executor contracts. A lazy session composes a sa
 `ConnectionConfig` owns connection selection and client-construction options. `validate` rejects incompatible combinations, `resolve_profile` delegates credential resolution, and `open_sync`/`open_async` either open an owned client or return a supplied client.
 
 Add connection-source validation here. Keep credential acquisition, profile parsing, retries, and HTTP behavior in `contree-client`. Preserve the distinction between supplying a configured client and supplying instructions to construct one.
+
+`config_path` refers to configuration on the SDK process's host. Explicit connection parameters, a `Profile`, or a supplied client remove the need for that local file.
 
 `SandboxConfig` owns component selection and argument routing. It validates matching executor, client, Store, and transfer modes. Its `connection` method constructs connection configuration; `session_arguments` separates factory-managed arguments from custom session arguments.
 
@@ -76,11 +98,13 @@ Factory contexts close owned clients and Stores and exit sessions that implement
 
 Image import/build helpers use the same connection and ownership rules. Their result is a ConTree image reference, not an open session. Keep registry-source interpretation in image preparation; session construction consumes an existing ConTree image reference.
 
+When a helper constructs a local cache Store, the deployment configuration determines its accessibility and persistence. A supplied Store can use a remote backend. Cache locality does not determine where execution or image storage occurs.
+
 ## Execution contracts
 
 ### `SyncExecutor` and `AsyncExecutor`
 
-These ABCs are the minimum execution interface for framework integrations. They require `session_id`, abstract `execute(request) -> InstanceResult`, and abstract `read_file(path) -> bytes`. Their concrete `write_file(path, content)` is an override point. The corresponding async operations are awaited.
+These ABCs define the minimum execution interface for framework integrations. They require `session_id` and the abstract methods `execute(request) -> InstanceResult` and `read_file(path) -> bytes`. They provide a concrete `write_file(path, content)` method that implementations can override. The corresponding async operations are awaited.
 
 Preserve these obligations:
 
@@ -114,13 +138,13 @@ On the async session, pure preparation and object factories remain synchronous: 
 
 Keep navigation and staging in the session layer. Store records parent relationships; the session selects a node and maintains branch labels. Independent continuations can append siblings. Completion can advance an unchanged source position but must not overwrite a newer selection. Another session instance cannot move this local selection. Ambiguous resume or forward navigation requires an explicit choice.
 
-Saved-session `spawn`/`spawn_request` returns an operation without committing it. `run`/`execute` performs execution and commits eligible completion. A caller managing a spawned operation uses `commit_result` explicitly. Initialization and image resolution do not imply VM startup.
+Saved-session `spawn`/`spawn_request` returns an operation without committing it. `run`/`execute` performs execution and commits eligible results. A caller managing a spawned operation uses `commit_result` explicitly. Initialization and image resolution do not imply VM startup.
 
 `HistoryEntry` is a domain view of stored history. `OperationRecord` represents recoverable detached execution. Keep their interpretation and codecs with session logic, not inside Store. Detached registration and remote submission are separate effects; idempotent persistence does not establish exactly-once remote execution.
 
 ### `PendingRun`
 
-`ContreeAsyncSession.run` creates a `PendingRun` through a synchronous factory. Awaiting it performs execution, waiting, cleanup, and eligible commit. Entering it with `async with` exposes the operation; normal exit checks completion and commits an eligible result.
+`ContreeAsyncSession.run` creates a `PendingRun` through a synchronous factory. Awaiting it performs execution, waits for completion, runs cleanup, and commits an eligible result. Entering it with `async with` exposes the operation; normal exit checks completion and commits an eligible result.
 
 Preserve its single-consumption rule and the effective request captured by the operation. Do not confuse its managed context behavior with the behavior of a bare spawned handle. Use `create_pending_run` to replace this wrapper instead of duplicating the async session pipeline.
 
@@ -160,7 +184,7 @@ The session validates operation success and requires a usable image for a retain
 
 ### `AbstractSnapshotPolicy`
 
-This ABC decides when to request a snapshot. It owns decision state and exposes a per-cycle future through concrete `should_snapshot`. Implement abstract `notify(event)` and call the base initializer and base notification handling so cycle reset and close remain correct.
+This ABC decides when to request a snapshot. It owns decision state and exposes a per-cycle future through `should_snapshot`. Implement the abstract `notify(event)` method and call the base initializer and notification handler to preserve cycle reset and close behavior.
 
 Resolve the future to request saving; fail it to report a policy failure. Notifications must not block or perform network I/O. The session owns admission, draining, VM shutdown, and persistence. Use separate policy instances for independent sessions.
 
@@ -195,7 +219,7 @@ A VM operation starts with a main command whose process tree has `spid=1`. When 
 | `signal`, `cancel`, `shutdown` | Preserve the distinction between process control, remote cancellation, and handle shutdown. Shutdown may affect unfinished remote work.             |
 | Context entry/exit             | Manage reader and execution cleanup, including partial entry and exceptional exit.                                                                  |
 
-`add_observer` is an optional concrete rejection in the ABC and a required capability for operations used by lazy sessions. Register observers before reading begins. Registration is synchronous in both modes; async observer callbacks are awaited.
+The ABC provides an `add_observer` method that rejects observer registration by default. Operations used by lazy sessions must support observer registration. Register observers before reading begins. Registration is synchronous in both modes; async observer callbacks are awaited.
 
 Observers receive events and EOF/error notification. They must not consume or wait on their own operation. Observer failures must reach consumers. Cleanup must preserve the primary failure rather than replace it.
 
@@ -203,7 +227,7 @@ Observers receive events and EOF/error notification. They must not consume or wa
 
 These are concrete operation implementations and extension bases. They borrow a client and own event consumption, subprocess dispatch, and completion state. They do not own session history.
 
-Override `open_event_stream` to replace the shared event source. Overriding `events` only changes a subscription. Override synchronous `create_subprocess` to replace handles. Preserve the event source needed by all consumers, including operation-wide completion.
+Override `open_event_stream` to replace the shared event source. Overriding `events` only changes a subscription. Override the synchronous `create_subprocess` method to replace handles. Preserve the event source needed by all consumers, including operation-wide completion.
 
 One handle shares its reader among subscriptions, waits, and subprocesses. Different consumers must not compete for the same events or require a second exit notification. Repeated waits must preserve the completed result. Put event-to-result interpretation in the operation layer rather than duplicating it in integrations.
 
@@ -238,7 +262,7 @@ These ABCs persist independent typed trees of immutable JSON nodes. They do not 
 
 Custom backends must preserve these invariants:
 
-- A tree can be empty and has at most one root. Every non-root parent exists in the same live tree.
+- A tree can be empty and has at most one root. Every non-root node has a parent in the same live tree.
 - Repeating an identical append is idempotent. Reusing an identity for different content or adding a second root raises `NodeConflictError`.
 - Calls are atomic across clients sharing the backend. Confirmed writes are visible to subsequent reads unless deletion or expiry intervenes.
 - Separate Store calls do not form an implicit transaction. Store idempotency does not guarantee exactly-once remote execution.
@@ -255,9 +279,11 @@ Preserve missing-data behavior. `get_session` returns `None` for an absent or ex
 
 `SyncMemoryStore` and `AsyncMemoryStore` provide volatile history. `SyncSQLiteStore` and `AsyncSQLiteStore` provide persistent local history. All must preserve the same backend contract, including independent-writer behavior and cancellation-safe resource cleanup.
 
-Subclass an implementation to change defaults or wrap public behavior. Implement the ABC for another storage backend. Do not expose storage-engine internals as requirements for every consumer.
+Memory history belongs to the Store instance and does not survive its closure or process termination. File-backed SQLite requires a database path accessible to the SDK process; its in-memory mode does not provide file persistence. To resume after a consumer is replaced, retain the database and make it accessible to the replacement. A local file is not automatically shared with other workers; ephemeral storage does not provide durable history. These are implementation constraints, not limitations of the Store contracts.
 
-Resuming needs both stored history and accessible service images. Starting a new session from an image copies filesystem state, not the source session's history or branch selection. Local retention and remote retention are separate policies.
+Subclass an implementation to reuse and extend its behavior. Implement the ABC directly when the existing implementations do not fit. Do not expose storage-engine internals as requirements for every consumer.
+
+Resuming requires both stored history and accessible service images. Starting a new session from an image copies filesystem state, not the source session's history or branch selection. Local retention and remote retention are separate policies.
 
 ## File access and transfer
 
@@ -266,6 +292,8 @@ Resuming needs both stored history and accessible service images. Starting a new
 These structural input protocols require `read`; async reads are awaited. They do not require ownership transfer, seeking, iteration, or a close method. Preserve text/byte semantics and reject incompatible input forms explicitly.
 
 Input normalization belongs to the transfer/execution boundary. Distinguish literal stdin content from a local upload path. Never close an input stream merely because the caller passed it to the SDK.
+
+In the supplied transfer implementations, path inputs and download destinations refer to the SDK process's host filesystem. Use stream, byte, or uploaded-reference interfaces where their contracts fit remote data. The supplied cached transfers also require temporary local space for path uploads. These implementation requirements do not restrict replacement transfers to local storage.
 
 ### `SyncFileTransfer` and `AsyncFileTransfer`
 
@@ -278,7 +306,7 @@ These ABCs require `upload` and `read_file`. Upload returns a reference usable b
 | `download_file`           | Replace the destination only after successful transfer and return the transferred byte count. Preserve existing output on failure. |
 | `read_stdin`              | Prepare matching text/byte input without closing borrowed sources. Async implementations must avoid blocking the event loop.       |
 
-Transfers own byte preparation and saved-image I/O. They do not own VM startup, current-session selection, live inspection, snapshot decisions, or applying an upload to an active VM. Keep those actions in the executor/operation/inspection layers.
+Transfers own byte preparation and saved-image I/O. They do not own VM startup, current-session selection, live inspection, snapshot decisions, or the application of uploaded content to an active VM. Keep those actions in the executor/operation/inspection layers.
 
 `ClientFileTransfer` and `AsyncClientFileTransfer` implement this contract through a borrowed client. Subclass them for changed delivery behavior or implement the ABC for another mechanism. Close readers opened by the implementation; leave the client open.
 
@@ -315,7 +343,7 @@ Result reuse is a consumer of Store, not a separate storage backend. Domain cons
 
 `StoreScope` separates reusable records by connection and authorization context. Rebuild scoped components when that context changes. Namespace separation does not replace service authorization, and keys must not contain raw credentials.
 
-`SyncFileSources` and `AsyncFileSources` are registries over borrowed Store and scope. `record`, `sources`, and `forget` manage provenance represented by `FileSource`. They do not upload, prove unchanged local content, verify remote availability, or own Store lifetime.
+`SyncFileSources` and `AsyncFileSources` are registries backed by a borrowed Store and scope. `record`, `sources`, and `forget` manage provenance represented by `FileSource`. They do not upload, prove unchanged local content, verify remote availability, or own Store lifetime.
 
 Keep reuse validity, provenance, and remote retention separate. A known source can exist after a cache entry disappears; a cache entry can exist after remote content disappears. Each consumer must define how it validates reuse and recovers from missing retained objects.
 
@@ -327,7 +355,7 @@ This is the directive extension base. Its abstract-style methods are `parse`, `s
 
 Parsing produces a directive value. Execution modifies the matching build context through its public operations. Implement both modes for a dialect supported by both builders. Keep syntax in the directive/parser, mutable build state in the context, and build-wide policy in the builder.
 
-A directive must include every effective input in context cache state or its hash contribution. Providing `serialize` alone does not automatically account for every execution input. Changing instruction semantics requires an explicit reuse-compatibility decision.
+A directive must include every effective input in the context's cache state or its hash contribution. Providing `serialize` alone does not automatically account for every execution input. Changing instruction semantics requires an explicit reuse-compatibility decision.
 
 ### `DockerfileParser`
 
@@ -337,7 +365,7 @@ Inject a parser for a custom dialect. Customizing one builder must not change an
 
 ### `ContreeDockerBuilder` and `ContreeAsyncDockerBuilder`
 
-These concrete extension bases orchestrate builds and return a filesystem image reference. They borrow supplied clients and Stores. Parser, session factory, fetcher, and context class are injection points.
+These concrete extension bases orchestrate builds and return a filesystem image reference. They borrow supplied clients and Stores. The parser, session factory, fetcher, and context class are injection points.
 
 | Hook                | Responsibility and obligation                                                                                              |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -353,7 +381,7 @@ Do not bypass configured dispatch during stage sealing or final materialization.
 
 ### `BuildContext` and `AsyncBuildContext`
 
-These concrete per-build state owners track effective instruction state, stage images, pending content, current saved session, progress, and layer identity. They borrow client and Store. They interpret build records; Store does not.
+These concrete per-build state owners track effective instruction state, stage images, pending content, current saved session, progress, and layer identity. They borrow a client and a Store. They interpret build records; Store does not.
 
 | Method group                                    | Responsibility                                                                                                                                     |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -374,6 +402,8 @@ Subclass the matching context to add build state or change orchestration. Keep i
 
 `LocalContext` owns host-context traversal and host-to-guest mapping. Extend traversal there; keep uploads in transfer/source preparation and remote application in operation orchestration. Preserve containment and platform semantics without assuming full Docker behavior.
 
+The existing builders read the build context and Dockerfile from paths accessible to the SDK process. Stage remote inputs there or provide an explicit extension for another source. Supplying a remote Store does not make these build inputs remote. Document required mounts or staging separately from remote execution.
+
 Inject URL fetchers for a different ADD download backend. Fetch bodies follow the declared byte-iterable contract; release them when they expose a close operation. External URL fetching is separate from the ConTree API transport.
 
 Keep URL reuse decisions with the consuming directive. A conditional response does not by itself prove that previously uploaded content remains usable.
@@ -386,9 +416,19 @@ Archive export, live application, and metadata overrides are separate stages. Va
 
 `ContreeSandbox` and `ContreeAsyncSandbox` adapt executor contracts to the external `BaseSandbox` interface. They are concrete framework adapters and borrow their executors.
 
-Keep framework request/result conversion, error translation, and adapter-level call coordination here. `execute`/`aexecute` delegates through `RunRequest`; file methods use executor read/write contracts. The native async adapter must not implement synchronous methods by blocking an event loop.
+Keep framework request/result conversion, error translation, and adapter-level call coordination here. `execute` and `aexecute` delegate through `RunRequest`; file methods use executor read/write contracts. The native async adapter must not implement synchronous methods by blocking an event loop.
 
-Adapters do not own snapshots, history, transport, or executor lifetime. Change file delivery in the executor/transfer layers rather than constructing framework-specific upload commands. Additional callers sharing the executor remain responsible for their own coordination.
+Adapters delegate snapshots, history, and transport to the responsible SDK components. They do not close borrowed executors. An integration that creates a session context can own and close that context through its public lifecycle. Change file delivery in the executor/transfer layers rather than constructing framework-specific upload commands. Additional callers sharing the executor remain responsible for their own coordination.
+
+When an integration needs session semantics, use an existing SDK session implementation through its public factory or accept a supplied session. This applies to Harbor and other framework adapters. Do not reconstruct a session from client calls and operation handles inside the adapter. Reuse session startup, keepalive, admission, snapshot/restart, history, and cleanup behavior. If a capability is missing, extend the responsible SDK component through its public extension points and use it from the adapter.
+
+Integrations that construct sessions must expose an explicit `session_kwargs` parameter and pass it through the SDK factory. New session options then become available without adding matching parameters and forwarding code to every integration. This keeps session configuration and validation in one place. Document which session class receives these arguments and which options it accepts. Keep framework options separate; do not reinterpret session arguments as adapter configuration.
+
+An integration designed for execution on a local machine must explicitly declare this deployment restriction. Include the following exact warning in both its documentation and public integration docstring:
+
+> This integration is designed for execution on a local machine. Never use it in Kubernetes or any ephemeral or remote execution scenario.
+
+This restriction belongs to that integration; it must not become an implicit requirement of shared SDK components. Document how to replace the local dependency as required above.
 
 New integrations should depend on the smallest sufficient public contract. Optional framework dependencies must not become mandatory for the core SDK. Determine support from the integration's implementation and tests, not from a status list in this guide.
 
@@ -421,6 +461,8 @@ Preserve client exceptions and primary failures through cleanup and callback rep
 | Another agent framework                                       | An adapter over public executor contracts.                                                     |
 
 A component's access to another component does not transfer responsibility. Prefer the narrowest existing extension point; do not duplicate orchestration to change one policy or add a parallel facade.
+
+Reuse every existing SDK entity at its public boundary when its contract fits the required behavior. This rule applies to all components, not only sessions. Extend the responsible component when needed instead of reconstructing its behavior in a consumer or integration.
 
 ## Change and verification rules
 
