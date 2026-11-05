@@ -6,9 +6,10 @@ import asyncio
 import inspect
 import math
 import tarfile
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import AsyncExitStack, aclosing, contextmanager, suppress
 from datetime import datetime, timezone
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from time import monotonic
@@ -44,14 +45,18 @@ class ConTreeEnvironment(BaseEnvironment):
     low-level async client remains caller-owned.
     """
 
+    SNAPSHOT_IDLE_SEC = 20 * 60
+
     def __init__(
         self,
         *args,
-        snapshot_idle_sec: float = 20 * 60,
+        snapshot_idle_sec: float | None = None,
         contree_profile: str | Profile | None = None,
         contree_client: ContreeAsyncClient | None = None,
         **kwargs,
     ) -> None:
+        if snapshot_idle_sec is None:
+            snapshot_idle_sec = self.SNAPSHOT_IDLE_SEC
         if not math.isfinite(snapshot_idle_sec) or snapshot_idle_sec <= 0:
             raise ValueError("snapshot_idle_sec must be finite and positive")
         unknown = kwargs.keys() - inspect.signature(BaseEnvironment.__init__).parameters.keys()
@@ -70,7 +75,7 @@ class ConTreeEnvironment(BaseEnvironment):
     def type() -> str:
         return "contree"
 
-    @property
+    @cached_property
     def capabilities(self) -> EnvironmentCapabilities:
         return EnvironmentCapabilities()
 
@@ -152,14 +157,9 @@ class ConTreeEnvironment(BaseEnvironment):
         else:
             self._log_debug("%s finished elapsed_sec=%.3f", action, monotonic() - started)
 
-    def snapshot_timer(self, seconds: float, callback: Callable[[], None]) -> asyncio.TimerHandle:
-        self._log_debug("idle snapshot timer armed idle_sec=%s", seconds)
-
-        def expired() -> None:
-            self._log_debug("idle snapshot timer expired idle_sec=%s", seconds)
-            callback()
-
-        return asyncio.get_running_loop().call_later(seconds, expired)
+    @cached_property
+    def _loop(self) -> asyncio.AbstractEventLoop:
+        return asyncio.get_running_loop()
 
     async def start(self, force_build: bool) -> None:
         with self._log_action("start"):
@@ -180,7 +180,7 @@ class ConTreeEnvironment(BaseEnvironment):
                     raise
 
     async def _start(self) -> None:
-        startup_deadline = asyncio.get_running_loop().time() + self.task_env_config.build_timeout_sec
+        startup_deadline = self._loop.time() + self.task_env_config.build_timeout_sec
         client = self._contree_client
 
         docker_image = self.task_env_config.docker_image
@@ -191,8 +191,8 @@ class ConTreeEnvironment(BaseEnvironment):
             contree_image = await self._import_image(client, docker_image)
             self._log_debug("import_image resolved image=%s", contree_image)
 
-        policy = IdleSnapshotPolicy(self._snapshot_idle_sec, timer_factory=self.snapshot_timer)
-        startup_timeout = startup_deadline - asyncio.get_running_loop().time()
+        policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
+        startup_timeout = startup_deadline - self._loop.time()
         if startup_timeout <= 0:
             raise TimeoutError("ConTree environment startup timed out while resolving its image")
 

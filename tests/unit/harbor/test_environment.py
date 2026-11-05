@@ -109,8 +109,6 @@ async def test_debug_logs_identify_snapshot_resume_without_command_contents(back
             "phase=cold operation=None" in message and "snapshot_operation=op-1" in message for message in messages
         )
         assert any("operation=op-2" in message and "snapshot_image=image-op-1" in message for message in messages)
-        assert "idle snapshot timer armed idle_sec=0.02" in caplog.text
-        assert "idle snapshot timer expired idle_sec=0.02" in caplog.text
         assert "exec result return_code=0" in caplog.text
         assert "secret-command" not in caplog.text
         assert "secret-env" not in caplog.text
