@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import FileResponse, StreamRepr
-from contree_client.profiles import Profile
 
 
 pytest.importorskip("harbor")
@@ -58,8 +57,6 @@ def test_harbor_factory(backend):
 async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch, caplog):
     client, env = backend
     caplog.set_level(logging.DEBUG, logger=env.logger.name)
-    close_client = AsyncMock()
-    monkeypatch.setattr(client, "close", close_client)
     uploaded = []
 
     async def ensure_file(source, **kwargs):
@@ -86,7 +83,6 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
     assert (await env.exec("after transfers")).return_code == 0
     assert len(client.calls_for("spawn_instance")) == 1
     await env.stop(delete=True)
-    close_client.assert_not_awaited()
     assert "upload_file source=" in caplog.text
     assert "upload_dir source=" in caplog.text
     assert "stop finished elapsed_sec=" in caplog.text
@@ -257,40 +253,34 @@ async def test_start_imports_oci_image(backend):
         await env.stop()
 
 
-@pytest.mark.parametrize("startup_fails", [False, True])
-@pytest.mark.parametrize("profile_object", [False, True], ids=["profile-name", "profile-object"])
-async def test_factory_owned_client_closes_on_stop_and_failed_start(
-    backend, monkeypatch, startup_fails, profile_object
-):
-    _, env = backend
-    from tests.unit.session.test_sandbox_factory import FactoryAsyncClient
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_failed_start_aborts_vm_and_preserves_startup_error(backend, monkeypatch, cleanup_fails):
+    client, env = backend
+    execute = env._execute
+    startup_error = ValueError("startup check failed")
 
-    import contree_sdk.harbor.environment as module
+    async def fail_start(*args, **kwargs):
+        await execute(*args, **kwargs)
+        raise startup_error
 
-    profile = Profile(name="test", url="https://test.invalid", token="token", auth_type="iam")
-    monkeypatch.setattr("contree_client.profiles.load_profiles", lambda path=None: ({"test": profile}, "test"))
-    monkeypatch.setattr(module, "HttpxAsyncClient", FactoryAsyncClient)
-    env = ConTreeEnvironment(
-        environment_dir=env.environment_dir,
-        environment_name="test",
-        session_id="profile__env",
-        trial_paths=env.trial_paths,
-        task_env_config=env.task_env_config,
-        contree_profile=profile if profile_object else "test",
-    )
-    if startup_fails:
+    monkeypatch.setattr(env, "_execute", fail_start)
+    if cleanup_fails:
+        cancel = client.cancel_operation
 
-        async def fail_start(*args, **kwargs):
-            raise ValueError("startup check failed")
+        async def fail_cancel(operation_id):
+            await cancel(operation_id)
+            raise OSError("cleanup failed")
 
-        monkeypatch.setattr(env, "_execute", fail_start)
-        with pytest.raises(ValueError, match="startup check failed"):
+        monkeypatch.setattr(client, "cancel_operation", fail_cancel)
+    try:
+        with pytest.raises(ValueError, match="startup check failed") as error:
             await env.start(force_build=False)
-    else:
-        await env.start(force_build=False)
-        await env.stop(delete=True)
-    client = FactoryAsyncClient.instances[-1]
-    assert client.opened == client.closed == 1
+        assert error.value is startup_error
+        assert len(client.calls_for("cancel_operation")) == 1
+        with pytest.raises(RuntimeError, match="not running"):
+            await env.exec("true")
+    finally:
+        await env.stop()
 
 
 async def test_start_succeeds_after_transient_readiness_rejections(backend, monkeypatch):

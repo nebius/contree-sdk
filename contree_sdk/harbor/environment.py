@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import sys
 import tarfile
 from collections.abc import Iterator
-from contextlib import AsyncExitStack, aclosing, contextmanager, suppress
+from contextlib import AsyncExitStack, aclosing, contextmanager
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path, PurePosixPath
@@ -172,11 +173,8 @@ class ConTreeEnvironment(BaseEnvironment):
                 try:
                     await asyncio.wait_for(self._start(), timeout=self.task_env_config.build_timeout_sec)
                 except BaseException:
-                    if self._lazy_session is not None:
-                        with suppress(Exception, asyncio.CancelledError):
-                            await await_cleanup(self._lazy_session.abort())
                     self._lazy_session = None
-                    await await_cleanup(self._stack.aclose())
+                    await self._stack.__aexit__(*sys.exc_info())
                     raise
 
     async def _start(self) -> None:
