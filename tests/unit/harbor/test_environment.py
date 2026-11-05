@@ -147,21 +147,28 @@ async def test_stop_aborts_without_saving_for_either_delete_value(backend, delet
     assert len(client.calls_for("cancel_operation")) == 1
 
 
-async def test_stop_aborts_vm_during_an_active_command(backend):
+async def test_stop_aborts_vm_during_parallel_commands(backend):
     client, env = backend
     await env.start(force_build=False)
     client.auto_exit = False
-    client.created.clear()
-    running = asyncio.create_task(env.exec("sleep 100"))
-    await asyncio.wait_for(client.created.wait(), 1)
+    running = []
+    try:
+        for _ in range(2):
+            client.created.clear()
+            running.append(asyncio.create_task(env.exec("sleep 100")))
+            await asyncio.wait_for(client.created.wait(), 1)
 
-    await env.stop()
+        await env.stop()
 
-    with pytest.raises(RuntimeError):
-        await asyncio.wait_for(running, 1)
-    assert client.calls_for("cancel_operation")
-    with pytest.raises(RuntimeError, match="not running"):
-        await env.exec("true")
+        for command in running:
+            with pytest.raises(RuntimeError):
+                await asyncio.wait_for(command, 1)
+        assert len(client.calls_for("cancel_operation")) == 1
+        with pytest.raises(RuntimeError, match="not running"):
+            await env.exec("true")
+    finally:
+        await env.stop()
+        await asyncio.gather(*running, return_exceptions=True)
 
 
 async def test_stop_succeeds_when_cancel_does_not_end_event_stream(backend, monkeypatch):

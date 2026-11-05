@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import math
 import sys
@@ -68,7 +67,6 @@ class ConTreeEnvironment(BaseEnvironment):
         self._contree_client = contree_client
         self._stack = AsyncExitStack()
         self._lazy_session: AsyncLazySession | None = None
-        self._lock = asyncio.Lock()
         self._closing = False
         super().__init__(*args, **kwargs)
 
@@ -95,8 +93,6 @@ class ConTreeEnvironment(BaseEnvironment):
         if config.mcp_servers:
             raise ValueError("ConTree does not yet support task MCP servers.")
         self.validate_network_policy_support(config.resolve_baseline())
-        if not math.isfinite(config.build_timeout_sec) or config.build_timeout_sec <= 0:
-            raise ValueError("build_timeout_sec must be finite and positive")
         self._validate_mounts()
 
         # TODO(CONTREE-243): Forward Harbor resource settings when the SDK supports LazySession VM resources.
@@ -158,27 +154,21 @@ class ConTreeEnvironment(BaseEnvironment):
         else:
             self._log_debug("%s finished elapsed_sec=%.3f", action, monotonic() - started)
 
-    @cached_property
-    def _loop(self) -> asyncio.AbstractEventLoop:
-        return asyncio.get_running_loop()
-
     async def start(self, force_build: bool) -> None:
         with self._log_action("start"):
-            async with self._lock:
-                if self._lazy_session is not None:
-                    raise RuntimeError("ConTree environment is already started.")
-                if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
-                    raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
-                self._closing = False
-                try:
-                    await asyncio.wait_for(self._start(), timeout=self.task_env_config.build_timeout_sec)
-                except BaseException:
-                    self._lazy_session = None
-                    await self._stack.__aexit__(*sys.exc_info())
-                    raise
+            if self._lazy_session is not None:
+                raise RuntimeError("ConTree environment is already started.")
+            if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
+                raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
+            self._closing = False
+            try:
+                await self._start()
+            except BaseException:
+                self._lazy_session = None
+                await self._stack.__aexit__(*sys.exc_info())
+                raise
 
     async def _start(self) -> None:
-        startup_deadline = self._loop.time() + self.task_env_config.build_timeout_sec
         client = self._contree_client
 
         docker_image = self.task_env_config.docker_image
@@ -190,10 +180,6 @@ class ConTreeEnvironment(BaseEnvironment):
             self._log_debug("import_image resolved image=%s", contree_image)
 
         policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
-        startup_timeout = startup_deadline - self._loop.time()
-        if startup_timeout <= 0:
-            raise TimeoutError("ConTree environment startup timed out while resolving its image")
-
         self._lazy_session = await self._stack.enter_async_context(
             create_async_sandbox_session(
                 image=contree_image,
@@ -224,7 +210,6 @@ class ConTreeEnvironment(BaseEnvironment):
     async def _import_image(self, client: ContreeAsyncClient | None, source: str) -> str:
         return await async_import_image(
             source,
-            timeout=math.ceil(self.task_env_config.build_timeout_sec),
             client=client,
             profile=self._contree_profile if client is None else None,
             client_type=HttpxAsyncClient if client is None else None,
@@ -240,9 +225,8 @@ class ConTreeEnvironment(BaseEnvironment):
                 if session is not None:
                     await await_cleanup(session.abort())
             finally:
-                async with self._lock:
-                    self._lazy_session = None
-                    await await_cleanup(self._stack.aclose())
+                self._lazy_session = None
+                await await_cleanup(self._stack.aclose())
 
     async def exec(
         self,
@@ -262,14 +246,13 @@ class ConTreeEnvironment(BaseEnvironment):
         else:
             uid = user
 
-        async with self._lock:
-            return await self._execute(
-                command,
-                cwd=cwd,
-                env=env,
-                uid=uid,
-                timeout_sec=timeout_sec,
-            )
+        return await self._execute(
+            command,
+            cwd=cwd,
+            env=env,
+            uid=uid,
+            timeout_sec=timeout_sec,
+        )
 
     async def _execute(
         self,
@@ -317,13 +300,11 @@ class ConTreeEnvironment(BaseEnvironment):
             raise RuntimeError(f"{action} failed (exit {result.return_code}): {result.stderr or result.stdout}")
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
-        async with self._lock:
-            with self._log_action(f"upload_file source={source_path} target={target_path}"):
-                await self._require_lazy().run("true", files={target_path: source_path})
+        with self._log_action(f"upload_file source={source_path} target={target_path}"):
+            await self._require_lazy().run("true", files={target_path: source_path})
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
-        async with self._lock:
-            await self._upload_dir(source_dir, target_dir)
+        await self._upload_dir(source_dir, target_dir)
 
     async def _upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         with self._log_action(f"upload_dir source={source_dir} target={target_dir}"):
@@ -337,19 +318,17 @@ class ConTreeEnvironment(BaseEnvironment):
         return destination
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
-        async with self._lock:
-            with self._log_action(f"download_file source={source_path} target={target_path}"):
-                self._remote_path(source_path)
-                view = await self._require_lazy().inspect()
-                await view.download_file(source_path, target_path)
+        with self._log_action(f"download_file source={source_path} target={target_path}"):
+            self._remote_path(source_path)
+            view = await self._require_lazy().inspect()
+            await view.download_file(source_path, target_path)
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
-        async with self._lock:
-            with self._log_action(f"download_dir source={source_dir} target={target_dir}"):
-                self._remote_path(source_dir)
-                view = await self._require_lazy().inspect()
-                with TemporaryDirectory() as temporary:
-                    archive_path = Path(temporary) / "download.tar"
-                    async with aclosing(view.archive(source_dir)) as chunks:
-                        await write_download_async(chunks, archive_path, path=source_dir)
-                    await run_file_io(extract_directory_archive, archive_path, Path(target_dir))
+        with self._log_action(f"download_dir source={source_dir} target={target_dir}"):
+            self._remote_path(source_dir)
+            view = await self._require_lazy().inspect()
+            with TemporaryDirectory() as temporary:
+                archive_path = Path(temporary) / "download.tar"
+                async with aclosing(view.archive(source_dir)) as chunks:
+                    await write_download_async(chunks, archive_path, path=source_dir)
+                await run_file_io(extract_directory_archive, archive_path, Path(target_dir))
