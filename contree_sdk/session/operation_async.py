@@ -247,30 +247,6 @@ class AsyncOperation(AsyncOperationContract):
                 await asyncio.shield(self.cancel())
             raise
 
-    async def wait_ready(self, *, timeout: float | None = None) -> None:
-        """Wait for the primary process. Timeout leaves the operation running.
-
-        Raises:
-            TimeoutError: The primary process did not start before timeout.
-            RuntimeError: The operation ended before it became ready.
-
-        """
-        await self._start_reader()
-        async with self.changed:
-            try:
-                await asyncio.wait_for(
-                    self.changed.wait_for(
-                        lambda: 1 in self.spawned or 1 in self.exited or self.completion_received or self.terminal
-                    ),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                raise TimeoutError(f"operation {self.uuid} did not start in time") from None
-            if self.stream_error is not None:
-                raise self.stream_error
-            if 1 not in self.spawned or 1 in self.exited or self.completion_received or self.terminal:
-                raise RuntimeError(f"operation {self.uuid} ended before it became ready")
-
     async def _completed_result(self) -> InstanceResult:
         if self.stream_error is not None:
             raise self.stream_error

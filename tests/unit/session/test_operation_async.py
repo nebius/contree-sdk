@@ -46,20 +46,6 @@ def exit_code_of(result: InstanceResult) -> int | None:
     return None if state is None else or_none(state.exit_code)
 
 
-async def test_wait_ready_can_retry_after_timeout():
-    client = LiveAsyncClient()
-    client.auto_spawn = False
-    await client.spawn_instance("sleep", "base")
-    operation = AsyncOperation(client, "op-1")
-    with pytest.raises(TimeoutError):
-        await operation.wait_ready(timeout=0.01)
-    ready = asyncio.create_task(operation.wait_ready(timeout=2))
-    await client.streams["op-1"].put(live_event("spawn"))
-    await asyncio.wait_for(ready, 2)
-    await operation.cancel()
-    await operation.shutdown()
-
-
 async def test_run_retries_only_pre_admission_for_standalone_operation(monkeypatch):
     client = LiveAsyncClient()
     await client.spawn_instance("sleep", "base")
@@ -282,7 +268,7 @@ class TestShutdown:
         client.mock("cancel_operation", None)
         client.mock("operation_subprocess_kill", None)
         operation = OpenStreamOperation(client, "op-1", shutdown_timeout=0.01)
-        await operation.wait_ready(timeout=1)
+        await anext(operation.events(spid=1, timeout=1))
         if cancel_first:
             await operation.cancel()
 
@@ -298,7 +284,7 @@ class TestShutdown:
         client = LiveAsyncClient()
         await client.spawn_instance("sleep", "base")
         operation = AsyncOperation(client, "op-1", shutdown_timeout=0.01)
-        await operation.wait_ready(timeout=1)
+        await anext(operation.events(spid=1, timeout=1))
         if failure == "cancel":
             assert operation.consumer_task is not None
             operation.consumer_task.cancel()

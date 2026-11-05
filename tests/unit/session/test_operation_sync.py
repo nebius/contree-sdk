@@ -1,6 +1,5 @@
 import io
 import queue
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pytest
@@ -45,21 +44,6 @@ def make_stream_event(id: int, type: OperationEventType, spid: int, text: str) -
 def exit_code_of(result: InstanceResult) -> int | None:
     state = or_none(result.state)
     return None if state is None else or_none(state.exit_code)
-
-
-def test_wait_ready_can_retry_after_timeout():
-    client = LiveClient()
-    client.auto_spawn = False
-    client.spawn_instance("sleep", "base")
-    operation = Operation(client, "op-1")
-    with pytest.raises(TimeoutError):
-        operation.wait_ready(timeout=0.01)
-    with ThreadPoolExecutor() as pool:
-        ready = pool.submit(operation.wait_ready, timeout=2)
-        client.streams["op-1"].put(live_event("spawn"))
-        ready.result(timeout=2)
-    operation.cancel()
-    operation.shutdown()
 
 
 def test_run_retries_too_early_for_standalone_operation(monkeypatch):

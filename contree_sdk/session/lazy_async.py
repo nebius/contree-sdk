@@ -160,8 +160,6 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             raise TimeoutError("LazySession VM renewal deadline expired during startup")
         self.operation.add_observer(self.observe)
         await self.operation.__aenter__()  # noqa: PLC2801 - context spans several commands
-        # Operation.wait_ready() would block its reader in observe(), which needs this condition.
-        # TODO: Review startup and admission concurrency so Operation.wait_ready() can be used directly.
         try:
             await asyncio.wait_for(
                 self.condition.wait_for(

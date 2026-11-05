@@ -158,8 +158,6 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             raise TimeoutError("LazySession VM renewal deadline expired during startup")
         self.operation.add_observer(self.observe)
         self.operation.__enter__()  # noqa: PLC2801 - context spans several commands
-        # Operation.wait_ready() would block its reader in observe(), which needs this condition.
-        # TODO: Review startup and admission concurrency so Operation.wait_ready() can be used directly.
         if not self.condition.wait_for(
             lambda: self.state.ready or self.state.error is not None or self.state.phase == "closed",
             timeout=STARTUP_TIMEOUT if timeout is None else min(timeout, STARTUP_TIMEOUT),
