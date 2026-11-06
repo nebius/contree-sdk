@@ -50,19 +50,18 @@ async def test_run_retries_only_pre_admission_for_standalone_operation(monkeypat
     client = LiveAsyncClient()
     await client.spawn_instance("sleep", "base")
     create = client.operation_subprocess_create
-    attempts = 0
+    received_args = []
 
     async def not_ready_then_create(operation_id, command, **kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
+        received_args.append(kwargs["args"])
+        if len(received_args) == 1:
             raise TooEarlyError(425, "control channel not connected")
         return await create(operation_id, command, **kwargs)
 
     monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
     async with AsyncOperation(client, "op-1") as operation:
-        assert (await operation.run("echo")).spid == 2
-    assert attempts == 2
+        assert (await operation.run("echo", args=(value for value in ["hello", "world"]))).spid == 2
+    assert received_args == [["hello", "world"], ["hello", "world"]]
 
     attempts = 0
 

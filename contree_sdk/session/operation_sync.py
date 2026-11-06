@@ -358,13 +358,14 @@ class Operation(OperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
+        subprocess_args = list(args) if args else ...
         deadline = time.monotonic() + SUBPROCESS_READY_TIMEOUT
         while True:
             try:
                 spid = self.client.operation_subprocess_create(
                     self.uuid,
                     command,
-                    args=list(args) if args else ...,
+                    args=subprocess_args,
                     shell=shell,
                     env=env if env is not None else ...,
                     cwd=cwd if cwd is not None else ...,
