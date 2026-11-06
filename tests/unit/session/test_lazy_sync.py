@@ -581,13 +581,23 @@ def test_invalid_effective_keepalive_timeout_is_rejected(timeout):
 
 
 @pytest.mark.parametrize("inspection", [False, True])
-def test_commands_and_inspections_wait_for_primary_spawn(inspection):
+def test_commands_and_inspections_wait_for_primary_spawn(inspection, monkeypatch):
     client = LiveClient()
     client.auto_spawn = False
     base = ContreeSession(client, image="base")
     if inspection:
         base.stage_files({"/input": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
     lazy = LazySession(base)
+    second_thread = None
+    second_waiting = threading.Event()
+    wait = lazy.condition.wait
+
+    def observe_wait(timeout=None):
+        if threading.current_thread() is second_thread:
+            second_waiting.set()
+        return wait(timeout)
+
+    monkeypatch.setattr(lazy.condition, "wait", observe_wait)
 
     def first_request():
         if inspection:
@@ -596,14 +606,23 @@ def test_commands_and_inspections_wait_for_primary_spawn(inspection):
         else:
             assert exit_code_of(lazy.run("first")) == 0
 
+    def second_request():
+        nonlocal second_thread
+        second_thread = threading.current_thread()
+        return lazy.run("second")
+
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(first_request)
             wait_state(lazy, lambda: lazy.phase == "starting")
-            second = pool.submit(lazy.run, "second")
-            assert not first.done()
-            assert not client.calls_for("operation_subprocess_create")
-            client.streams["op-1"].put(event("spawn"))
+            second = pool.submit(second_request)
+            try:
+                assert second_waiting.wait(timeout=2)
+                assert not first.done()
+                assert not second.done()
+                assert not client.calls_for("operation_subprocess_create")
+            finally:
+                client.streams["op-1"].put(event("spawn"))
             first.result(timeout=2)
             second.result(timeout=2)
         assert len(client.calls_for("spawn_instance")) == 1
