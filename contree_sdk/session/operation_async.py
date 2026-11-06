@@ -13,6 +13,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from contextlib import suppress
 from typing import IO
 
+from contree_client.exceptions import ConflictError, TooEarlyError
 from contree_client.models import FileSpec, InstanceResult, OperationEvent, OperationResponse
 from contree_client.types import ContreeAsyncClient
 
@@ -26,6 +27,7 @@ from contree_sdk.session.subprocess_result import SubprocessResult
 
 
 DEFAULT_SHUTDOWN_SIGNAL = "SIGTERM"
+SUBPROCESS_READY_TIMEOUT = 30.0
 
 
 class AsyncOperation(AsyncOperationContract):
@@ -62,6 +64,7 @@ class AsyncOperation(AsyncOperationContract):
         self.observers: list[AsyncOperationObserver] = []
         self.terminal_event = asyncio.Event()
         self.consumer_task: asyncio.Task[None] | None = None
+        self.reader_stop_requested = False
         self.lock = asyncio.Lock()
         self.history: list[OperationEvent] = []
         self.spawned: set[int] = set()
@@ -292,7 +295,8 @@ class AsyncOperation(AsyncOperationContract):
                     break
                 await self.route_event(event)
         except asyncio.CancelledError:
-            self.stream_error = RuntimeError("operation event reader was cancelled")
+            if not self.reader_stop_requested:
+                self.stream_error = RuntimeError("operation event reader was cancelled")
             raise
         except Exception as error:
             self.stream_error = error
@@ -381,18 +385,30 @@ class AsyncOperation(AsyncOperationContract):
         stdin_repr = (
             stream_repr_for_stdin(stdin or b"", close=not stdin_open) if stdin is not None or stdin_open else ...
         )
-        spid = await self.client.operation_subprocess_create(
-            self.uuid,
-            command,
-            args=list(args) if args else ...,
-            shell=shell,
-            env=env if env is not None else ...,
-            cwd=cwd if cwd is not None else ...,
-            uid=uid if uid is not None else ...,
-            gid=gid if gid is not None else ...,
-            stdin=stdin_repr,
-            truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
-        )
+        subprocess_args = list(args) if args else ...
+        deadline = time.monotonic() + SUBPROCESS_READY_TIMEOUT
+        while True:
+            try:
+                spid = await self.client.operation_subprocess_create(
+                    self.uuid,
+                    command,
+                    args=subprocess_args,
+                    shell=shell,
+                    env=env if env is not None else ...,
+                    cwd=cwd if cwd is not None else ...,
+                    uid=uid if uid is not None else ...,
+                    gid=gid if gid is not None else ...,
+                    stdin=stdin_repr,
+                    truncate_output_at=truncate_output_at if truncate_output_at is not None else ...,
+                )
+                break
+            except (TooEarlyError, ConflictError) as error:
+                if isinstance(error, ConflictError) and "PENDING" not in str(error.error):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                await asyncio.sleep(min(remaining, error.retry_after or 1))
         return self.create_subprocess(spid, await self.claim_queue(spid))
 
     def create_subprocess(
@@ -423,11 +439,10 @@ class AsyncOperation(AsyncOperationContract):
         finally:
             if self.consumer_task is not None:
                 try:
-                    await asyncio.wait_for(self.consumer_task, timeout=self.shutdown_timeout)
-                except asyncio.TimeoutError:
-                    self.consumer_task.cancel()
+                    await asyncio.wait({self.consumer_task}, timeout=self.shutdown_timeout)
                 finally:
                     if not self.consumer_task.done():
+                        self.reader_stop_requested = True
                         self.consumer_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await self.consumer_task

@@ -3,6 +3,7 @@ import queue
 from datetime import datetime, timezone
 
 import pytest
+from contree_client.exceptions import TooEarlyError
 from contree_client.models import (
     EventDataSizeCap,
     EventDataStream,
@@ -19,6 +20,7 @@ from contree_sdk.session import SubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_sync import Operation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveClient
 from tests.unit.session.lazy_clients import event as live_event
 
 
@@ -42,6 +44,24 @@ def make_stream_event(id: int, type: OperationEventType, spid: int, text: str) -
 def exit_code_of(result: InstanceResult) -> int | None:
     state = or_none(result.state)
     return None if state is None else or_none(state.exit_code)
+
+
+def test_run_retries_too_early_for_standalone_operation(monkeypatch):
+    client = LiveClient()
+    client.spawn_instance("sleep", "base")
+    create = client.operation_subprocess_create
+    received_args = []
+
+    def not_ready_then_create(operation_id, command, **kwargs):
+        received_args.append(kwargs["args"])
+        if len(received_args) == 1:
+            raise TooEarlyError(425, "control channel not connected")
+        return create(operation_id, command, **kwargs)
+
+    monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
+    with Operation(client, "op-1") as operation:
+        assert operation.run("echo", args=(value for value in ["hello", "world"])).spid == 2
+    assert received_args == [["hello", "world"], ["hello", "world"]]
 
 
 class TestSimpleMode:

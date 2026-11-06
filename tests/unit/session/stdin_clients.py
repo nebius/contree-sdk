@@ -7,7 +7,7 @@ from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient, event
 
 class StdinClient(LiveClient):
     def __init__(self):
-        super().__init__()
+        super().__init__(auto_spawn=False)
         self.ready = True
         self.finish_on_eof = True
         self.write_error: Exception | None = None
@@ -33,7 +33,7 @@ class StdinClient(LiveClient):
 
 class AsyncStdinClient(LiveAsyncClient):
     def __init__(self):
-        super().__init__()
+        super().__init__(auto_spawn=False)
         self.ready = True
         self.finish_on_eof = True
         self.write_error: Exception | None = None
