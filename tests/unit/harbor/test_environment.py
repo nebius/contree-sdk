@@ -19,7 +19,7 @@ from contree_sdk.harbor import ConTreeEnvironment
 
 
 @pytest.fixture
-def backend(tmp_path, monkeypatch):
+async def backend(tmp_path, monkeypatch):
     client = LiveAsyncClient()
     client.mock("ensure_file", FileResponse(uuid="uploaded", sha256="a" * 64, size=4))
     client.mock("apply_instance_file", None)
@@ -34,7 +34,8 @@ def backend(tmp_path, monkeypatch):
         task_env_config=EnvironmentConfig(docker_image="alpine:latest"),
         contree_client=client,
     )
-    return client, env
+    yield client, env
+    await env.stop()
 
 
 def test_harbor_factory(backend):
