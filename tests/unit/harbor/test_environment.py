@@ -331,6 +331,8 @@ async def test_download_file_preserves_binary_data_and_allows_exec(backend, tmp_
     payload = b"\x00" + b"x" * (256 * 1024 + 17)
 
     async def downloaded_chunks(operation_id, path):
+        assert operation_id == "op-1"
+        assert path == "/remote/data.bin"
         yield payload[: 256 * 1024]
         yield payload[256 * 1024 :]
 
@@ -356,6 +358,8 @@ async def test_download_dir_merges_nested_files_and_empty_directories(backend, t
         tar.addfile(empty)
 
     async def archived(operation_id, path, **kwargs):
+        assert operation_id == "op-1"
+        assert path == "/remote/logs"
         payload = archive.getvalue()
         yield payload[:100]
         yield payload[100:]
