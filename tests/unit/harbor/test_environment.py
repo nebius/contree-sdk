@@ -1,7 +1,7 @@
 import asyncio
 import io
 import tarfile
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
@@ -226,16 +226,51 @@ async def test_invalid_config_and_paths(backend, tmp_path):
         )
 
 
-async def test_start_imports_oci_image(backend):
-    client, env = backend
+@pytest.mark.parametrize("from_env", [False, True], ids=["injected-client", "environment-client"])
+async def test_start_reuses_client_for_image_import_and_execution(backend, monkeypatch, from_env):
+    client, template = backend
     import contree_sdk.harbor.environment as module
 
+    from_profile = Mock(return_value=client)
+    monkeypatch.setattr(module.HttpxAsyncClient, "from_profile", from_profile)
+    monkeypatch.setenv("CONTREE_URL", "https://test.invalid")
+    monkeypatch.setenv("CONTREE_TOKEN", "test-token")
+    monkeypatch.setenv("CONTREE_PROJECT", "test-project")
+    env = ConTreeEnvironment(
+        environment_dir=template.environment_dir,
+        environment_name="test",
+        session_id="import__env",
+        trial_paths=template.trial_paths,
+        task_env_config=template.task_env_config,
+        contree_client=None if from_env else client,
+    )
     try:
         await env.start(force_build=False)
         assert isinstance(module.async_import_image, AsyncMock)
         module.async_import_image.assert_awaited_once()
         assert module.async_import_image.await_args.args == ("alpine:latest",)
+        assert module.async_import_image.await_args.kwargs["client"] is client
         assert client.calls_for("spawn_instance")[0].args[1] == "base"
+        assert (await env.exec("true")).return_code == 0
+        if from_env:
+            from_profile.assert_called_once()
+        else:
+            from_profile.assert_not_called()
+    finally:
+        await env.stop()
+
+
+async def test_failed_image_import_preserves_error_without_starting_vm(backend, monkeypatch):
+    client, env = backend
+    error = ValueError("image import failed")
+    monkeypatch.setattr("contree_sdk.harbor.environment.async_import_image", AsyncMock(side_effect=error))
+    try:
+        with pytest.raises(ValueError, match="image import failed") as raised:
+            await env.start(force_build=False)
+        assert raised.value is error
+        assert not client.calls_for("spawn_instance")
+        with pytest.raises(RuntimeError, match="not running"):
+            await env.exec("true")
     finally:
         await env.stop()
 

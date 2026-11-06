@@ -13,7 +13,6 @@ from tempfile import TemporaryDirectory
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
 from contree_client.models import InstanceResultState, StreamRepr
-from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
@@ -21,6 +20,7 @@ from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, s
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
+from contree_sdk.connection import ConnectionConfig, owned_resources_async
 from contree_sdk.file_io import run_file_io, write_download_async
 from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
@@ -48,7 +48,6 @@ class ConTreeEnvironment(BaseEnvironment):
         self,
         *args,
         snapshot_idle_sec: float | None = None,
-        contree_profile: str | Profile | None = None,
         contree_client: ContreeAsyncClient | None = None,
         **kwargs,
     ) -> None:
@@ -59,7 +58,6 @@ class ConTreeEnvironment(BaseEnvironment):
         unknown = kwargs.keys() - inspect.signature(BaseEnvironment.__init__).parameters.keys()
         if unknown:
             raise TypeError(f"Unknown ConTree environment options: {', '.join(sorted(unknown))}")
-        self._contree_profile = contree_profile
         self._snapshot_idle_sec = snapshot_idle_sec
         self._contree_client = contree_client
         self._stack = AsyncExitStack()
@@ -125,8 +123,9 @@ class ConTreeEnvironment(BaseEnvironment):
 
         if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
             raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
-        self._closing = False
+
         try:
+            self._closing = False
             await self._start()
         except BaseException:
             self._lazy_session = None
@@ -134,13 +133,16 @@ class ConTreeEnvironment(BaseEnvironment):
             raise
 
     async def _start(self) -> None:
-        client = self._contree_client
-
         docker_image = self.task_env_config.docker_image
         if docker_image is None:
             raise RuntimeError("ConTree startup requires a prebuilt image.")
 
-        contree_image = await self._import_image(client, docker_image)
+        resources = await self._stack.enter_async_context(owned_resources_async())
+        client = await ConnectionConfig(
+            client=self._contree_client,
+            client_type=HttpxAsyncClient if self._contree_client is None else None,
+        ).open_async(resources)
+        contree_image = await async_import_image(docker_image, client=client)
 
         policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
         self._lazy_session = await self._stack.enter_async_context(
@@ -148,8 +150,6 @@ class ConTreeEnvironment(BaseEnvironment):
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
-                profile=self._contree_profile if client is None else None,
-                client_type=HttpxAsyncClient if client is None else None,
                 session_kwargs={"snapshot_policy": policy},
             )
         )
@@ -169,14 +169,6 @@ class ConTreeEnvironment(BaseEnvironment):
                 self._check_result(result, "Resolving image workdir")
                 workdir = (result.stdout or "/").strip()
             await self._upload_dir(self.environment_dir, workdir)
-
-    async def _import_image(self, client: ContreeAsyncClient | None, source: str) -> str:
-        return await async_import_image(
-            source,
-            client=client,
-            profile=self._contree_profile if client is None else None,
-            client_type=HttpxAsyncClient if client is None else None,
-        )
 
     async def stop(self, delete: bool = True) -> None:
         """Cancel the active VM and release resources; delete is ignored."""
