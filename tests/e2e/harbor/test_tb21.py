@@ -134,7 +134,7 @@ def harbor_dataset():
     )
 
 
-def test_oracle_task(task_name, harbor_results, pytestconfig, record_property):
+def test_oracle_task(task_name, harbor_results, record_property):
     trial = harbor_results[task_name]
     artifacts = trial.config.trials_dir / trial.trial_name
     record_property("harbor_artifacts", str(artifacts.resolve()))
@@ -149,6 +149,11 @@ def test_oracle_task(task_name, harbor_results, pytestconfig, record_property):
     assert (artifacts / "verifier" / "reward.txt").is_file(), f"Missing reward artifact: {artifacts}"
     reward = rewards["reward"]
     known_failure = KNOWN_FAILURES.get(task_name)
-    if reward == 0 and known_failure and pytestconfig.getoption("harbor_suite") == "sample":
+    if reward == 1 and known_failure:
+        pytest.fail(
+            f"Known failure now passes: {task_name}. Acknowledge the improvement and update KNOWN_FAILURES. "
+            f"Artifacts: {artifacts}"
+        )
+    if reward == 0 and known_failure:
         pytest.xfail(f"{known_failure}; artifacts: {artifacts}")
     assert reward == 1, f"{known_failure or 'Unexpected zero reward'}; artifacts: {artifacts}"
