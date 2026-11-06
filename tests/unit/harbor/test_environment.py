@@ -421,6 +421,8 @@ async def test_exec_forwards_harbor_options_and_converts_the_result(backend, mon
         with env.scoped_exec_env({"SHARED": "scoped"}):
             result = await env.exec("echo example", cwd=cwd, env={"SHARED": "command"}, timeout_sec=1, user=user)
         call = client.calls_for("operation_subprocess_create")[-1]
+        assert call.args[1] == "/bin/bash"
+        assert call.kwargs["args"] == ["-c", "echo example"]
         assert call.kwargs["cwd"] == (cwd or "/default")
         assert call.kwargs["env"] == {"BASE": "persistent", "SHARED": "scoped"}
         assert call.kwargs["uid"] == uid
