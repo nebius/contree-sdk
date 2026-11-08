@@ -34,6 +34,7 @@ snapshots, branches, rollback, and persistent history fit together.
 | Import a Docker image                                 | {doc}`python_sdk/images`          |
 | Build a filesystem from a Dockerfile                  | {doc}`python_sdk/building-images` |
 | Give an agent access to a sandbox                     | {doc}`integrations/langchain`     |
+| Run Harbor tasks in a ConTree environment             | {doc}`integrations/harbor`        |
 | Change SDK policy or replace a component              | {doc}`python_sdk/customization`   |
 | Upgrade an existing application                       | {doc}`python_sdk/migration`       |
 
@@ -91,6 +92,7 @@ python_sdk/caching
 :hidden:
 
 integrations/langchain
+integrations/harbor
 integrations/mini-swe-agent
 ```
 

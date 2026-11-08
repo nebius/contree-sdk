@@ -3,6 +3,7 @@ import io
 from datetime import datetime, timezone
 
 import pytest
+from contree_client.exceptions import ServerError, TooEarlyError
 from contree_client.models import (
     EventDataSizeCap,
     EventDataStream,
@@ -19,6 +20,7 @@ from contree_sdk.session import AsyncSubprocessHandle
 from contree_sdk.session.base import or_none
 from contree_sdk.session.operation_async import AsyncOperation
 from tests.unit.session.factories import mock_completion, operation_response
+from tests.unit.session.lazy_clients import LiveAsyncClient
 from tests.unit.session.lazy_clients import event as live_event
 
 
@@ -42,6 +44,38 @@ def make_stream_event(id: int, type: OperationEventType, spid: int, text: str) -
 def exit_code_of(result: InstanceResult) -> int | None:
     state = or_none(result.state)
     return None if state is None else or_none(state.exit_code)
+
+
+async def test_run_retries_only_pre_admission_for_standalone_operation(monkeypatch):
+    client = LiveAsyncClient()
+    await client.spawn_instance("sleep", "base")
+    create = client.operation_subprocess_create
+    received_args = []
+
+    async def not_ready_then_create(operation_id, command, **kwargs):
+        received_args.append(kwargs["args"])
+        if len(received_args) == 1:
+            raise TooEarlyError(425, "control channel not connected")
+        return await create(operation_id, command, **kwargs)
+
+    monkeypatch.setattr(client, "operation_subprocess_create", not_ready_then_create)
+    async with AsyncOperation(client, "op-1") as operation:
+        assert (await operation.run("echo", args=(value for value in ["hello", "world"]))).spid == 2
+    assert received_args == [["hello", "world"], ["hello", "world"]]
+
+    attempts = 0
+
+    async def ambiguous_create(operation_id, command, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise ServerError(504, "guest spawn timed out")
+
+    monkeypatch.setattr(client, "operation_subprocess_create", ambiguous_create)
+    await client.spawn_instance("sleep", "base")
+    async with AsyncOperation(client, "op-2") as operation:
+        with pytest.raises(ServerError):
+            await operation.run("echo")
+    assert attempts == 1
 
 
 class TestSimpleMode:
@@ -217,6 +251,52 @@ class TestShutdown:
         assert signal_call.kwargs["signal"] == "SIGTERM"
         assert operation.cancel_requested
         assert operation.terminal
+
+    @pytest.mark.parametrize("cancel_first", [False, True])
+    async def test_shutdown_closes_reader_when_cancel_does_not_end_stream(self, client, cancel_first):
+        closed = asyncio.Event()
+
+        class OpenStreamOperation(AsyncOperation):
+            async def open_event_stream(self):
+                try:
+                    yield live_event("spawn")
+                    await asyncio.Event().wait()
+                finally:
+                    closed.set()
+
+        client.mock("cancel_operation", None)
+        client.mock("operation_subprocess_kill", None)
+        operation = OpenStreamOperation(client, "op-1", shutdown_timeout=0.01)
+        await anext(operation.events(spid=1, timeout=1))
+        if cancel_first:
+            await operation.cancel()
+
+        await operation.shutdown()
+        await operation.shutdown()
+
+        assert closed.is_set()
+        assert operation.stream_error is None
+        assert len(client.calls_for("cancel_operation")) == 1
+
+    @pytest.mark.parametrize("failure", ["cancel", "transport"])
+    async def test_shutdown_preserves_unexpected_reader_failure(self, failure):
+        client = LiveAsyncClient()
+        await client.spawn_instance("sleep", "base")
+        operation = AsyncOperation(client, "op-1", shutdown_timeout=0.01)
+        await anext(operation.events(spid=1, timeout=1))
+        if failure == "cancel":
+            assert operation.consumer_task is not None
+            operation.consumer_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await operation.consumer_task
+        else:
+            await client.streams["op-1"].put(OSError("stream failed"))
+            await asyncio.wait_for(operation.terminal_event.wait(), 1)
+
+        error = RuntimeError if failure == "cancel" else OSError
+        message = "operation event reader was cancelled" if failure == "cancel" else "stream failed"
+        with pytest.raises(error, match=message):
+            await operation.shutdown()
 
 
 class TestRichMode:
