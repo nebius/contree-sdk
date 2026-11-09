@@ -1,4 +1,21 @@
-# Upgrade to the 0.5 session API
+# SDK migration guide
+
+## Upgrade to the 0.6 session API
+
+The upcoming 0.6 release uses `0.6.0.dev0` during development.
+
+### Networking and extension hooks
+
+Requires `contree-client>=0.6.0`. See
+[Configure session networking](sessions.md#configure-session-networking) for usage.
+
+- Replace `RunRequest(networking=...)` with `network_enabled=` and `network_policy=`.
+  Regular session `run()` and `spawn()` still accept `networking=`, emit
+  `DeprecationWarning`, and reject combining it with non-None new arguments.
+- Async session and lazy-session `prepare_request()` overrides must now use
+  `async def` and await the base hook. Sync hooks remain synchronous.
+
+## Upgrade to the 0.5 session API
 
 Version 0.5 removes the previous SDK API without compatibility aliases.
 Update imports, execution, and result handling as follows.
@@ -13,7 +30,7 @@ Update imports, execution, and result handling as follows.
 | `.popen()`                             | [Operation subprocesses](operation.md), created through `session.spawn()`.                                                                          |
 | SDK auth/configuration                 | `contree_client` profiles and transports; see {ref}`sandbox-connection`.                                                                            |
 
-## Choose when to save
+### Choose when to save
 
 The factory defaults to `LazySession` or `AsyncLazySession`. Commands share a VM.
 Normal context exit saves pending files; an exception discards changes since the
@@ -38,7 +55,7 @@ Snapshots are lightweight and can run after every command. They stop the VM;
 processes and memory do not survive. Unchanged files can produce the same image
 UUID. See {doc}`session-model` for sync and async examples.
 
-## Check command results
+### Check command results
 
 An API-successful operation can return a nonzero process exit code. The default
 `ApiSuccessCommitPolicy` still commits its image. Use `ZeroExitCommitPolicy`
@@ -49,7 +66,7 @@ Cancellation raises `InterruptedError`; operation failure raises
 `FailedOperationError`. Neither advances history. A `PendingRun` returned by
 async `run()` can be consumed once. See {doc}`troubleshooting` for handling errors.
 
-## Preserve history and manage resources
+### Preserve history and manage resources
 
 The factory closes the client and memory store it creates. Close components you
 supply with `with` or `async with`; use matching sync or async implementations.
@@ -65,7 +82,9 @@ selected node belong to each Session instance. Pass `node_id` to resume a specif
 position. See [Select a late result](troubleshooting.md#advanced-select-a-late-result)
 for selecting a completed result without rerunning the command.
 
-## Update integrations and extensions
+### Update integrations and extensions
+
+#### Other extension points
 
 Use `ContreeSandbox` for sync executors and `ContreeAsyncSandbox` for async
 executors. See {doc}`../integrations/langchain`. The mini-swe-agent 2.4.6 adapter

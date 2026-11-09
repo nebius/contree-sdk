@@ -30,6 +30,12 @@ from contree_sdk.session.commit_policy import AbstractCommitPolicy, ApiSuccessCo
 from contree_sdk.session.contracts import OperationContract
 from contree_sdk.session.detached import decode_response, operation_context, operation_record
 from contree_sdk.session.models import HistoryEntry
+from contree_sdk.session.networking import (
+    apply_legacy_networking,
+    validate_network_enabled,
+    validate_policy_references,
+    validate_policy_uuid,
+)
 from contree_sdk.session.operation_sync import Operation
 from contree_sdk.session.records import OperationRecord
 from contree_sdk.session.tree import entry_from_node, entry_node, order_entries
@@ -52,6 +58,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         file_transfer: SyncFileTransfer | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        network_enabled: bool = True,
+        network_policy: str | Sequence[str] | None = None,
         commit_policy: AbstractCommitPolicy | None = None,
     ) -> None:
         if image is None and session_id is None:
@@ -65,17 +73,20 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.env_override = env
         self.cwd = cwd
         self.env = dict(env or {})
+        self._network_enabled = validate_network_enabled(network_enabled)
+        self._network_policy_uuids: tuple[str, ...] = ()
         self._active_branch = "main"
         self._branches: dict[str, str] = {}
         self._position_version = 0
         self.tip_id = ""
         self.image_uuid = ""
-        self._initialize(image, node_id, tree_kind)
+        self._initialize(image, node_id, tree_kind, network_policy)
 
     def stage_files(self, files: RunFiles) -> HistoryEntry:
         parent_id = self.tip_id
         version = self._position_version
         image_uuid, cwd, env = self.image_uuid, self.cwd, dict(self.env)
+        network_policy_uuids, network_enabled = self.network_policy_uuids, self.network_enabled
         branch = self._active_branch
         attachments = tuple(
             (StagedFile.from_spec(path, spec) for path, spec in (self.file_transfer.prepare_files(files) or {}).items())
@@ -90,6 +101,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             attachments=attachments,
             cwd=cwd,
             env=env,
+            network_enabled=network_enabled,
+            network_policy_uuids=network_policy_uuids,
         )
         self.store.append(self.session_id, node)
         entry = entry_from_node(self.session_id, node)
@@ -130,6 +143,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         args: Iterable[str] = (),
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        network_enabled: bool | None = None,
+        network_policy: str | Sequence[str] | None = None,
+        networking: InstanceNetworking | None = None,
         stdin: InputSource | None = None,
         stdin_open: bool = False,
         files: RunFiles = None,
@@ -141,14 +157,17 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         uid: int | None = None,
         gid: int | None = None,
         resources_limits: InstanceResourcesLimits | None = None,
-        networking: InstanceNetworking | None = None,
     ) -> OperationContract:
+        network_enabled, network_policy = apply_legacy_networking(networking, network_enabled, network_policy)
+
         request = RunRequest(
             command=command,
             shell=shell,
             args=tuple(args),
             env=env,
             cwd=cwd,
+            network_enabled=network_enabled,
+            network_policy=network_policy,
             stdin=stdin,
             stdin_open=stdin_open,
             files=files,
@@ -160,7 +179,6 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             uid=uid,
             gid=gid,
             resources_limits=resources_limits,
-            networking=networking,
         )
         return self.spawn_request(request)
 
@@ -299,6 +317,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             applied_files=record.files,
             cwd=context.session_cwd,
             env=dict(context.session_env),
+            network_enabled=context.session_network_enabled,
+            network_policy_uuids=context.session_network_policy_uuids,
             payload={"record": completed.to_dict(), "staging_complete": image_uuid is not None},
         )
         try:
@@ -391,6 +411,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         result = instance_result(response)
         if context.request.disposable or not self.commit_policy.should_commit(context, result):
             return None
+
         node = entry_node(
             node_id=context.node_id,
             parent_id=context.parent_id,
@@ -406,6 +427,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             user=data,
             cwd=context.session_cwd,
             env=dict(context.session_env),
+            network_enabled=context.session_network_enabled,
+            network_policy_uuids=context.session_network_policy_uuids,
         )
         self.store.append(self.session_id, node)
         entry = entry_from_node(self.session_id, node)
@@ -432,6 +455,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         args: Iterable[str] = (),
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        network_enabled: bool | None = None,
+        network_policy: str | Sequence[str] | None = None,
+        networking: InstanceNetworking | None = None,
         stdin: InputSource | None = None,
         stdin_open: bool = False,
         files: RunFiles = None,
@@ -443,15 +469,18 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         uid: int | None = None,
         gid: int | None = None,
         resources_limits: InstanceResourcesLimits | None = None,
-        networking: InstanceNetworking | None = None,
         branch: str | None = None,
     ) -> InstanceResult:
+        network_enabled, network_policy = apply_legacy_networking(networking, network_enabled, network_policy)
+
         request = RunRequest(
             command=command,
             shell=shell,
             args=tuple(args),
             env=env,
             cwd=cwd,
+            network_enabled=network_enabled,
+            network_policy=network_policy,
             stdin=stdin,
             stdin_open=stdin_open,
             files=files,
@@ -463,15 +492,78 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             uid=uid,
             gid=gid,
             resources_limits=resources_limits,
-            networking=networking,
         )
         return self.execute(request, branch=branch)
 
     def refresh_from_entry(self, entry: HistoryEntry) -> None:
+        node = self.store.get_node(self.session_id, entry.id)
+        policy_uuids = tuple(cast("list[str]", node.data.get("network_policy_uuids", [])))
+        enabled = cast("bool", node.data.get("network_enabled", True))
+
         self.tip_id = entry.id
         self.image_uuid = entry.image_uuid
         self.cwd = entry.cwd
         self.env = dict(entry.env)
+        self._network_policy_uuids = policy_uuids
+        self._network_enabled = enabled
+
+    @property
+    def network_policy_uuids(self) -> tuple[str, ...]:
+        """Default policy UUIDs; operations can override them without changing the session."""
+        return self._network_policy_uuids
+
+    @property
+    def network_enabled(self) -> bool:
+        """Default networking flag; operations can override it without changing the session."""
+        return self._network_enabled
+
+    def change_network_policy(self, policy: str | Sequence[str] | None) -> None:
+        """Replace policies using UUIDs or tag:name references, singly or as a sequence.
+
+        None or an empty sequence clears the selection, restoring backend defaults.
+        UUIDs are checked and tags resolve before saving; later tag changes do not alter saved settings.
+        Sets session defaults. An operation can override them without changing defaults.
+        Use the lazy wrapper's method while it owns a VM.
+        Resolution failure leaves the selected settings unchanged.
+        """
+        self._set_network_policy_uuids(self.resolve_network_policy(policy))
+
+    def _set_network_policy_uuids(self, policy_uuids: tuple[str, ...]) -> None:
+        self._network_policy_uuids = policy_uuids
+        self._save_configuration()
+
+    def resolve_network_policy(self, policy: str | Sequence[str] | None) -> tuple[str, ...]:
+        """Validate policy existence and resolve tags without changing the session or VM.
+
+        Override this hook to customize lookup. Return UUIDs, never unresolved tags.
+        Duplicate UUIDs are removed while preserving their first occurrence.
+
+        Returns:
+            The selected UUIDs, or an empty tuple for backend defaults.
+
+        """
+        resolved = []
+        for reference in dict.fromkeys(validate_policy_references(policy)):
+            if reference.startswith("tag:"):
+                tag = self.client.get_network_policy_tag(reference.removeprefix("tag:"))
+                uuid = validate_policy_uuid(require_str(tag.uuid, "network policy tag returned no UUID"))
+            else:
+                uuid = validate_policy_uuid(reference)
+                if uuid not in resolved:
+                    self.client.get_network_policy(uuid)
+
+            if uuid not in resolved:
+                resolved.append(uuid)
+        return tuple(resolved)
+
+    def change_network_enabled(self, enabled: bool) -> None:
+        """Persist whether future VMs have networking, retaining the policy UUIDs.
+
+        Use the lazy wrapper's method while it owns a VM.
+        """
+        enabled = validate_network_enabled(enabled)
+        self._network_enabled = enabled
+        self._save_configuration()
 
     def set_cwd(self, cwd: str | None) -> None:
         self.cwd = cwd
@@ -599,10 +691,24 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             The effective command with session defaults applied.
 
         """
+        effective_env = self.prepare_environment(request.env)
+        effective_cwd = request.cwd if request.cwd is not None else self.cwd
+        effective_network_enabled = (
+            self.network_enabled
+            if request.network_enabled is None
+            else validate_network_enabled(request.network_enabled)
+        )
+        effective_network_policy_uuids = (
+            self.network_policy_uuids
+            if request.network_policy is None
+            else self.resolve_network_policy(request.network_policy)
+        )
         return replace(
             request,
-            env=self.prepare_environment(request.env),
-            cwd=request.cwd if request.cwd is not None else self.cwd,
+            env=effective_env,
+            cwd=effective_cwd,
+            network_enabled=effective_network_enabled,
+            network_policy=effective_network_policy_uuids,
         )
 
     def create_inspector(self, image_uuid: str) -> ImageInspector:
@@ -677,14 +783,16 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             A bound operation whose context records the effective request.
 
         """
-        request = self.prepare_request(request)
         image_uuid = require_str(self.image_uuid, "session has no resolved image")
         parent_id = self.tip_id
         position_version = self._position_version
         session_cwd, session_env = self.cwd, dict(self.env)
+        session_network_enabled = self.network_enabled
+        session_network_policy_uuids = self.network_policy_uuids
         branch = self._active_branch
-        staged = self.pending_files(parent_id)
-        files = {item.path: item.as_spec() for item in staged}
+
+        request = self.prepare_request(request)
+        files = {item.path: item.as_spec() for item in self.pending_files(parent_id)}
         files.update(self.file_transfer.prepare_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
@@ -701,6 +809,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             position_version=position_version,
             session_cwd=session_cwd,
             session_env=session_env,
+            session_network_enabled=session_network_enabled,
+            session_network_policy_uuids=session_network_policy_uuids,
         )
         response = self.submit_request(request, image_uuid, files=files or None, stdin=stdin)
         try:
@@ -740,7 +850,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             uid=request.uid if request.uid is not None else ...,
             gid=request.gid if request.gid is not None else ...,
             resources_limits=request.resources_limits if request.resources_limits is not None else ...,
-            networking=request.networking if request.networking is not None else ...,
+            networking=InstanceNetworking(
+                enabled=cast("bool", request.network_enabled), policy=list(request.network_policy or ())
+            ),
             timeout=ceil(timeout) if timeout is not None else ...,
             truncate_output_at=request.truncate_output_at if request.truncate_output_at is not None else ...,
             files=files if files is not None else ...,
@@ -787,7 +899,11 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             if cursor is None:
                 return result
 
-    def _initialize(self, image: str | None, node_id: str | None, tree_kind: str) -> None:
+    def _initialize(
+        self, image: str | None, node_id: str | None, tree_kind: str, network_policy: str | Sequence[str] | None
+    ) -> None:
+        initial_network_policy = validate_policy_references(network_policy)
+
         info = self.store.get_session(self.session_id)
         if info is None:
             if image is None:
@@ -802,6 +918,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
                 image_uuid=self.resolve_image(image),
                 kind="init",
                 created_at=time.time(),
+                network_enabled=self.network_enabled,
+                network_policy_uuids=self.resolve_network_policy(initial_network_policy),
                 cwd=self.cwd,
                 env=self.env,
             )
@@ -862,6 +980,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             created_at=time.time(),
             cwd=self.cwd,
             env=self.env,
+            network_enabled=self.network_enabled,
+            network_policy_uuids=self.network_policy_uuids,
         )
         self.store.append(self.session_id, node)
         self._branches[self._active_branch] = node.id

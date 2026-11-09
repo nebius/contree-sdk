@@ -488,8 +488,8 @@ async def test_vm_deadline_uses_effective_timeout_and_original_start_time(
             return response
 
     class CustomSession(ContreeAsyncSession):
-        def prepare_request(self, request):
-            request = super().prepare_request(request)
+        async def prepare_request(self, request):
+            request = await super().prepare_request(request)
             if override == "prepare_request" and request.command == "sleep":
                 return replace(request, timeout=effective_timeout)
             return request

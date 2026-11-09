@@ -518,3 +518,66 @@ The application closes any Store it supplies. Keep the Store context outside all
 session contexts that use it, as in these examples. See {doc}`manual-sandbox` for
 explicit component construction and cleanup, and {doc}`reference/store` for the
 complete storage API.
+
+## Configure session networking
+
+Set `network_policy` to a UUID, `tag:name`, or a sequence of references, and
+`network_enabled` to a boolean. UUIDs are checked for existence and tags resolve
+when supplied; saved selections are reused without lookups. Create
+policies and manage tags through `contree-client`. This example assumes an
+existing `restricted` tag.
+
+<!--
+name: test_networking; fixtures: sandbox_api
+```python
+from contree_client.models import NetworkPolicyTag
+
+sandbox_api.sync.mock(
+    "get_network_policy_tag", NetworkPolicyTag(tag="restricted", uuid="11111111-1111-4111-8111-111111111111")
+)
+```
+-->
+
+```python
+from contree_client.sync import ContreeClient
+
+from contree_sdk import create_sandbox_session
+
+with ContreeClient.from_profile() as client:
+    with create_sandbox_session(
+        client=client, image="tag:alpine:latest", network_policy="tag:restricted", network_enabled=True
+    ) as session:
+        session.run("echo", args=("networking configured",))
+        session.change_network_enabled(False)
+        session.run("echo", args=("no network interface",))
+        session.change_network_enabled(True)  # Retains the selected policy.
+        session.change_network_policy(None)  # Restore default network access.
+```
+
+<!--
+name: test_networking
+```python
+calls = sandbox_api.sync.calls_for("spawn_instance")
+assert [call.kwargs["networking"].to_dict() for call in calls] == [
+    {"enabled": True, "policy": ["11111111-1111-4111-8111-111111111111"]},
+    {"enabled": False, "policy": ["11111111-1111-4111-8111-111111111111"]},
+]
+assert calls[1].args[1] == "image-op-1"
+```
+-->
+
+Use `await` with async sessions. Both change methods update session defaults
+and save a configuration history step. On a lazy session, they first snapshot
+the active VM, stopping its processes.
+
+- `change_network_policy(None)` or `[]` clears the selection and restores backend
+  default access. To deny all traffic, select a policy with empty rules.
+- `change_network_enabled(False)` disables the network interface while retaining
+  selected policies. The setter requires `True` or `False`; `None` is rejected.
+- Regular operations accept `network_policy` and `network_enabled` overrides;
+  `None` inherits session defaults. Lazy operations reject these overrides.
+- Reopening or navigating a session restores its saved network defaults.
+
+Read `session.network_enabled` and `session.network_policy_uuids` for the current
+settings. See [migration notes](migration.md#networking-and-extension-hooks) for
+legacy `networking=` compatibility.

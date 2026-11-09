@@ -105,8 +105,8 @@ class AuditedAsyncOperation(AsyncOperation):
 
 
 class PolicySession(ContreeAsyncSession):
-    def prepare_request(self, request: RunRequest) -> RunRequest:
-        request = super().prepare_request(request)
+    async def prepare_request(self, request: RunRequest) -> RunRequest:
+        request = await super().prepare_request(request)
         if request.shell is not None:
             raise ValueError("this session only accepts commands with explicit arguments")
         return replace(request, timeout=request.timeout or 30, env={**(request.env or {}), "APP_MODE": "test"})
@@ -145,9 +145,20 @@ assert capsys.readouterr().out == "1\n"
 ::::
 
 The session calls `prepare_request()` before uploading files or submitting work.
+The hook applies cwd, environment, and networking defaults and resolves policy
+tags. On `ContreeAsyncSession` and `AsyncLazySession`, it is async: override it
+with `async def` and await `super().prepare_request(request)`. Lazy wrappers
+reject explicit networking overrides before the base hook fills in defaults.
 It passes the prepared inputs to `submit_request()`, then constructs the handle
 through `create_operation()`. The `OperationContext` holds the effective request
 and the source image, history entry, and branch used for the eventual commit.
+Its `session_network_policy_uuids` and `session_network_enabled` capture session defaults before
+tag lookup and uploads, like `session_cwd` and `session_env`. The prepared
+`context.request` contains effective networking: resolved UUIDs in
+`network_policy` and a concrete `network_enabled` flag. Committing saves session
+defaults from the context in the history node, like `cwd` and `env`. Detached
+records also retain the effective request. Later session changes do not alter
+either captured value.
 If operation construction fails after submission, the session attempts remote
 cancellation and preserves the factory error.
 
