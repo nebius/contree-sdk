@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from concurrent.futures import Future
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from functools import partial
 from math import isfinite
 from typing import Literal
@@ -81,7 +82,7 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         return self.state.error
 
     def prepare_request(self, request: RunRequest) -> RunRequest:
-        """Apply the wrapped session's policy and validate shared-VM semantics.
+        """Apply session cwd/env defaults and validate subprocess options.
 
         Returns:
             The effective request.
@@ -90,7 +91,6 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             ValueError: The request needs a disposable VM or startup-only options.
 
         """
-        request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeAsyncSession")
         if (
@@ -100,7 +100,12 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
             or request.networking is not None
         ):
             raise ValueError("preserve_env, hostname, resources_limits and networking require VM startup configuration")
-        return request
+        env = {**self.session.env, **(request.env or {})}
+        return replace(
+            request,
+            env=env if env or request.env is not None else None,
+            cwd=request.cwd if request.cwd is not None else self.session.cwd,
+        )
 
     def keepalive_request(self) -> RunRequest:
         """Supply a long-running main process available in the base image.

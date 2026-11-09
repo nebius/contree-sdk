@@ -52,6 +52,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         file_transfer: SyncFileTransfer | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
         commit_policy: AbstractCommitPolicy | None = None,
     ) -> None:
         if image is None and session_id is None:
@@ -65,6 +66,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.env_override = env
         self.cwd = cwd
         self.env = dict(env or {})
+        self.resources_limits = resources_limits
         self._active_branch = "main"
         self._branches: dict[str, str] = {}
         self._position_version = 0
@@ -601,6 +603,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             request,
             env=self.prepare_environment(request.env),
             cwd=request.cwd if request.cwd is not None else self.cwd,
+            resources_limits=request.resources_limits
+            if request.resources_limits is not None
+            else self.resources_limits,
         )
 
     def create_inspector(self, image_uuid: str) -> ImageInspector:

@@ -41,6 +41,7 @@ inside the lazy context discards changes since its last completed snapshot.
 
 from contree_client import profiles
 from contree_client.httpx import ContreeClient
+from contree_client.models import InstanceResourcesLimits
 
 from contree_sdk import ContreeSession, LazySession
 from contree_sdk.files import ClientFileTransfer
@@ -57,7 +58,13 @@ def main() -> None:
             transfer = CachedFileTransfer(
                 ClientFileTransfer(client), store, scope=StoreScope.from_client(client), ttl=60
             )
-            base = ContreeSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
+            base = ContreeSession(
+                client,
+                image="tag:alpine:latest",
+                store=store,
+                file_transfer=transfer,
+                resources_limits=InstanceResourcesLimits(cpu=2, memory_mib=2048),
+            )
             policy = IdleSnapshotPolicy(10)
             with LazySession(base, snapshot_policy=policy) as sandbox:
                 sandbox.run(shell="echo 'Hello from ConTree!' > /message.txt")
@@ -72,6 +79,9 @@ main()
 name: test_manual_sandbox
 ```python
 assert len(sandbox_api.sync.calls_for("spawn_instance")) == 1
+assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["resources_limits"] == InstanceResourcesLimits(
+    cpu=2, memory_mib=2048
+)
 assert len(sandbox_api.sync.calls_for("operation_subprocess_create")) == 2
 assert sandbox_api.sync.calls_for("operation_subprocess_kill")[0].args[1] == 1
 assert len(sandbox_api.sync.calls_for("get_operation_status")) == 1
@@ -90,6 +100,7 @@ import asyncio
 
 from contree_client import profiles
 from contree_client.aiohttp import ContreeAsyncClient
+from contree_client.models import InstanceResourcesLimits
 
 from contree_sdk import AsyncLazySession, ContreeAsyncSession
 from contree_sdk.files import AsyncClientFileTransfer
@@ -106,7 +117,13 @@ async def main() -> None:
             transfer = AsyncCachedFileTransfer(
                 AsyncClientFileTransfer(client), store, scope=StoreScope.from_client(client), ttl=60
             )
-            base = ContreeAsyncSession(client, image="tag:alpine:latest", store=store, file_transfer=transfer)
+            base = ContreeAsyncSession(
+                client,
+                image="tag:alpine:latest",
+                store=store,
+                file_transfer=transfer,
+                resources_limits=InstanceResourcesLimits(cpu=2, memory_mib=2048),
+            )
             await base.ensure_ready()
             policy = IdleSnapshotPolicy(10)
             async with AsyncLazySession(base, snapshot_policy=policy) as sandbox:
@@ -122,6 +139,9 @@ asyncio.run(main())
 name: test_manual_sandbox_async
 ```python
 assert len(sandbox_api.async_client.calls_for("spawn_instance")) == 1
+assert sandbox_api.async_client.calls_for("spawn_instance")[0].kwargs["resources_limits"] == InstanceResourcesLimits(
+    cpu=2, memory_mib=2048
+)
 assert len(sandbox_api.async_client.calls_for("operation_subprocess_create")) == 2
 assert sandbox_api.async_client.calls_for("operation_subprocess_kill")[0].args[1] == 1
 assert len(sandbox_api.async_client.calls_for("get_operation_status")) == 1
@@ -220,9 +240,9 @@ in a separate VM. Use `disposable=True` to leave the session image unchanged.
 Selecting a lazy subclass retains a shared VM until a snapshot. Snapshots are
 lightweight and can run after every command, but they stop the VM. An unchanged
 filesystem can produce the same image UUID. `session_kwargs`
-configures the selected class; `store`, `file_transfer`, and `commit_policy`
-configure its underlying base session. To supply a custom base session inside a
-lazy wrapper, assemble them directly as above.
+configures the selected class; `store`, `file_transfer`, `commit_policy`, and
+`resources_limits` configure its underlying base session. To supply a custom base
+session inside a lazy wrapper, assemble them directly as above.
 
 Continue with {doc}`customization` for public hooks and component contracts,
 and {doc}`reference/session` for snapshot policies. Snapshots

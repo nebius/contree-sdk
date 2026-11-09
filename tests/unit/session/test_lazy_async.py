@@ -2,9 +2,15 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-from contree_client.models import FileResponse, InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import (
+    FileResponse,
+    InstanceResourcesLimits,
+    InstanceResultState,
+    OperationStatus,
+    StreamRepr,
+)
 
-from contree_sdk import AsyncLazySession, ContreeAsyncSession
+from contree_sdk import AsyncLazySession, ContreeAsyncSession, RunRequest
 from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
 from contree_sdk.session.base import exit_code_of
@@ -20,13 +26,39 @@ async def wait_state(lazy, predicate):
 
 
 async def test_shared_vm_snapshot_and_next_image():
+    resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
     client = LiveAsyncClient()
-    base = ContreeAsyncSession(client, image="base")
+
+    class VMPolicySession(ContreeAsyncSession):
+        def prepare_request(self, request):
+            assert request.command not in {"first", "second", "third"}
+            return replace(super().prepare_request(request), env={"VM_ONLY": "yes"}, cwd="/vm")
+
+    base = VMPolicySession(
+        client, image="base", resources_limits=resources, cwd="/session", env={"BASE": "kept", "SHARED": "session"}
+    )
     async with AsyncLazySession(base) as lazy:
+        overlay = {"SHARED": "command"}
         assert not client.calls_for("spawn_instance")
-        assert (await lazy.run("first")).stdout == StreamRepr(value="first", encoding="ascii", truncated=False)
+        assert (await lazy.run("first", env=overlay, cwd="/command")).stdout == StreamRepr(
+            value="first", encoding="ascii", truncated=False
+        )
         assert (await lazy.run("second")).stdout == StreamRepr(value="second", encoding="ascii", truncated=False)
         assert len(client.calls_for("spawn_instance")) == 1
+        assert overlay == {"SHARED": "command"}
+        assert base.env == {"BASE": "kept", "SHARED": "session"}
+        assert client.calls_for("spawn_instance")[0].kwargs["cwd"] == "/vm"
+        assert client.calls_for("spawn_instance")[0].kwargs["env"] == {"VM_ONLY": "yes"}
+        children = client.calls_for("operation_subprocess_create")
+        assert [call.kwargs["cwd"] for call in children] == ["/command", "/session"]
+        assert [call.kwargs["env"] for call in children] == [
+            {"BASE": "kept", "SHARED": "command"},
+            {"BASE": "kept", "SHARED": "session"},
+        ]
+        assert all(
+            call.kwargs.get("resources_limits", ...) is Ellipsis
+            for call in client.calls_for("operation_subprocess_create")
+        )
         assert client.calls_for("spawn_instance")[0].kwargs["timeout"] == 3600
         assert client.calls_for("spawn_instance")[0].kwargs["args"] == ["infinity"]
         assert len(client.calls_for("follow_operation_events")) == 1
@@ -36,10 +68,46 @@ async def test_shared_vm_snapshot_and_next_image():
         assert entry.image_uuid == "image-op-1"
         await lazy.run("third")
         assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
+        assert all(call.kwargs["resources_limits"] is resources for call in client.calls_for("spawn_instance"))
     assert lazy.phase == "closed"
     assert lazy.worker is not None
     assert lazy.worker.done()
     assert len((await base.history())[0]) == 3
+
+
+@pytest.mark.parametrize("env", [None, {}])
+async def test_empty_session_environment_preserves_request_optional_values(env):
+    client = LiveAsyncClient()
+    async with AsyncLazySession(ContreeAsyncSession(client, image="base")) as session:
+        prepared = session.prepare_request(RunRequest(command="echo", env=env))
+        assert prepared.env == env
+        assert not client.calls_for("spawn_instance")
+
+
+@pytest.mark.parametrize(
+    ("warm", "configuration"), [(False, "empty"), (False, "custom"), (False, "falsey"), (True, "custom")]
+)
+async def test_explicit_resource_limits_are_rejected_before_submission(warm, configuration):
+    class FalseyResources(InstanceResourcesLimits):
+        def __bool__(self):
+            return False
+
+    resources = {
+        "empty": InstanceResourcesLimits(),
+        "custom": InstanceResourcesLimits(cpu=2, memory_mib=2048),
+        "falsey": FalseyResources(cpu=1),
+    }[configuration]
+    client = LiveAsyncClient()
+    base = ContreeAsyncSession(client, image="base", resources_limits=InstanceResourcesLimits(cpu=2))
+    async with AsyncLazySession(base) as session:
+        if warm:
+            await session.run("first")
+        with pytest.raises(ValueError, match="resources_limits"):
+            await session.execute(RunRequest(command="echo", resources_limits=resources))
+        assert len(client.calls_for("spawn_instance")) == int(warm)
+        assert len(client.calls_for("operation_subprocess_create")) == int(warm)
+        assert exit_code_of(await session.run("next")) == 0
+        assert len(client.calls_for("spawn_instance")) == 1
 
 
 async def test_run_files_are_applied_before_subprocess_on_cold_and_running_vm(tmp_path):
