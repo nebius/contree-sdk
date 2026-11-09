@@ -103,6 +103,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         file_transfer: AsyncFileTransfer | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
         commit_policy: AbstractCommitPolicy | None = None,
     ) -> None:
         if image is None and session_id is None:
@@ -119,6 +120,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         self.env_override = env
         self.cwd = cwd
         self.env: dict[str, str] = env if env is not None else {}
+        self.resources_limits = resources_limits
         self.image_uuid: str | None = None
         self.tip_id = ""
         self.node_id = node_id
@@ -688,6 +690,9 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             request,
             env=self.prepare_environment(request.env),
             cwd=request.cwd if request.cwd is not None else self.cwd,
+            resources_limits=request.resources_limits
+            if request.resources_limits is not None
+            else self.resources_limits,
         )
 
     def create_inspector(self, image_uuid: str) -> AsyncImageInspector:
