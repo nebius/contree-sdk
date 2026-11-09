@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from contree_client import RetryPolicy
-from contree_client.models import FileResponse, StreamRepr
+from contree_client.models import FileResponse, InstanceResourcesLimits, StreamRepr
 from contree_client.profiles import Profile, ProfileError
 from contree_client.testing import ContreeAsyncClient as StubAsyncClient
 from contree_client.testing import ContreeClient as StubClient
@@ -165,6 +165,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     policy = IdleSnapshotPolicy(120)
     commit = ZeroExitCommitPolicy()
     selected = CustomAsyncLazy if asynchronous else CustomLazy
+    resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
     options: dict[str, Any] = {
         "image": "base",
         "profile": profile,
@@ -175,11 +176,13 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
         "cwd": "/work",
         "env": {"A": "B"},
         "commit_policy": commit,
+        "resources_limits": resources,
         "session_kwargs": {
             "label": "selected",
             "snapshot_policy": policy,
             "snapshot_timeout": 7,
             "vm_timeout": 120,
+            "resources_limits": InstanceResourcesLimits(cpu=1),
             "client": None,
             "store": None,
             "cwd": "/ignored",
@@ -203,6 +206,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     assert session.snapshot_policy is policy
     assert session.snapshot_timeout == 7
     assert session.vm_timeout == 120
+    assert session.session.resources_limits is resources
     assert session.session.store is store
     assert options["session_kwargs"] == original_kwargs
     assert isinstance(session.session.file_transfer, (CachedFileTransfer, AsyncCachedFileTransfer))
@@ -211,6 +215,27 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     assert session.session.cwd == "/work"
     assert session.session.env == {"A": "B"}
     store.close.assert_not_called()
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_resource_defaults_reach_saved_sessions(profile, asynchronous):
+    resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
+    selected = ContreeAsyncSession if asynchronous else ContreeSession
+    options: dict[str, Any] = {
+        "image": "base",
+        "profile": profile,
+        "client_type": FactoryAsyncClient if asynchronous else FactoryClient,
+        "session_type": selected,
+        "resources_limits": resources,
+    }
+    context = create_sandbox_session(**options)
+    if asynchronous:
+        async with context as session:
+            pass
+    else:
+        with context as session:
+            pass
+    assert session.resources_limits is resources
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])

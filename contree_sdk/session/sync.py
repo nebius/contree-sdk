@@ -60,6 +60,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         env: dict[str, str] | None = None,
         network_enabled: bool = True,
         network_policy: str | Sequence[str] | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
         commit_policy: AbstractCommitPolicy | None = None,
     ) -> None:
         if image is None and session_id is None:
@@ -75,6 +76,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.env = dict(env or {})
         self._network_enabled = validate_network_enabled(network_enabled)
         self._network_policy_uuids: tuple[str, ...] = ()
+        self.resources_limits = resources_limits
         self._active_branch = "main"
         self._branches: dict[str, str] = {}
         self._position_version = 0
@@ -705,6 +707,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             cwd=effective_cwd,
             network_enabled=effective_network_enabled,
             network_policy=effective_network_policy_uuids,
+            resources_limits=request.resources_limits
+            if request.resources_limits is not None
+            else self.resources_limits,
         )
 
     def create_inspector(self, image_uuid: str) -> ImageInspector:

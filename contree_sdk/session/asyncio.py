@@ -111,6 +111,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         env: dict[str, str] | None = None,
         network_enabled: bool = True,
         network_policy: str | Sequence[str] | None = None,
+        resources_limits: InstanceResourcesLimits | None = None,
         commit_policy: AbstractCommitPolicy | None = None,
     ) -> None:
         if image is None and session_id is None:
@@ -130,6 +131,7 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         self._network_enabled = validate_network_enabled(network_enabled)
         self._initial_network_policy = validate_policy_references(network_policy)
         self._network_policy_uuids: tuple[str, ...] = ()
+        self.resources_limits = resources_limits
         self.image_uuid: str | None = None
         self.tip_id = ""
         self.node_id = node_id
@@ -800,6 +802,9 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
             cwd=effective_cwd,
             network_enabled=effective_network_enabled,
             network_policy=effective_network_policy_uuids,
+            resources_limits=request.resources_limits
+            if request.resources_limits is not None
+            else self.resources_limits,
         )
 
     def create_inspector(self, image_uuid: str) -> AsyncImageInspector:

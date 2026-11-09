@@ -27,6 +27,24 @@ class CustomAsyncLazy(AsyncLazySession):
 '''
 
 [[cases]]
+name = "session_vm_resources"
+code = '''
+from contree_client.models import InstanceResourcesLimits
+resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
+sync = ContreeSession(ContreeClient(), image="base", resources_limits=resources)
+async_session = ContreeAsyncSession(ContreeAsyncClient(), image="base", resources_limits=resources)
+assert_type(sync.resources_limits, InstanceResourcesLimits | None)
+assert_type(async_session.resources_limits, InstanceResourcesLimits | None)
+'''
+
+[[cases]]
+name = "session_maker_rejects_invalid_resource_defaults"
+errors = [{ line = 1, code = "invalid-argument-type" }]
+code = '''
+session_maker(SyncSandboxSessionContext, resources_limits={"cpu": 2})
+'''
+
+[[cases]]
 name = "default_context_types"
 code = '''
 assert_type(create_sandbox_session(), SandboxSessionContext[LazySession, AsyncLazySession])

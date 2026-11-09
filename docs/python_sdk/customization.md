@@ -162,6 +162,10 @@ either captured value.
 If operation construction fails after submission, the session attempts remote
 cancellation and preserves the factory error.
 
+Lazy wrappers prepare subprocess requests independently using the saved session's
+`cwd` and `env` defaults. Override the lazy wrapper's `prepare_request()` for
+subprocess policy; the saved session's hook applies only when starting the VM.
+
 `create_store()` and `create_file_transfer()` supply defaults only when no component
 was passed explicitly. Constructor-time factories must not depend on attributes
 that a subclass initializes after `super().__init__()`.

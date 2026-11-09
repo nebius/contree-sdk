@@ -22,6 +22,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Generic, Literal, NoReturn, TypeVar, cast, overload
 
+from contree_client.models import InstanceResourcesLimits
 from contree_client.profiles import Profile
 from contree_client.types import ContreeAsyncClient, ContreeSyncClient
 
@@ -65,6 +66,7 @@ class SandboxConfig:
     env: dict[str, str] | None = None
     network_enabled: bool = True
     network_policy: str | Sequence[str] | None = None
+    resources_limits: InstanceResourcesLimits | None = None
     commit_policy: AbstractCommitPolicy | None = None
     file_transfer: SyncFileTransfer | AsyncFileTransfer | None = None
     session_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -119,6 +121,7 @@ class SandboxConfig:
             "env": self.env,
             "network_enabled": self.network_enabled,
             "network_policy": self.network_policy,
+            "resources_limits": self.resources_limits,
             "commit_policy": self.commit_policy,
         }
         kwargs = self.session_kwargs.copy()
@@ -448,6 +451,7 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
     env: dict[str, str] | None = None,
     network_enabled: bool = True,
     network_policy: str | Sequence[str] | None = None,
+    resources_limits: InstanceResourcesLimits | None = None,
     commit_policy: AbstractCommitPolicy | None = None,
     file_transfer: SyncFileTransfer | AsyncFileTransfer | None = None,
     session_kwargs: Mapping[str, Any] | None = None,
@@ -500,6 +504,7 @@ def session_maker(  # noqa: PLR0913 - explicit routing of session, profile, and 
             env=dict(env) if env is not None else None,
             network_enabled=network_enabled,
             network_policy=network_policy,
+            resources_limits=resources_limits,
             commit_policy=commit_policy,
             file_transfer=file_transfer,
             session_kwargs=dict(session_kwargs or {}),
