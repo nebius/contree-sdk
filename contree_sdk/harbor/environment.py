@@ -12,11 +12,12 @@ from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
-from contree_client.models import InstanceResultState, StreamRepr
+from contree_client.models import InstanceResourcesLimits, InstanceResultState, StreamRepr
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
+from harbor.models.trial.config import ResourceMode
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
@@ -75,7 +76,7 @@ class ConTreeEnvironment(BaseEnvironment):
 
     @classmethod
     def resource_capabilities(cls) -> EnvironmentResourceCapabilities:
-        return EnvironmentResourceCapabilities()
+        return EnvironmentResourceCapabilities(cpu_limit=True, memory_limit=True)
 
     def _validate_definition(self) -> None:
         config = self.task_env_config
@@ -89,8 +90,6 @@ class ConTreeEnvironment(BaseEnvironment):
             raise ValueError("ConTree does not yet support task MCP servers.")
         self.validate_network_policy_support(config.resolve_baseline())
         self._validate_mounts()
-
-        # TODO(CONTREE-243): Forward Harbor resource settings when the SDK supports LazySession VM resources.
 
     def _validate_mounts(self) -> None:
         # Harbor requests host bind mounts for standard logs; cloud backends transfer these paths instead.
@@ -144,12 +143,22 @@ class ConTreeEnvironment(BaseEnvironment):
         ).open_async(resources)
         contree_image = await async_import_image(docker_image, client=client)
 
+        cpu = self._resource_limit_value("cpu", auto_mode=ResourceMode.LIMIT)
+        memory = self._resource_limit_value("memory", auto_mode=ResourceMode.LIMIT)
+        limits = (
+            InstanceResourcesLimits(
+                cpu=cpu if cpu is not None else ..., memory_mib=memory if memory is not None else ...
+            )
+            if cpu is not None or memory is not None
+            else None
+        )
         policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
         self._lazy_session = await self._stack.enter_async_context(
             create_async_sandbox_session(
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
+                resources_limits=limits,
                 session_kwargs={"snapshot_policy": policy},
             )
         )
