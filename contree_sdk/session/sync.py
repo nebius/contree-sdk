@@ -468,8 +468,12 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         return self.execute(request, branch=branch)
 
     def refresh_from_entry(self, entry: HistoryEntry) -> None:
+        node = self.store.get_node(self.session_id, entry.id)
+
         self.tip_id = entry.id
         self.image_uuid = entry.image_uuid
+        self.cwd = cast("str | None", node.data.get("cwd"))
+        self.env = dict(cast("dict[str, str]", node.data.get("env", {})))
 
     def set_cwd(self, cwd: str | None) -> None:
         self.cwd = cwd
@@ -824,10 +828,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         else:
             node = self.store.get_node(self.session_id, node_id)
         self.refresh_from_entry(entry_from_node(self.session_id, node))
-        if self.cwd_override is None:
-            self.cwd = cast("str | None", node.data.get("cwd"))
-        if self.env_override is None:
-            self.env = dict(cast("dict[str, str]", node.data.get("env", {})))
+        if self.cwd_override is not None:
+            self.cwd = self.cwd_override
+        if self.env_override is not None:
+            self.env = dict(self.env_override)
         self._branches = {"main": self.tip_id}
 
     def get_entry(self, node_id: str) -> HistoryEntry:
