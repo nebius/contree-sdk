@@ -496,16 +496,12 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         return self.execute(request, branch=branch)
 
     def refresh_from_entry(self, entry: HistoryEntry) -> None:
-        node = self.store.get_node(self.session_id, entry.id)
-        policy_uuids = tuple(cast("list[str]", node.data.get("network_policy_uuids", [])))
-        enabled = cast("bool", node.data.get("network_enabled", True))
-
         self.tip_id = entry.id
         self.image_uuid = entry.image_uuid
         self.cwd = entry.cwd
         self.env = dict(entry.env)
-        self._network_policy_uuids = policy_uuids
-        self._network_enabled = enabled
+        self._network_policy_uuids = entry.network_policy_uuids
+        self._network_enabled = entry.network_enabled
 
     @property
     def network_policy_uuids(self) -> tuple[str, ...]:

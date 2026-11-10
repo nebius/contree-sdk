@@ -11,7 +11,7 @@ from contree_sdk import AsyncLazySession, ContreeAsyncSession, ContreeSession, L
 from contree_sdk.execution import RunRequest
 from contree_sdk.files import AsyncClientFileTransfer, UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy
-from contree_sdk.store import AsyncSQLiteStore, SyncSQLiteStore
+from contree_sdk.store import AsyncSQLiteStore, Node, SyncSQLiteStore
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 from tests.unit.session.lazy_clients import LiveAsyncClient, LiveClient
 
@@ -79,6 +79,8 @@ async def test_change_network_enabled_rejects_none_without_changing_defaults(ses
 async def test_initial_settings_and_independent_changes_survive_reopen(session, tmp_path):
     entries, _ = await invoke(session.history)
     assert entries[0].kind == "init"
+    assert entries[0].network_policy_uuids == (POLICY_A,)
+    assert entries[0].network_enabled is False
     saved_data = await entry_data(session, entries[0])
     assert saved_data["network_policy_uuids"] == [POLICY_A]
     assert saved_data["network_enabled"] is False
@@ -153,6 +155,84 @@ async def test_branch_switch_restores_networking_and_late_result_does_not_overwr
     assert session.network_policy_uuids == (POLICY_A,)
     assert session.network_enabled is False
     await invoke(operation.shutdown)
+
+
+@pytest.mark.parametrize("session", [True], indirect=True, ids=["async"])
+@pytest.mark.parametrize("action", ["commit", "detached_commit", "wait_operation", "stage_files"])
+@pytest.mark.parametrize("navigation", ["navigate", "switch_branch"])
+async def test_navigation_during_refresh_keeps_network_selection_consistent(session, monkeypatch, action, navigation):
+    selected_id = session.tip_id
+    await session.create_branch("selected")
+    await session.change_network_policy(POLICY_B)
+    await session.change_network_enabled(True)
+    source_id = session.tip_id
+    operation = None
+    if action != "stage_files":
+        operation = await session.spawn("command")
+        if action in {"detached_commit", "wait_operation"}:
+            await session.detach(operation)
+        if action in {"commit", "detached_commit"}:
+            await operation.wait()
+
+    navigation_task: asyncio.Task[None] | None = None
+    refresh_from_entry = session.refresh_from_entry
+    get_node = session.store.get_node
+
+    async def refresh_with_navigation(entry):
+        nonlocal navigation_task
+        if navigation_task is None:
+            target = selected_id if navigation == "navigate" else "selected"
+            navigation_task = asyncio.create_task(getattr(session, navigation)(target))
+        await refresh_from_entry(entry)
+
+    async def read_after_navigation(session_id, node_id):
+        # A Store read after the position guard lets the queued navigation complete first.
+        if navigation_task is not None and asyncio.current_task() is not navigation_task:
+            await navigation_task
+        return await get_node(session_id, node_id)
+
+    monkeypatch.setattr(session, "refresh_from_entry", refresh_with_navigation)
+    monkeypatch.setattr(session.store, "get_node", read_after_navigation)
+
+    if action == "stage_files":
+        await session.stage_files({"/data": UploadFileSpec(source=UploadedFile("upload", "a" * 64))})
+    else:
+        assert operation is not None
+        if action == "wait_operation":
+            await session.wait_operation(operation.uuid)
+        else:
+            await session.commit_result(operation)
+    assert navigation_task is not None
+    await navigation_task
+
+    assert session.tip_id == selected_id
+    assert session.image_uuid == "base"
+    assert session.network_policy_uuids == (POLICY_A,)
+    assert session.network_enabled is False
+    selected_branch = "main" if navigation == "navigate" else "selected"
+    entries, branches = await session.history()
+    assert selected_branch in branches[selected_id]
+    saved = [entry for entry in entries if entry.parent_id == source_id]
+    assert len(saved) == 1
+    assert saved[0].network_policy_uuids == (POLICY_B,)
+    assert saved[0].network_enabled is True
+
+
+async def test_legacy_history_entry_restores_default_networking_without_policy_lookups(session):
+    node = Node(id="legacy", parent_id=session.tip_id, kind="run", data={"image_uuid": "legacy-image"})
+    await invoke(session.store.append, session.session_id, node)
+    entry = await invoke(session.get_entry, node.id)
+    assert entry.network_enabled is True
+    assert entry.network_policy_uuids == ()
+    calls = list(session.client.calls)
+
+    await invoke(session.navigate, entry.id)
+
+    assert session.tip_id == entry.id
+    assert session.image_uuid == "legacy-image"
+    assert session.network_enabled is True
+    assert session.network_policy_uuids == ()
+    assert session.client.calls == calls
 
 
 @pytest.mark.parametrize(
@@ -350,6 +430,8 @@ async def test_operation_overrides_preserve_defaults_and_history(
     entries, _ = await invoke(session.history)
     assert [entry.kind for entry in entries] == ["init", "run", "run"]
     overridden = entries[1]
+    assert overridden.network_policy_uuids == (POLICY_A,)
+    assert overridden.network_enabled is False
     saved_data = await entry_data(session, overridden)
     assert saved_data["network_policy_uuids"] == [POLICY_A]
     assert saved_data["network_enabled"] is False
@@ -409,6 +491,8 @@ async def test_detached_completion_preserves_submission_settings(
     await invoke(restored.wait_operation, record.uuid)
     completed = await invoke(restored.get_operation, record.uuid)
     saved = await invoke(restored.get_entry, completed.history_id)
+    assert saved.network_policy_uuids == (POLICY_A,)
+    assert saved.network_enabled is False
     saved_data = await entry_data(session, saved)
     assert saved_data["network_policy_uuids"] == [POLICY_A]
     assert saved_data["network_enabled"] is False
@@ -438,6 +522,7 @@ async def test_multiple_policies_are_resolved_once_and_survive_reopen(session, t
 
     entries, _ = await invoke(session.history)
     selected = entries[-1]
+    assert selected.network_policy_uuids == (POLICY_A, POLICY_B)
     stored = await invoke(session.store.get_node, session.session_id, selected.id)
     assert stored.data["network_policy_uuids"] == [POLICY_A, POLICY_B]
     assert selected.image_uuid == entries[0].image_uuid

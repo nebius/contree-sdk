@@ -33,6 +33,8 @@ def entry_from_node(session_id: str, node: Node) -> HistoryEntry:
         data=data.get("user", {}),
         cwd=data.get("cwd"),
         env=dict(data.get("env", {})),
+        network_enabled=data.get("network_enabled", True),
+        network_policy_uuids=tuple(data.get("network_policy_uuids", ())),
     )
 
 

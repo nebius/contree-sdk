@@ -579,5 +579,10 @@ the active VM, stopping its processes.
 - Reopening or navigating a session restores its saved network defaults.
 
 Read `session.network_enabled` and `session.network_policy_uuids` for the current
-settings. See [migration notes](migration.md#networking-and-extension-hooks) for
+settings. `HistoryEntry.network_enabled` and `HistoryEntry.network_policy_uuids`
+expose the saved session defaults for a history entry, excluding per-operation
+overrides. Entries saved before networking settings were introduced default to
+enabled networking with no selected policies.
+
+See [migration notes](migration.md#networking-and-extension-hooks) for
 legacy `networking=` compatibility.
