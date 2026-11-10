@@ -140,6 +140,69 @@ async def test_branch_and_rollback_update_live_pointer(client: ContreeAsyncClien
     assert session.image_uuid == "img-uuid-0"
 
 
+@pytest.mark.parametrize("action", ["commit", "detached_commit", "wait_operation", "stage_files"])
+@pytest.mark.parametrize("navigation", ["navigate", "switch_branch"])
+async def test_navigation_during_refresh_keeps_selection_consistent(client, monkeypatch, action, navigation):
+    client.mock("spawn_instance", spawn_response())
+    client.mock("ensure_file", FileResponse(uuid="file-uuid-1", sha256="deadbeef", size=4))
+    mock_completion(client, operation_response(result_image_uuid="completed-image"))
+    store = AsyncMemoryStore()
+    session = ContreeAsyncSession(client, image="base", store=store, cwd="/selected", env={"STATE": "selected"})
+    await session.ensure_ready()
+    selected_id = session.tip_id
+    await session.create_branch("selected")
+    await session.set_cwd("/source")
+    await session.set_env({"STATE": "source"})
+    source_id = session.tip_id
+    operation = await session.spawn("command")
+    if action in {"detached_commit", "wait_operation"}:
+        await session.detach(operation)
+    if action in {"commit", "detached_commit"}:
+        await operation.wait()
+
+    navigation_task: asyncio.Task[None] | None = None
+    refresh_from_entry = session.refresh_from_entry
+    get_node = store.get_node
+
+    async def refresh_with_navigation(entry):
+        nonlocal navigation_task
+        if navigation_task is None:
+            target = selected_id if navigation == "navigate" else "selected"
+            navigation_task = asyncio.create_task(getattr(session, navigation)(target))
+        await refresh_from_entry(entry)
+
+    async def read_after_navigation(session_id, node_id):
+        # A Store read after the position guard lets the queued navigation complete first.
+        if navigation_task is not None and asyncio.current_task() is not navigation_task:
+            await navigation_task
+        return await get_node(session_id, node_id)
+
+    monkeypatch.setattr(session, "refresh_from_entry", refresh_with_navigation)
+    monkeypatch.setattr(store, "get_node", read_after_navigation)
+
+    if action == "stage_files":
+        await session.stage_files({"/app.txt": b"data"})
+    elif action == "wait_operation":
+        await session.wait_operation(operation.uuid)
+    else:
+        await session.commit_result(operation)
+    assert navigation_task is not None
+    await navigation_task
+
+    assert session.tip_id == selected_id
+    assert session.image_uuid == "img-uuid-0"
+    assert session.cwd == "/selected"
+    assert session.env == {"STATE": "selected"}
+    selected_branch = "main" if navigation == "navigate" else "selected"
+    entries, branches = await session.history()
+    assert selected_branch in branches[selected_id]
+    saved = [entry for entry in entries if entry.parent_id == source_id]
+    assert len(saved) == 1
+    assert saved[0].cwd == "/source"
+    assert saved[0].env == {"STATE": "source"}
+    await store.close()
+
+
 async def test_set_cwd_and_set_env_persist_through_store(client: ContreeAsyncClient):
     store = AsyncMemoryStore()
     session = ContreeAsyncSession(client, image="tag:python:3.11", store=store, session_id="s1")

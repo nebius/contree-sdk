@@ -89,6 +89,21 @@ async def test_navigation_restores_saved_defaults(session):
     assert operation.context.request.env == {"A": "changed", "C": "added"}
 
 
+async def test_history_defaults_are_detached_from_session_and_store(session):
+    await call(session, "set_cwd", "/app")
+    entry = await call(session, "get_entry", session.tip_id)
+    assert entry.cwd == "/app"
+    assert entry.env == {"A": "session", "B": "kept"}
+
+    await call(session, "refresh_from_entry", entry)
+    session.env["A"] = "session-only"
+    assert entry.env == {"A": "session", "B": "kept"}
+    entry.env["B"] = "entry-only"
+    assert session.env == {"A": "session-only", "B": "kept"}
+    saved = await call(session, "get_entry", entry.id)
+    assert saved.env == {"A": "session", "B": "kept"}
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected_cwd", "expected_env"),
     [

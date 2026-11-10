@@ -468,12 +468,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         return self.execute(request, branch=branch)
 
     def refresh_from_entry(self, entry: HistoryEntry) -> None:
-        node = self.store.get_node(self.session_id, entry.id)
-
         self.tip_id = entry.id
         self.image_uuid = entry.image_uuid
-        self.cwd = cast("str | None", node.data.get("cwd"))
-        self.env = dict(cast("dict[str, str]", node.data.get("env", {})))
+        self.cwd = entry.cwd
+        self.env = dict(entry.env)
 
     def set_cwd(self, cwd: str | None) -> None:
         self.cwd = cwd

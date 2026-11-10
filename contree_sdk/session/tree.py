@@ -31,6 +31,8 @@ def entry_from_node(session_id: str, node: Node) -> HistoryEntry:
         attachments=tuple(StagedFile(**item) for item in data.get("attachments", ())),
         applied_files=tuple(data.get("applied_files", ())),
         data=data.get("user", {}),
+        cwd=data.get("cwd"),
+        env=dict(data.get("env", {})),
     )
 
 
