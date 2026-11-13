@@ -9,6 +9,14 @@ Snapshots are lightweight, so you can create a checkpoint after every command.
 Each snapshot stops the VM; an unchanged filesystem can return the same
 `image_uuid`. Rollback follows history entries, not distinct image UUIDs.
 
+Switching branches or navigating history restores the selected entry's session
+working directory and environment defaults. Per-command overrides do not become
+session defaults.
+
+`HistoryEntry.cwd` and `HistoryEntry.env` expose these saved defaults alongside
+the image. Refreshing the selected state uses the loaded entry without another
+Store read.
+
 For automatic saving after each command, see
 [Save after every command](session-model.md#save-after-every-command).
 Configure your connection as shown in {doc}`getting-started`.

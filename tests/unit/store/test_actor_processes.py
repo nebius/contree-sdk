@@ -66,6 +66,9 @@ async def run_actor(path, root, actor, barrier, output):
         peer = next(node for node in runs if node.data["operation_uuid"] == peer_name)
         await call(session.navigate, peer.id)
         await call(session.run, "follow")
+        sent = client.calls_for("spawn_instance")[1].kwargs
+        assert sent["env"] == {"ACTOR": peer_name}
+        assert sent["cwd"] == f"/{peer_name}"
         tip = await call(store.get_node, "shared", session.tip_id)
         assert tip.parent_id == peer.id
         assert tip.data["operation_uuid"] == name + "-follow"
@@ -116,13 +119,16 @@ def test_independent_sync_and_async_processes_share_one_session(tmp_path, actors
         by_actor = {result["actor"]: result for result in results}
         for result in results:
             actor, tip, staged = result["actor"], result["tip"], result["staged"]
+            peer = (actor + 1) % actors
             # A new process can recover each actor's work from explicit identities.
             resumed = ContreeSession(ContreeClient(), store=observer, session_id="shared", node_id=tip)
             assert resumed.image_uuid == f"follow-{actor}"
-            assert resumed.env == {"ACTOR": f"actor-{actor}"}
-            assert resumed.cwd == f"/actor-{actor}"
+            assert resumed.env == {"ACTOR": f"actor-{peer}"}
+            assert resumed.cwd == f"/actor-{peer}"
             assert not resumed.pending_files()
             resumed.navigate(staged)
+            assert resumed.env == {"ACTOR": f"actor-{actor}"}
+            assert resumed.cwd == f"/actor-{actor}"
             assert resumed.pending_files()[0].uuid == f"upload-{actor}"
             history = observer.list_history("shared", tip).items
             assert len(history) == 6

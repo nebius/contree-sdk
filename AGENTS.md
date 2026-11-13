@@ -136,6 +136,8 @@ These concrete executor implementations are extension bases for execution from s
 
 On the async session, pure preparation and object factories remain synchronous: `prepare_environment`, `prepare_request`, `create_store`, `create_file_transfer`, `create_operation`, `create_inspector`, the detached codecs, and `create_pending_run`. I/O operations are awaited. Verify each hook's signature before overriding it.
 
+The async `refresh_from_entry` hook remains awaitable but must apply already loaded history state without suspending. Guarded callers rely on this to keep branch and selection updates together after checking the captured position. Overrides must preserve this guarantee; load any required data before the position check.
+
 Keep navigation and staging in the session layer. Store records parent relationships; the session selects a node and maintains branch labels. Independent continuations can append siblings. Completion can advance an unchanged source position but must not overwrite a newer selection. Another session instance cannot move this local selection. Ambiguous resume or forward navigation requires an explicit choice.
 
 Saved-session `spawn`/`spawn_request` returns an operation without committing it. `run`/`execute` performs execution and commits eligible results. A caller managing a spawned operation uses `commit_result` explicitly. Initialization and image resolution do not imply VM startup.

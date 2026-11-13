@@ -24,3 +24,5 @@ class HistoryEntry:
     attachments: tuple[StagedFile, ...] = ()
     applied_files: tuple[str, ...] = ()
     data: dict[str, JSONValue] = field(default_factory=dict)
+    cwd: str | None = None
+    env: dict[str, str] = field(default_factory=dict)
