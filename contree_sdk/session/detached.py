@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import fields
 from typing import Any, cast
 
-from contree_client.models import InstanceNetworking, InstanceResourcesLimits, OperationResponse
+from contree_client.models import InstanceResourcesLimits, OperationResponse
 
 from contree_sdk.execution import OperationContext, RunRequest
 from contree_sdk.session.records import OperationRecord
@@ -22,15 +22,17 @@ def operation_record(uuid: str, context: OperationContext, *, endpoint: str) -> 
     data["args"] = list(request.args)
     data["timeout"] = request.timeout_seconds
     data["env"] = None if request.env is None else dict(request.env)
-    for key in ("resources_limits", "networking"):
-        value = data[key]
-        data[key] = None if value is None else value.to_dict()
+    data["network_policy"] = None if request.network_policy is None else list(request.network_policy)
+    limits = request.resources_limits
+    data["resources_limits"] = None if limits is None else limits.to_dict()
     return OperationRecord(
         endpoint=endpoint,
         created_at=context.created_at,
         node_id=context.node_id,
         session_cwd=context.session_cwd,
         session_env=dict(context.session_env),
+        session_network_enabled=context.session_network_enabled,
+        session_network_policy_uuids=context.session_network_policy_uuids,
         uuid=uuid,
         session_id=context.session_id,
         image_uuid=context.image_uuid,
@@ -46,9 +48,14 @@ def operation_record(uuid: str, context: OperationContext, *, endpoint: str) -> 
 
 def operation_context(record: OperationRecord) -> OperationContext:
     data = cast("dict[str, Any]", deepcopy(record.request))
-    for key, model in (("resources_limits", InstanceResourcesLimits), ("networking", InstanceNetworking)):
-        if data.get(key) is not None:
-            data[key] = model.from_dict(data[key])
+    if "networking" in data:
+        # Backward compatibility: SDK 0.5.x and earlier used the networking field.
+        networking = data.pop("networking") or {}
+        data.setdefault("network_enabled", networking.get("enabled", True))
+        data.setdefault("network_policy", networking.get("policy", []))
+
+    if data.get("resources_limits") is not None:
+        data["resources_limits"] = InstanceResourcesLimits.from_dict(data["resources_limits"])
     return OperationContext(
         RunRequest(**data),
         record.session_id,
@@ -62,6 +69,8 @@ def operation_context(record: OperationRecord) -> OperationContext:
         node_id=record.node_id,
         session_cwd=record.session_cwd,
         session_env=record.session_env,
+        session_network_enabled=record.session_network_enabled,
+        session_network_policy_uuids=record.session_network_policy_uuids,
     )
 
 

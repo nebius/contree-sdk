@@ -134,7 +134,7 @@ These concrete executor implementations are extension bases for execution from s
 | `create_pending_run`                                   | Customize the async session's result/context wrapper.                            | Its consumption and commit semantics.                                                                                                                 |
 | `refresh_from_entry`, `commit_result`                  | Change selection or record completed execution.                                  | Original parentage, idempotent node identity, commit policy, and protection against late completion overwriting a newer selection.                    |
 
-On the async session, pure preparation and object factories remain synchronous: `prepare_environment`, `prepare_request`, `create_store`, `create_file_transfer`, `create_operation`, `create_inspector`, the detached codecs, and `create_pending_run`. I/O operations are awaited. Verify each hook's signature before overriding it.
+On the async session, pure preparation and object factories remain synchronous: `prepare_environment`, `create_store`, `create_file_transfer`, `create_operation`, `create_inspector`, the detached codecs, and `create_pending_run`. `prepare_request` and I/O operations are awaited. Verify each hook's signature before overriding it.
 
 The async `refresh_from_entry` hook remains awaitable but must apply already loaded history state without suspending. Guarded callers rely on this to keep branch and selection updates together after checking the captured position. Overrides must preserve this guarantee; load any required data before the position check.
 
@@ -158,13 +158,13 @@ These executor implementations provide continuity within an active VM and compos
 
 Minimize idle VM resource use. Snapshot policies let the SDK stop idle execution and resume from saved files when work returns. Do not require an indefinitely running VM to preserve filesystem continuity.
 
-| Extension point               | Responsibility                                                                                                                           |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `prepare_request`             | Delegate shared request policy, then enforce the options valid for commands inside an existing VM. It remains synchronous in both modes. |
-| `keepalive_request`           | Select the main process for the shared VM. Preserve a lifecycle that can be stopped and saved.                                           |
-| `observe`                     | Process operation events and completion notifications. Preserve bookkeeping required to drain accepted work.                             |
-| `inspection_source`           | Select a saved image or reserve a live operation for a filesystem request. Release the reservation on completion, close, or failure.     |
-| `inspect`, `inspect_snapshot` | Expose current-state access or an explicitly saved, pinned image view. Preserve that distinction.                                        |
+| Extension point               | Responsibility                                                                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prepare_request`             | Delegate shared request policy, then enforce the options valid for commands inside an existing VM. It is synchronous for `LazySession` and awaited for `AsyncLazySession`. |
+| `keepalive_request`           | Select the main process for the shared VM. Preserve a lifecycle that can be stopped and saved.                                                                             |
+| `observe`                     | Process operation events and completion notifications. Preserve bookkeeping required to drain accepted work.                                                               |
+| `inspection_source`           | Select a saved image or reserve a live operation for a filesystem request. Release the reservation on completion, close, or failure.                                       |
+| `inspect`, `inspect_snapshot` | Expose current-state access or an explicitly saved, pinned image view. Preserve that distinction.                                                                          |
 
 The effective `keepalive_request` must be non-disposable and have a finite timeout longer than the snapshot allowance.
 

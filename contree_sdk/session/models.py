@@ -26,3 +26,5 @@ class HistoryEntry:
     data: dict[str, JSONValue] = field(default_factory=dict)
     cwd: str | None = None
     env: dict[str, str] = field(default_factory=dict)
+    network_enabled: bool = True
+    network_policy_uuids: tuple[str, ...] = ()

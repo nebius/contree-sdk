@@ -11,14 +11,14 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-from contree_client.models import FileResponse, InstanceNetworking, InstanceResourcesLimits, OperationStatus
+from contree_client.models import FileResponse, InstanceResourcesLimits, OperationStatus
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import ContreeAsyncSession, ContreeSession
 from contree_sdk.exceptions import FailedOperationError
 from contree_sdk.files import UploadFileSpec
 from contree_sdk.session import ZeroExitCommitPolicy
-from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, SyncMemoryStore, SyncSQLiteStore
+from contree_sdk.store import AsyncMemoryStore, AsyncSQLiteStore, Node, SyncMemoryStore, SyncSQLiteStore
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
 
@@ -179,7 +179,7 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
         stdin=stdin,
         files={"/data": UploadFileSpec(source=content, uid=12, gid=34, mode=0o640)},
         resources_limits=InstanceResourcesLimits(),
-        networking=InstanceNetworking(enabled=False),
+        network_enabled=False,
     )
     assert not stdin.closed
     content.unlink()
@@ -193,10 +193,77 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
     assert context.request.timeout == 10
     assert context.request.env == {"KEY": "value"}
     assert (context.request.cwd, context.request.uid, context.request.gid) == ("/work", 123, 456)
-    assert context.request.networking.enabled is False
+    assert context.session_network_enabled is True
+    assert context.request.network_enabled is False
+    assert context.request.network_policy == ()
     assert context.attachments[0].uuid == "upload"
     assert (context.attachments[0].uid, context.attachments[0].gid, context.attachments[0].mode) == (12, 34, 0o640)
     assert len(session.client.calls_for("ensure_file")) == 1
+
+
+@pytest.mark.parametrize(
+    ("networking", "enabled", "policies"),
+    [
+        (None, True, ()),
+        ({}, True, ()),
+        ({"enabled": False}, False, ()),
+        (
+            {"policy": ["11111111-1111-4111-8111-111111111111"]},
+            True,
+            ("11111111-1111-4111-8111-111111111111",),
+        ),
+        (
+            {"enabled": False, "policy": ["11111111-1111-4111-8111-111111111111"]},
+            False,
+            ("11111111-1111-4111-8111-111111111111",),
+        ),
+    ],
+)
+async def test_legacy_networking_record_can_be_restored_and_completed(session, tmp_path, networking, enabled, policies):
+    payload = {
+        "uuid": "op-1",
+        "session_id": session.session_id,
+        "image_uuid": "base",
+        "parent_id": session.tip_id,
+        "branch": "main",
+        "title": "true",
+        "disposable": False,
+        "request": {"command": "true", "networking": networking},
+        "endpoint": str(session.client.base_url).rstrip("/"),
+        "node_id": "legacy-result",
+    }
+    await call(
+        session.store,
+        "append",
+        session.session_id,
+        Node(
+            id="operation-pending:op-1",
+            parent_id=session.tip_id,
+            kind="operation-pending",
+            data={"record": payload, "operation_uuid": "op-1"},
+        ),
+    )
+    resumed = await reopen(session, tmp_path)
+    await call(resumed, "change_network_enabled", False)
+    operation = await call(resumed, "restore_operation", "op-1")
+    try:
+        assert operation.context.request.network_enabled is enabled
+        assert operation.context.request.network_policy == policies
+        assert operation.context.session_network_enabled is True
+        assert operation.context.session_network_policy_uuids == ()
+        mock_completion(session.client, operation_response())
+        await call(operation, "wait")
+        await call(resumed, "commit_result", operation)
+    finally:
+        await call(operation, "shutdown")
+
+    assert not (await call(resumed, "get_operation", "op-1")).pending
+    saved = await call(resumed.store, "get_node", resumed.session_id, "operation-pending:op-1")
+    assert saved.data["record"] == payload
+    assert resumed.network_enabled is False
+    assert not session.client.calls_for("spawn_instance")
+    assert not session.client.calls_for("get_network_policy")
+    assert not session.client.calls_for("get_network_policy_tag")
 
 
 async def test_registration_failure_cancels_remote_operation(session, monkeypatch):

@@ -32,6 +32,8 @@ class OperationRecord:
     node_id: str = ""
     session_cwd: str | None = None
     session_env: dict[str, str] = field(default_factory=dict)
+    session_network_enabled: bool = True
+    session_network_policy_uuids: tuple[str, ...] = ()
     files: tuple[str, ...] = ()
     attachments: tuple[StagedFile, ...] = ()
     response: dict[str, JSONValue] | None = None
@@ -53,6 +55,7 @@ class OperationRecord:
         object.__setattr__(self, "session_env", dict(self.session_env))
         object.__setattr__(self, "files", tuple(self.files))
         object.__setattr__(self, "attachments", tuple(self.attachments))
+        object.__setattr__(self, "session_network_policy_uuids", tuple(self.session_network_policy_uuids))
 
     @property
     def pending(self) -> bool:
@@ -61,6 +64,7 @@ class OperationRecord:
     def to_dict(self) -> dict[str, JSONValue]:
         data = asdict(self)
         data["files"] = list(self.files)
+        data["session_network_policy_uuids"] = list(self.session_network_policy_uuids)
         data["attachments"] = [asdict(item) for item in self.attachments]
         return data
 

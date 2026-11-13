@@ -299,8 +299,8 @@ async def test_async_effective_run_timeout_cancels_stalled_stream(tmp_path):
     from contree_sdk import ContreeAsyncSession
 
     class ShortTimeoutSession(ContreeAsyncSession):
-        def prepare_request(self, request):
-            return replace(super().prepare_request(request), timeout=0.01)
+        async def prepare_request(self, request):
+            return replace(await super().prepare_request(request), timeout=0.01)
 
     (tmp_path / "Dockerfile").write_text("FROM base\nRUN sleep 100\n")
     client = LiveAsyncClient()

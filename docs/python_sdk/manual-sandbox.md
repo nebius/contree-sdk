@@ -196,8 +196,8 @@ from contree_sdk import ContreeAsyncSession, RunRequest, create_async_sandbox_se
 
 
 class TimedAsyncSession(ContreeAsyncSession):
-    def prepare_request(self, request: RunRequest) -> RunRequest:
-        request = super().prepare_request(request)
+    async def prepare_request(self, request: RunRequest) -> RunRequest:
+        request = await super().prepare_request(request)
         return replace(request, timeout=30 if request.timeout is None else request.timeout)
 
 

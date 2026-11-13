@@ -774,11 +774,11 @@ wheels = [
 
 [[package]]
 name = "contree-client"
-version = "0.5.3"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/48/02/bff3b8e78fc4e05bab4e3b1e881b07dc6c285ab9eee66fd760582f5db977/contree_client-0.5.3.tar.gz", hash = "sha256:6fffe212c5350f8978177ee875523f49df2a56724854fefa65ca108b6a671225", size = 191848, upload-time = "2026-10-30T14:46:51.872Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/23/a769f0dace5e9af8a4463961edbedad8d0bbdddb9cee84a2ff38c05f0cbd/contree_client-0.6.0.tar.gz", hash = "sha256:afd039ed765c8f4bbc156659e2763d6592b9f2f700c0d1e184805060794ca896", size = 204936, upload-time = "2026-11-02T16:03:47.771Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/cf/9a1245e0e63dea85030cd9a8f1fa06b6ac2072028c7d8d93493a5812d878/contree_client-0.5.3-py3-none-any.whl", hash = "sha256:df5e23460e0bdf5ce2a5b3d90cc84636a7f6ff9305b01ac985f3b753bc718af0", size = 134334, upload-time = "2026-10-30T14:46:50.326Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/02/98e7bd374ff3c1b8d2a993704ab443de773f73d78a266ccaa9c95c35e6b9/contree_client-0.6.0-py3-none-any.whl", hash = "sha256:ddf3d5083275cd6347d3dba28e07ff37e6cf08609c3185ec58a4d0c511c84574", size = 145254, upload-time = "2026-11-02T16:03:46.484Z" },
 ]
 
 [package.optional-dependencies]
@@ -833,7 +833,7 @@ requires-dist = [
 
 [[package]]
 name = "contree-sdk"
-version = "0.5.0.dev0"
+version = "0.6.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "contree-client", extra = ["httpx"] },
@@ -880,7 +880,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = ">=0.20" },
     { name = "aiosqlite", marker = "extra == 'async'", specifier = ">=0.20" },
     { name = "contree-client", extras = ["aiohttp"], marker = "extra == 'async'" },
-    { name = "contree-client", extras = ["httpx"], specifier = ">=0.5.3" },
+    { name = "contree-client", extras = ["httpx"], specifier = ">=0.6.0" },
     { name = "contree-docs", marker = "extra == 'docs'", editable = "docs" },
     { name = "contree-sdk", extras = ["async"], marker = "extra == 'dev'" },
     { name = "contree-sdk", extras = ["langchain"], marker = "extra == 'dev'" },

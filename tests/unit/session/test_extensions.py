@@ -40,8 +40,8 @@ def test_request_snapshots_args_and_env():
 
 
 class AsyncPolicySession(ContreeAsyncSession):
-    def prepare_request(self, request: RunRequest) -> RunRequest:
-        return replace(super().prepare_request(request), disposable=False, cwd="/work")
+    async def prepare_request(self, request: RunRequest) -> RunRequest:
+        return replace(await super().prepare_request(request), disposable=False, cwd="/work")
 
     def create_operation(self, response: InstanceSpawnResponse, context: OperationContext) -> AsyncOperationContract:
         assert isinstance(response.uuid, str)

@@ -139,8 +139,8 @@ async def test_effective_environment_is_frozen_at_spawn(session):
 
 async def test_empty_environment_and_custom_merge_hook(session, monkeypatch):
     await call(session, "set_env", {"A": None, "B": None})
-    assert session.prepare_request(RunRequest(command="command")).env is None
-    assert session.prepare_request(RunRequest(command="command", env={})).env == {}
+    assert (await call(session, "prepare_request", RunRequest(command="command"))).env is None
+    assert (await call(session, "prepare_request", RunRequest(command="command", env={}))).env == {}
     monkeypatch.setattr(session, "prepare_environment", lambda env: {"FORCED": "value"})
     operation = await call(session, "spawn", "command", env={"A": "ignored"})
     assert operation.context.request.env == {"FORCED": "value"}
