@@ -22,7 +22,6 @@ TASKS = [
     "configure-git-webserver",
     "constraints-scheduling",
     "count-dataset-tokens",
-    "crack-7z-hash",
     "custom-memory-heap-crash",
     "db-wal-recovery",
     "distribution-search",
@@ -109,14 +108,11 @@ SAMPLE = [
     "torch-pipeline-parallelism",
 ]
 KNOWN_FAILURES = {
-    "break-filter-js-from-html": "ChromeDriver exits with -5; possible ConTree runtime compatibility issue",
     "build-cython-ext": "pyknotid repository test failure; cause unclear",
-    "gpt2-codegolf": "GPT-2 executable segfaults; possible ConTree runtime compatibility issue",
     "mcmc-sampling-stan": "rstan dependency and analysis.R are missing",
     "protein-assembly": "DNA Chisel constraints fail; gblock.txt is not created",
     "qemu-alpine-ssh": "Debian package 404s prevent verifier bootstrap",
     "qemu-startup": "Debian package 404s prevent verifier bootstrap",
-    "torch-pipeline-parallelism": "CPU allocator ENOMEM; investigate ConTree VM memory limits",
 }
 
 
@@ -130,7 +126,8 @@ def harbor_dataset():
     return DatasetConfig(
         name="terminal-bench/terminal-bench-2-1",
         ref=DATASET_REF,
-        exclude_task_names=["*/compile-compcert", "*/caffe-cifar-10"],
+        # Exclude known stragglers
+        exclude_task_names=["*/compile-compcert", "*/caffe-cifar-10", "*/crack-7z-hash"],
     )
 
 

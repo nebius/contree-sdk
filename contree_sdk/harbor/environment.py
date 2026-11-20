@@ -26,9 +26,6 @@ from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
 
 
-_OUTPUT_LIMIT = 10 * 1024 * 1024
-
-
 def extract_directory_archive(archive_path: Path, target_dir: Path) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "r:*") as archive:
@@ -46,6 +43,8 @@ class ConTreeEnvironment(BaseEnvironment):
     """
 
     SNAPSHOT_IDLE_SEC = 20 * 60
+    IMAGE_IMPORT_TIMEOUT_SEC = 10 * 60
+    OUTPUT_LIMIT = 10 * 1024 * 1024
 
     def __init__(
         self,
@@ -143,7 +142,7 @@ class ConTreeEnvironment(BaseEnvironment):
             client=self._contree_client,
             client_type=HttpxAsyncClient if self._contree_client is None else None,
         ).open_async(resources)
-        contree_image = await async_import_image(docker_image, client=client)
+        contree_image = await async_import_image(docker_image, client=client, timeout=self.IMAGE_IMPORT_TIMEOUT_SEC)
 
         resources_limits = InstanceResourcesLimits(
             cpu=self._effective_cpus if self._effective_cpus is not None else ...,
@@ -231,7 +230,7 @@ class ConTreeEnvironment(BaseEnvironment):
             args=("-c", command),
             env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
-            truncate_output_at=_OUTPUT_LIMIT,
+            truncate_output_at=self.OUTPUT_LIMIT,
             timeout=timeout_sec,
             uid=uid,
             gid=gid,
@@ -243,7 +242,7 @@ class ConTreeEnvironment(BaseEnvironment):
             raise TypeError("ConTree subprocess returned no exit code")
         for stream in (result.stdout, result.stderr):
             if isinstance(stream, StreamRepr) and stream.truncated is True:
-                self.logger.warning("ConTree command output was truncated at %s bytes per stream.", _OUTPUT_LIMIT)
+                self.logger.warning("ConTree command output was truncated at %s bytes per stream.", self.OUTPUT_LIMIT)
         return ExecResult(
             stdout=result.stdout.as_text() if isinstance(result.stdout, StreamRepr) else "",
             stderr=result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else "",

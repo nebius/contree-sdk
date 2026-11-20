@@ -320,6 +320,7 @@ async def test_start_reuses_client_for_image_import_and_execution(backend, monke
         module.async_import_image.assert_awaited_once()
         assert module.async_import_image.await_args.args == ("alpine:latest",)
         assert module.async_import_image.await_args.kwargs["client"] is client
+        assert module.async_import_image.await_args.kwargs["timeout"] == env.IMAGE_IMPORT_TIMEOUT_SEC
         assert client.calls_for("spawn_instance")[0].args[1] == "base"
         assert (await env.exec("true")).return_code == 0
         if from_env:

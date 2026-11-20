@@ -56,6 +56,8 @@ The environment keeps one VM running across commands, so files and background
 processes remain available until an idle snapshot. Background processes end at
 a snapshot boundary and do not resume with the next command.
 
+Image imports have a 10-minute timeout, configurable via `ConTreeEnvironment.IMAGE_IMPORT_TIMEOUT_SEC`.
+
 ## Validated datasets
 
 - Terminal Bench 2.1 (TB2.1)
