@@ -73,12 +73,12 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.session_id = session_id or new_session_id()
         self.cwd_override = cwd
         self.env_override = env
-        self.resources_limits_override = resources_limits
         self.cwd = cwd
         self.env = dict(env or {})
         self._network_enabled = validate_network_enabled(network_enabled)
         self._network_policy_uuids: tuple[str, ...] = ()
-        self.resources_limits = resources_limits
+        self.resources_limits = deepcopy(resources_limits)
+        self.resources_limits_override = self.resources_limits
         self._active_branch = "main"
         self._branches: dict[str, str] = {}
         self._position_version = 0

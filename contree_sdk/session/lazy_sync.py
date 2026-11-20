@@ -85,7 +85,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
 
     @property
     def resources_limits(self) -> InstanceResourcesLimits | None:
-        return self.session.resources_limits
+        return deepcopy(self.session.resources_limits)
 
     @property
     def network_policy_uuids(self) -> tuple[str, ...]:

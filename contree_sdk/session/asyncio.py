@@ -127,13 +127,13 @@ class ContreeAsyncSession(AsyncExecutor):  # noqa: PLR0904 - public extension co
         # "seed from the store once ensure_ready() can await it" (see below)
         self.cwd_override = cwd
         self.env_override = env
-        self.resources_limits_override = resources_limits
         self.cwd = cwd
         self.env: dict[str, str] = env if env is not None else {}
         self._network_enabled = validate_network_enabled(network_enabled)
         self._initial_network_policy = validate_policy_references(network_policy)
         self._network_policy_uuids: tuple[str, ...] = ()
-        self.resources_limits = resources_limits
+        self.resources_limits = deepcopy(resources_limits)
+        self.resources_limits_override = self.resources_limits
         self.image_uuid: str | None = None
         self.tip_id = ""
         self.node_id = node_id
