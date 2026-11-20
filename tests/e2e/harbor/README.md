@@ -16,14 +16,14 @@ See [connection configuration](../../../docs/python_sdk/getting-started.md#conne
 
 ## Run TB2.1
 
-Sample: ten tasks, with a baseline of seven PASS and three XFAIL.
+Sample: ten tasks, all expected to pass.
 
 ```bash
 uv run pytest tests/e2e/harbor/test_tb21.py -m e2e
 ```
 
-Full: 87 tasks, excluding `compile-compcert` and `caffe-cifar-10`.
-Baseline: 79 PASS and eight XFAIL.
+Full: 86 tasks, excluding the known stragglers `compile-compcert`,
+`caffe-cifar-10`, and `crack-7z-hash`. Baseline: 81 PASS and five XFAIL.
 
 ```bash
 uv run pytest tests/e2e/harbor/test_tb21.py -m e2e --harbor-suite=full --harbor-workers=50

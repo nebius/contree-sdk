@@ -168,6 +168,10 @@ Minimize idle VM resource use. Snapshot policies let the SDK stop idle execution
 
 The effective `keepalive_request` must be non-disposable and have a finite timeout longer than the snapshot allowance.
 
+The saved session owns VM resource defaults. Persist these defaults with history and restore them on reopening and navigation. Capture defaults separately from per-operation overrides so an override does not become session state, including after detached completion. Apply them on each VM start, including lazy restarts after snapshots. An explicit saved-session request model replaces the default model as a whole. Per-command lazy requests cannot resize the shared VM. Preserve `keepalive_request` overrides and the wrapped session's VM startup request preparation.
+
+Resource and network change methods persist configuration history. On lazy sessions, serialize these changes with each other, close command admission until saving finishes, and snapshot the active VM before selecting new defaults. Snapshot failure preserves the previous settings.
+
 Lazy `spawn`/`spawn_request` returns a subprocess contract. It does not return the operation that owns the whole VM. Do not mutate the wrapped saved session while the lazy VM is active.
 
 Snapshot coordination must close admission, drain accepted commands and filesystem reservations, stop the VM, and retain its confirmed image before allowing a restart. A command finishing does not mean its filesystem has been saved. A rejected or failed snapshot must not restart from old state while claiming the changes survived.
@@ -473,7 +477,7 @@ Reuse every existing SDK entity at its public boundary when its contract fits th
 - Keep domain values with their consumers and shared contracts small. Do not persist live SDK objects.
 - Prefer direct imports and explicit public exports. Resolve dependency cycles structurally rather than hiding them with typing-only imports. Centralize Python-version compatibility imports.
 - Preserve supported host platforms. Separate local filesystem behavior from guest path semantics.
-- Write comments on one line. Do not introduce underscore-prefixed names except required special methods. Follow the repository's Python formatting and typing configuration.
+- Write comments on one line. Keep implementation state private; reserve public names for supported APIs and extension points. Follow the repository's Python formatting and typing configuration.
 - Keep authored technical text in English and preserve unrelated working-tree changes. Do not commit or push without explicit user approval.
 - Pull request descriptions explain the problem and resulting behavior; omit test-plan sections and test-command/result lists.
 
@@ -481,7 +485,7 @@ Use clear names and structure to explain code. Keep comments, docstrings, and gu
 
 Use `uv` for Python environments and commands. Read current dependency and tool configuration in `pyproject.toml`, available Make targets, pytest configuration, and CI before selecting checks. Use the relevant Make target where it runs the required tests. Do not copy the current command inventory or CI matrix into this guide.
 
-Before pushing, run the applicable CI linters, formatters, and type checks after the final edit. Check their actual file coverage, including embedded code in documentation. Passing tests or one formatter does not replace these checks.
+Before pushing, run the full unit test suite and the applicable CI linters, formatters, and type checks after the final edit. Targeted test subsets do not replace the full unit suite. Check their actual file coverage, including embedded code in documentation. Passing tests or one formatter does not replace these checks.
 
 Read existing tests before adding a case or module. Extend an appropriate scenario when possible. Add tests for a specific risk or contract, not to mirror implementation details. Organize tests by responsibility; shared contract and integration tests can span modules.
 

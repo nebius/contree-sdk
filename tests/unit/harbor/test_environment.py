@@ -5,11 +5,12 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
-from contree_client.models import FileResponse, StreamRepr
+from contree_client.models import FileResponse, InstanceResourcesLimits, StreamRepr
 
 
 pytest.importorskip("harbor")
 
+from harbor.environments.capabilities import EnvironmentResourceCapabilities
 from harbor.environments.factory import EnvironmentFactory
 from harbor.models.task.config import EnvironmentConfig
 from harbor.models.trial.paths import TrialPaths
@@ -38,19 +39,82 @@ async def backend(tmp_path, monkeypatch):
     await env.stop()
 
 
-def test_harbor_factory(backend):
-    _, environment = backend
+@pytest.mark.parametrize(
+    ("task_resources", "options", "expected"),
+    [
+        ({}, {}, InstanceResourcesLimits()),
+        (
+            {"cpus": 1, "memory_mb": 1024, "storage_mb": 4096},
+            {},
+            InstanceResourcesLimits(cpu=1, memory_mib=1024, max_layer_bytes=4096 * 1024**2),
+        ),
+        ({"storage_mb": 1537}, {}, InstanceResourcesLimits(max_layer_bytes=1537 * 1024**2)),
+        (
+            {"cpus": 1, "memory_mb": 1024, "storage_mb": 4096},
+            {
+                "override_cpus": 2,
+                "override_memory_mb": 3072,
+                "override_storage_mb": 2048,
+                "cpu_enforcement_policy": "limit",
+                "memory_enforcement_policy": "limit",
+            },
+            InstanceResourcesLimits(cpu=2, memory_mib=3072, max_layer_bytes=2048 * 1024**2),
+        ),
+        (
+            {"cpus": 2, "memory_mb": 3072},
+            {"cpu_enforcement_policy": "ignore"},
+            InstanceResourcesLimits(memory_mib=3072),
+        ),
+        ({"cpus": 2, "memory_mb": 3072}, {"memory_enforcement_policy": "ignore"}, InstanceResourcesLimits(cpu=2)),
+        (
+            {"cpus": 2, "memory_mb": 3072},
+            {"cpu_enforcement_policy": "ignore", "memory_enforcement_policy": "ignore"},
+            InstanceResourcesLimits(),
+        ),
+        (
+            {"cpus": 2, "memory_mb": 3072, "storage_mb": 1024},
+            {"cpu_enforcement_policy": "ignore", "memory_enforcement_policy": "ignore"},
+            InstanceResourcesLimits(max_layer_bytes=1024 * 1024**2),
+        ),
+    ],
+)
+async def test_harbor_factory(backend, task_resources, options, expected):
+    client, environment = backend
     created = EnvironmentFactory.create_environment_from_import_path(
         "contree_sdk.harbor:ConTreeEnvironment",
         environment_dir=environment.environment_dir,
         environment_name="test",
         session_id="factory",
         trial_paths=environment.trial_paths,
-        task_env_config=environment.task_env_config,
+        task_env_config=EnvironmentConfig(docker_image="alpine:latest", **task_resources),
         contree_client=environment._contree_client,
+        **options,
     )
     assert isinstance(created, ConTreeEnvironment)
     assert not any(created.capabilities.model_dump().values())
+    assert created.resource_capabilities() == EnvironmentResourceCapabilities(cpu_limit=True, memory_limit=True)
+    try:
+        await created.start(force_build=False)
+        spawn = client.calls_for("spawn_instance")[0].kwargs
+        assert spawn["resources_limits"] == expected
+    finally:
+        await created.stop()
+
+
+@pytest.mark.parametrize("resource", ["cpu", "memory"])
+@pytest.mark.parametrize("mode", ["request", "guarantee"])
+def test_resource_reservations_are_rejected(backend, resource, mode):
+    client, template = backend
+    with pytest.raises(ValueError, match="resource requests"):
+        ConTreeEnvironment(
+            environment_dir=template.environment_dir,
+            environment_name="test",
+            session_id="unsupported",
+            trial_paths=template.trial_paths,
+            task_env_config=EnvironmentConfig(docker_image="alpine:latest", cpus=2, memory_mb=3072),
+            **{f"{resource}_enforcement_policy": mode},
+        )
+    assert not client.calls_for("spawn_instance")
 
 
 async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, monkeypatch):
@@ -86,6 +150,8 @@ async def test_vm_persists_across_exec_and_file_transfers(backend, tmp_path, mon
 async def test_exec_resumes_after_idle_snapshot(backend):
     client, env = backend
     env._snapshot_idle_sec = 0.02
+    env.task_env_config.cpus = 2
+    env.task_env_config.memory_mb = 3072
     await env.start(force_build=False)
     try:
         await asyncio.wait_for(client.saving.wait(), 1)
@@ -94,6 +160,9 @@ async def test_exec_resumes_after_idle_snapshot(backend):
         spawns = client.calls_for("spawn_instance")
         assert len(spawns) == 2
         assert spawns[-1].args[1] == "image-op-1"
+        assert all(
+            call.kwargs["resources_limits"] == InstanceResourcesLimits(cpu=2, memory_mib=3072) for call in spawns
+        )
     finally:
         await env.stop()
 
@@ -251,6 +320,7 @@ async def test_start_reuses_client_for_image_import_and_execution(backend, monke
         module.async_import_image.assert_awaited_once()
         assert module.async_import_image.await_args.args == ("alpine:latest",)
         assert module.async_import_image.await_args.kwargs["client"] is client
+        assert module.async_import_image.await_args.kwargs["timeout"] == env.IMAGE_IMPORT_TIMEOUT_SEC
         assert client.calls_for("spawn_instance")[0].args[1] == "base"
         assert (await env.exec("true")).return_code == 0
         if from_env:

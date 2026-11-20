@@ -3,7 +3,7 @@
 import inspect
 
 import pytest
-from contree_client.models import FileResponse, OperationStatus
+from contree_client.models import FileResponse, InstanceResourcesLimits, OperationStatus
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import ContreeAsyncSession, ContreeSession
@@ -54,6 +54,7 @@ def complete(session, *, status=OperationStatus.SUCCESS):
 
 async def test_stage_resume_run_and_rollback_preserve_original_metadata(staging_session, tmp_path):
     session = staging_session
+    await call(session, "change_resources_limits", InstanceResourcesLimits(cpu=2, memory_mib=2048))
     staged = await call(session, "stage_files", {"/input": uploaded("original", mode=0o750)})
     expected = (StagedFile("/input", "original", 1234, 5678, 0o750),)
     assert session.image_uuid == "base"
@@ -65,6 +66,7 @@ async def test_stage_resume_run_and_rollback_preserve_original_metadata(staging_
         session.store = type(session.store)(path)
     resumed = type(session)(session.client, session_id=session.session_id, store=session.store)
     assert await call(resumed, "pending_files") == expected
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
     complete(resumed)
     await call(resumed, "run", shell="cat /input", disposable=False)
     sent = resumed.client.calls_for("spawn_instance")[0].kwargs["files"]["/input"]
@@ -74,6 +76,7 @@ async def test_stage_resume_run_and_rollback_preserve_original_metadata(staging_
     await call(resumed, "rollback")
     assert resumed.tip_id == staged.id
     assert await call(resumed, "pending_files") == expected
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
 
 
 async def test_explicit_files_override_staging_without_consuming_disposable_branch(staging_session):

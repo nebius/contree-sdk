@@ -1,5 +1,11 @@
 import pytest
-from contree_client.models import FileResponse, InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import (
+    FileResponse,
+    InstanceResourcesLimits,
+    InstanceResultState,
+    OperationStatus,
+    StreamRepr,
+)
 from contree_client.testing import ContreeClient
 
 from contree_sdk.exceptions import FailedOperationError
@@ -13,6 +19,32 @@ def client() -> ContreeClient:
     client = ContreeClient()
     client.mock("resolve_image", "img-uuid-0")
     return client
+
+
+@pytest.mark.parametrize(
+    ("defaults", "expected"),
+    [
+        (None, ...),
+        (InstanceResourcesLimits(cpu=2, memory_mib=2048), InstanceResourcesLimits(cpu=2, memory_mib=2048)),
+    ],
+)
+def test_resource_defaults_and_per_run_overrides(client, defaults, expected):
+    client.mock("spawn_instance", spawn_response())
+    mock_completion(client, operation_response())
+    session = ContreeSession(client, image="base", resources_limits=defaults)
+    override = InstanceResourcesLimits(cpu=1)
+    service_defaults = InstanceResourcesLimits()
+    session.run("default")
+    session.run("override", resources_limits=override)
+    session.run("service-defaults", resources_limits=service_defaults)
+    session.run("default-again")
+    assert [call.kwargs["resources_limits"] for call in client.calls_for("spawn_instance")] == [
+        expected,
+        override,
+        service_defaults,
+        expected,
+    ]
+    assert session.resources_limits == defaults
 
 
 def test_construct_resolves_image_and_seeds_history(client: ContreeClient):
@@ -31,11 +63,18 @@ def test_construct_requires_image_or_session_id(client: ContreeClient):
 
 def test_construct_resumes_from_existing_session(client: ContreeClient):
     store = SyncMemoryStore()
-    first = ContreeSession(client, image="tag:python:3.11", store=store, session_id="my-session")
+    first = ContreeSession(
+        client,
+        image="tag:python:3.11",
+        store=store,
+        session_id="my-session",
+        resources_limits=InstanceResourcesLimits(cpu=2, memory_mib=2048),
+    )
 
     resumed = ContreeSession(client, store=store, session_id="my-session")
     assert resumed.image_uuid == first.image_uuid
     assert resumed.tip_id == first.tip_id
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
 
 
 def test_run_disposable_does_not_advance_history(client: ContreeClient):

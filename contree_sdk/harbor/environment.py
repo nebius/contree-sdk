@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 from contree_client.httpx import ContreeAsyncClient as HttpxAsyncClient
-from contree_client.models import InstanceResultState, StreamRepr
+from contree_client.models import InstanceResourcesLimits, InstanceResultState, StreamRepr
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
@@ -26,9 +26,6 @@ from contree_sdk.session import IdleSnapshotPolicy
 from contree_sdk.session.cleanup import await_cleanup
 
 
-_OUTPUT_LIMIT = 10 * 1024 * 1024
-
-
 def extract_directory_archive(archive_path: Path, target_dir: Path) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "r:*") as archive:
@@ -40,9 +37,14 @@ class ConTreeEnvironment(BaseEnvironment):
 
     Idle snapshots preserve files but terminate background processes. An injected
     low-level async client remains caller-owned.
+
+    Harbor storage_mb caps each VM operation's writable layer, excluding the
+    base image and previously saved layers.
     """
 
     SNAPSHOT_IDLE_SEC = 20 * 60
+    IMAGE_IMPORT_TIMEOUT_SEC = 10 * 60
+    OUTPUT_LIMIT = 10 * 1024 * 1024
 
     def __init__(
         self,
@@ -75,7 +77,7 @@ class ConTreeEnvironment(BaseEnvironment):
 
     @classmethod
     def resource_capabilities(cls) -> EnvironmentResourceCapabilities:
-        return EnvironmentResourceCapabilities()
+        return EnvironmentResourceCapabilities(cpu_limit=True, memory_limit=True)
 
     def _validate_definition(self) -> None:
         config = self.task_env_config
@@ -89,8 +91,6 @@ class ConTreeEnvironment(BaseEnvironment):
             raise ValueError("ConTree does not yet support task MCP servers.")
         self.validate_network_policy_support(config.resolve_baseline())
         self._validate_mounts()
-
-        # TODO(CONTREE-243): Forward Harbor resource settings when the SDK supports LazySession VM resources.
 
     def _validate_mounts(self) -> None:
         # Harbor requests host bind mounts for standard logs; cloud backends transfer these paths instead.
@@ -142,15 +142,21 @@ class ConTreeEnvironment(BaseEnvironment):
             client=self._contree_client,
             client_type=HttpxAsyncClient if self._contree_client is None else None,
         ).open_async(resources)
-        contree_image = await async_import_image(docker_image, client=client)
+        contree_image = await async_import_image(docker_image, client=client, timeout=self.IMAGE_IMPORT_TIMEOUT_SEC)
 
-        policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
+        resources_limits = InstanceResourcesLimits(
+            cpu=self._effective_cpus if self._effective_cpus is not None else ...,
+            memory_mib=self._effective_memory_mb if self._effective_memory_mb is not None else ...,
+            max_layer_bytes=self._effective_storage_mb * 1024**2 if self._effective_storage_mb is not None else ...,
+        )
+        snapshot_policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
         self._lazy_session = await self._stack.enter_async_context(
             create_async_sandbox_session(
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
-                session_kwargs={"snapshot_policy": policy},
+                resources_limits=resources_limits,
+                session_kwargs={"snapshot_policy": snapshot_policy},
             )
         )
 
@@ -224,7 +230,7 @@ class ConTreeEnvironment(BaseEnvironment):
             args=("-c", command),
             env=self._merge_env(env),
             cwd=cwd if cwd is not None else self.task_env_config.workdir,
-            truncate_output_at=_OUTPUT_LIMIT,
+            truncate_output_at=self.OUTPUT_LIMIT,
             timeout=timeout_sec,
             uid=uid,
             gid=gid,
@@ -236,7 +242,7 @@ class ConTreeEnvironment(BaseEnvironment):
             raise TypeError("ConTree subprocess returned no exit code")
         for stream in (result.stdout, result.stderr):
             if isinstance(stream, StreamRepr) and stream.truncated is True:
-                self.logger.warning("ConTree command output was truncated at %s bytes per stream.", _OUTPUT_LIMIT)
+                self.logger.warning("ConTree command output was truncated at %s bytes per stream.", self.OUTPUT_LIMIT)
         return ExecResult(
             stdout=result.stdout.as_text() if isinstance(result.stdout, StreamRepr) else "",
             stderr=result.stderr.as_text() if isinstance(result.stderr, StreamRepr) else "",

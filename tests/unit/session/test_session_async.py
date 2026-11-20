@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from contree_client.models import FileResponse, OperationStatus
+from contree_client.models import FileResponse, InstanceResourcesLimits, OperationStatus
 from contree_client.testing import ContreeAsyncClient
 
 from contree_sdk.exceptions import FailedOperationError
@@ -15,6 +15,32 @@ def client() -> ContreeAsyncClient:
     client = ContreeAsyncClient()
     client.mock("resolve_image", "img-uuid-0")
     return client
+
+
+@pytest.mark.parametrize(
+    ("defaults", "expected"),
+    [
+        (None, ...),
+        (InstanceResourcesLimits(cpu=2, memory_mib=2048), InstanceResourcesLimits(cpu=2, memory_mib=2048)),
+    ],
+)
+async def test_resource_defaults_and_per_run_overrides(client, defaults, expected):
+    client.mock("spawn_instance", spawn_response())
+    mock_completion(client, operation_response())
+    session = ContreeAsyncSession(client, image="base", resources_limits=defaults)
+    override = InstanceResourcesLimits(cpu=1)
+    service_defaults = InstanceResourcesLimits()
+    await session.run("default")
+    await session.run("override", resources_limits=override)
+    await session.run("service-defaults", resources_limits=service_defaults)
+    await session.run("default-again")
+    assert [call.kwargs["resources_limits"] for call in client.calls_for("spawn_instance")] == [
+        expected,
+        override,
+        service_defaults,
+        expected,
+    ]
+    assert session.resources_limits == defaults
 
 
 async def test_construct_resolves_image_and_seeds_history(client: ContreeAsyncClient):
@@ -52,13 +78,20 @@ async def test_concurrent_ensure_ready_creates_only_one_init_entry(client: Contr
 
 async def test_construct_resumes_from_existing_session(client: ContreeAsyncClient):
     store = AsyncMemoryStore()
-    first = ContreeAsyncSession(client, image="tag:python:3.11", store=store, session_id="my-session")
+    first = ContreeAsyncSession(
+        client,
+        image="tag:python:3.11",
+        store=store,
+        session_id="my-session",
+        resources_limits=InstanceResourcesLimits(cpu=2, memory_mib=2048),
+    )
     await first.ensure_ready()
 
     resumed = ContreeAsyncSession(client, store=store, session_id="my-session")
     await resumed.ensure_ready()
     assert resumed.image_uuid == first.image_uuid
     assert resumed.tip_id == first.tip_id
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
 
 
 async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClient):
