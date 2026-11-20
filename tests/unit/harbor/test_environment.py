@@ -42,17 +42,23 @@ async def backend(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("task_resources", "options", "expected"),
     [
-        ({}, {}, None),
-        ({"cpus": 1, "memory_mb": 1024}, {}, InstanceResourcesLimits(cpu=1, memory_mib=1024)),
+        ({}, {}, InstanceResourcesLimits()),
         (
-            {"cpus": 1, "memory_mb": 1024},
+            {"cpus": 1, "memory_mb": 1024, "storage_mb": 4096},
+            {},
+            InstanceResourcesLimits(cpu=1, memory_mib=1024, max_layer_bytes=4096 * 1024**2),
+        ),
+        ({"storage_mb": 1537}, {}, InstanceResourcesLimits(max_layer_bytes=1537 * 1024**2)),
+        (
+            {"cpus": 1, "memory_mb": 1024, "storage_mb": 4096},
             {
                 "override_cpus": 2,
                 "override_memory_mb": 3072,
+                "override_storage_mb": 2048,
                 "cpu_enforcement_policy": "limit",
                 "memory_enforcement_policy": "limit",
             },
-            InstanceResourcesLimits(cpu=2, memory_mib=3072),
+            InstanceResourcesLimits(cpu=2, memory_mib=3072, max_layer_bytes=2048 * 1024**2),
         ),
         (
             {"cpus": 2, "memory_mb": 3072},
@@ -63,7 +69,12 @@ async def backend(tmp_path, monkeypatch):
         (
             {"cpus": 2, "memory_mb": 3072},
             {"cpu_enforcement_policy": "ignore", "memory_enforcement_policy": "ignore"},
-            None,
+            InstanceResourcesLimits(),
+        ),
+        (
+            {"cpus": 2, "memory_mb": 3072, "storage_mb": 1024},
+            {"cpu_enforcement_policy": "ignore", "memory_enforcement_policy": "ignore"},
+            InstanceResourcesLimits(max_layer_bytes=1024 * 1024**2),
         ),
     ],
 )
@@ -85,7 +96,7 @@ async def test_harbor_factory(backend, task_resources, options, expected):
     try:
         await created.start(force_build=False)
         spawn = client.calls_for("spawn_instance")[0].kwargs
-        assert spawn["resources_limits"] == (expected if expected is not None else Ellipsis)
+        assert spawn["resources_limits"] == expected
     finally:
         await created.stop()
 

@@ -17,7 +17,6 @@ from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
 from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
-from harbor.models.trial.config import ResourceMode
 from harbor.models.trial.paths import EnvironmentPaths
 
 from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
@@ -41,6 +40,9 @@ class ConTreeEnvironment(BaseEnvironment):
 
     Idle snapshots preserve files but terminate background processes. An injected
     low-level async client remains caller-owned.
+
+    Harbor storage_mb caps each VM operation's writable layer, excluding the
+    base image and previously saved layers.
     """
 
     SNAPSHOT_IDLE_SEC = 20 * 60
@@ -143,23 +145,19 @@ class ConTreeEnvironment(BaseEnvironment):
         ).open_async(resources)
         contree_image = await async_import_image(docker_image, client=client)
 
-        cpu = self._resource_limit_value("cpu", auto_mode=ResourceMode.LIMIT)
-        memory = self._resource_limit_value("memory", auto_mode=ResourceMode.LIMIT)
-        limits = (
-            InstanceResourcesLimits(
-                cpu=cpu if cpu is not None else ..., memory_mib=memory if memory is not None else ...
-            )
-            if cpu is not None or memory is not None
-            else None
+        resources_limits = InstanceResourcesLimits(
+            cpu=self._effective_cpus if self._effective_cpus is not None else ...,
+            memory_mib=self._effective_memory_mb if self._effective_memory_mb is not None else ...,
+            max_layer_bytes=self._effective_storage_mb * 1024**2 if self._effective_storage_mb is not None else ...,
         )
-        policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
+        snapshot_policy = IdleSnapshotPolicy(self._snapshot_idle_sec)
         self._lazy_session = await self._stack.enter_async_context(
             create_async_sandbox_session(
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
-                resources_limits=limits,
-                session_kwargs={"snapshot_policy": policy},
+                resources_limits=resources_limits,
+                session_kwargs={"snapshot_policy": snapshot_policy},
             )
         )
 
