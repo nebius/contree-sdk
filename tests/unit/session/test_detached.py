@@ -166,7 +166,7 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
     content.write_bytes(b"abc")
     stdin = io.BytesIO(b"input")
     resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
-    session.resources_limits = resources
+    await call(session, "change_resources_limits", resources)
     record = await call(
         session,
         "spawn_detached",
@@ -181,11 +181,12 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
         stdin=stdin,
         files={"/data": UploadFileSpec(source=content, uid=12, gid=34, mode=0o640)},
         network_enabled=False,
+        resources_limits=InstanceResourcesLimits(cpu=1),
     )
     assert not stdin.closed
     content.unlink()
     stdin.close()
-    session.resources_limits = InstanceResourcesLimits(cpu=1)
+    await call(session, "change_resources_limits", InstanceResourcesLimits(cpu=4, memory_mib=2048))
     resumed = await reopen(session, tmp_path)
     operation = await call(resumed, "restore_operation", record.uuid)
     context = operation.context
@@ -198,11 +199,18 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
     assert context.session_network_enabled is True
     assert context.request.network_enabled is False
     assert context.request.network_policy == ()
-    assert context.request.resources_limits == resources
-    assert resumed.resources_limits is None
+    assert context.request.resources_limits == InstanceResourcesLimits(cpu=1)
+    assert context.session_resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=4, memory_mib=2048)
     assert context.attachments[0].uuid == "upload"
     assert (context.attachments[0].uid, context.attachments[0].gid, context.attachments[0].mode) == (12, 34, 0o640)
     assert len(session.client.calls_for("ensure_file")) == 1
+    mock_completion(session.client, operation_response())
+    await call(resumed, "wait_operation", record.uuid)
+    completed = await call(resumed, "get_operation", record.uuid)
+    saved = await call(resumed, "get_entry", completed.history_id)
+    assert saved.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=4, memory_mib=2048)
 
 
 @pytest.mark.parametrize(
@@ -255,6 +263,7 @@ async def test_legacy_networking_record_can_be_restored_and_completed(session, t
         assert operation.context.request.network_policy == policies
         assert operation.context.session_network_enabled is True
         assert operation.context.session_network_policy_uuids == ()
+        assert operation.context.session_resources_limits is None
         mock_completion(session.client, operation_response())
         await call(operation, "wait")
         await call(resumed, "commit_result", operation)

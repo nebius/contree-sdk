@@ -68,7 +68,7 @@ async def test_shared_vm_snapshot_and_next_image():
         assert entry.image_uuid == "image-op-1"
         await lazy.run("third")
         assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
-        assert all(call.kwargs["resources_limits"] is resources for call in client.calls_for("spawn_instance"))
+        assert all(call.kwargs["resources_limits"] == resources for call in client.calls_for("spawn_instance"))
     assert lazy.phase == "closed"
     assert lazy.worker is not None
     assert lazy.worker.done()
@@ -403,21 +403,52 @@ async def test_eof_reaches_handle_wait_instead_of_returning_a_synthetic_result()
     await lazy.abort()
 
 
-async def test_cancelled_snapshot_wait_keeps_worker_and_active_command_alive():
+@pytest.mark.parametrize(
+    ("method", "args"), [("snapshot", ()), ("change_resources_limits", (InstanceResourcesLimits(cpu=1),))]
+)
+async def test_cancelled_snapshot_wait_keeps_worker_and_active_command_alive(method, args):
     client = LiveAsyncClient()
     client.auto_exit = False
     lazy = AsyncLazySession(ContreeAsyncSession(client, image="base"))
     handle = await lazy.spawn("long")
-    waiting = asyncio.create_task(lazy.snapshot())
+    waiting = asyncio.create_task(getattr(lazy, method)(*args))
     await wait_state(lazy, lambda: lazy.phase == "draining")
     waiting.cancel()
     with pytest.raises(asyncio.CancelledError):
         await waiting
     assert not client.calls_for("operation_subprocess_kill")
     await client.streams["op-1"].put(event("exit", handle.spid))
+    client.auto_exit = True
+    await asyncio.wait_for(lazy.run("next"), 2)
+    assert lazy.resources_limits is None
     await lazy.close(timeout=2)
     assert lazy.worker is not None
     assert lazy.worker.done()
+
+
+async def test_resource_and_network_changes_drain_work_before_admitting_commands():
+    client = LiveAsyncClient()
+    client.auto_exit = False
+    limits = InstanceResourcesLimits(cpu=1)
+    async with AsyncLazySession(ContreeAsyncSession(client, image="base")) as lazy:
+        handle = await lazy.spawn("long")
+        changing = asyncio.create_task(lazy.change_resources_limits(limits))
+        await wait_state(lazy, lambda: lazy.phase == "draining")
+        network = asyncio.create_task(lazy.change_network_enabled(False))
+        command = asyncio.create_task(lazy.run("later"))
+        try:
+            await asyncio.sleep(0)
+            assert not any(task.done() for task in (changing, network, command))
+            assert len(client.calls_for("operation_subprocess_create")) == 1
+            assert not client.calls_for("operation_subprocess_kill")
+        finally:
+            client.auto_exit = True
+            await client.streams["op-1"].put(event("exit", handle.spid))
+            await asyncio.wait_for(asyncio.gather(changing, network, command), 2)
+        await lazy.run("last")
+        assert lazy.resources_limits == limits
+        assert client.calls_for("spawn_instance")[-1].kwargs["resources_limits"] == limits
+        assert client.calls_for("spawn_instance")[-1].kwargs["networking"].enabled is False
 
 
 async def test_cold_close_and_context_exception_release_resources():

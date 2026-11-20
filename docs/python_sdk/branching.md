@@ -10,12 +10,12 @@ Each snapshot stops the VM; an unchanged filesystem can return the same
 `image_uuid`. Rollback follows history entries, not distinct image UUIDs.
 
 Switching branches or navigating history restores the selected entry's session
-working directory and environment defaults. Per-command overrides do not become
-session defaults.
+working directory, environment, and resource defaults. Per-command overrides do
+not become session defaults.
 
-`HistoryEntry.cwd` and `HistoryEntry.env` expose these saved defaults alongside
-the image. Refreshing the selected state uses the loaded entry without another
-Store read.
+`HistoryEntry.cwd`, `HistoryEntry.env`, and `HistoryEntry.resources_limits` expose
+these saved defaults alongside the image. Refreshing the selected state uses the
+loaded entry without another Store read.
 
 For automatic saving after each command, see
 [Save after every command](session-model.md#save-after-every-command).

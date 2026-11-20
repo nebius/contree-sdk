@@ -33,6 +33,7 @@ def operation_record(uuid: str, context: OperationContext, *, endpoint: str) -> 
         session_env=dict(context.session_env),
         session_network_enabled=context.session_network_enabled,
         session_network_policy_uuids=context.session_network_policy_uuids,
+        session_resources_limits=context.session_resources_limits,
         uuid=uuid,
         session_id=context.session_id,
         image_uuid=context.image_uuid,
@@ -71,6 +72,7 @@ def operation_context(record: OperationRecord) -> OperationContext:
         session_env=record.session_env,
         session_network_enabled=record.session_network_enabled,
         session_network_policy_uuids=record.session_network_policy_uuids,
+        session_resources_limits=record.session_resources_limits,
     )
 
 

@@ -519,6 +519,49 @@ session contexts that use it, as in these examples. See {doc}`manual-sandbox` fo
 explicit component construction and cleanup, and {doc}`reference/store` for the
 complete storage API.
 
+## Configure session resources
+
+Session `resources_limits` are saved with history and restored when reopening or
+navigating. An explicit constructor model replaces the restored defaults at
+initialization; `None` restores saved limits, and `InstanceResourcesLimits()`
+selects service defaults. Older history without resource settings uses service
+defaults.
+
+Call `change_resources_limits(model)` to replace the saved defaults immediately,
+or `change_resources_limits(None)` to select service defaults. Each call saves a
+configuration history step. Use `await` with async sessions. On a lazy session,
+the change first snapshots the active VM, stopping its processes.
+
+<!--
+name: test_change_resources; fixtures: sandbox_api
+-->
+
+```python
+from contree_client.models import InstanceResourcesLimits
+
+from contree_sdk import create_sandbox_session
+
+with create_sandbox_session(image="tag:alpine:latest") as session:
+    session.change_resources_limits(InstanceResourcesLimits(cpu=2, memory_mib=2048))
+    session.run("echo", args=("resources configured",))
+    session.change_resources_limits(None)
+```
+
+<!--
+name: test_change_resources
+```python
+assert session.resources_limits is None
+assert sandbox_api.sync.calls_for("spawn_instance")[0].kwargs["resources_limits"] == InstanceResourcesLimits(
+    cpu=2, memory_mib=2048
+)
+```
+-->
+
+A regular session's per-operation override replaces the model for that operation
+without changing saved session defaults. Lazy sessions apply the saved defaults
+on each VM start and reject per-command resource overrides. See
+{doc}`manual-sandbox` for resource configuration through the session factory.
+
 ## Configure session networking
 
 Set `network_policy` to a UUID, `tag:name`, or a sequence of references, and

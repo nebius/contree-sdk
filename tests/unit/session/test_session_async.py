@@ -40,7 +40,7 @@ async def test_resource_defaults_and_per_run_overrides(client, defaults, expecte
         service_defaults,
         expected,
     ]
-    assert session.resources_limits is defaults
+    assert session.resources_limits == defaults
 
 
 async def test_construct_resolves_image_and_seeds_history(client: ContreeAsyncClient):
@@ -78,13 +78,20 @@ async def test_concurrent_ensure_ready_creates_only_one_init_entry(client: Contr
 
 async def test_construct_resumes_from_existing_session(client: ContreeAsyncClient):
     store = AsyncMemoryStore()
-    first = ContreeAsyncSession(client, image="tag:python:3.11", store=store, session_id="my-session")
+    first = ContreeAsyncSession(
+        client,
+        image="tag:python:3.11",
+        store=store,
+        session_id="my-session",
+        resources_limits=InstanceResourcesLimits(cpu=2, memory_mib=2048),
+    )
     await first.ensure_ready()
 
     resumed = ContreeAsyncSession(client, store=store, session_id="my-session")
     await resumed.ensure_ready()
     assert resumed.image_uuid == first.image_uuid
     assert resumed.tip_id == first.tip_id
+    assert resumed.resources_limits == InstanceResourcesLimits(cpu=2, memory_mib=2048)
 
 
 async def test_run_disposable_does_not_advance_history(client: ContreeAsyncClient):

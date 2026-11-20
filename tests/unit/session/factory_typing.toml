@@ -35,6 +35,16 @@ sync = ContreeSession(ContreeClient(), image="base", resources_limits=resources)
 async_session = ContreeAsyncSession(ContreeAsyncClient(), image="base", resources_limits=resources)
 assert_type(sync.resources_limits, InstanceResourcesLimits | None)
 assert_type(async_session.resources_limits, InstanceResourcesLimits | None)
+lazy = LazySession(sync)
+async_lazy = AsyncLazySession(async_session)
+assert_type(lazy.resources_limits, InstanceResourcesLimits | None)
+assert_type(async_lazy.resources_limits, InstanceResourcesLimits | None)
+assert_type(sync.change_resources_limits(resources), None)
+assert_type(lazy.change_resources_limits(None), None)
+
+async def change():
+    assert_type(await async_session.change_resources_limits(resources), None)
+    assert_type(await async_lazy.change_resources_limits(None), None)
 '''
 
 [[cases]]

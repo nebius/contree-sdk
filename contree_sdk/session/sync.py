@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
+from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
 from math import ceil
@@ -72,6 +73,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.session_id = session_id or new_session_id()
         self.cwd_override = cwd
         self.env_override = env
+        self.resources_limits_override = resources_limits
         self.cwd = cwd
         self.env = dict(env or {})
         self._network_enabled = validate_network_enabled(network_enabled)
@@ -89,6 +91,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         version = self._position_version
         image_uuid, cwd, env = self.image_uuid, self.cwd, dict(self.env)
         network_policy_uuids, network_enabled = self.network_policy_uuids, self.network_enabled
+        resources_limits = deepcopy(self.resources_limits)
         branch = self._active_branch
         attachments = tuple(
             (StagedFile.from_spec(path, spec) for path, spec in (self.file_transfer.prepare_files(files) or {}).items())
@@ -105,6 +108,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             env=env,
             network_enabled=network_enabled,
             network_policy_uuids=network_policy_uuids,
+            resources_limits=resources_limits,
         )
         self.store.append(self.session_id, node)
         entry = entry_from_node(self.session_id, node)
@@ -321,6 +325,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             env=dict(context.session_env),
             network_enabled=context.session_network_enabled,
             network_policy_uuids=context.session_network_policy_uuids,
+            resources_limits=context.session_resources_limits,
             payload={"record": completed.to_dict(), "staging_complete": image_uuid is not None},
         )
         try:
@@ -431,6 +436,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             env=dict(context.session_env),
             network_enabled=context.session_network_enabled,
             network_policy_uuids=context.session_network_policy_uuids,
+            resources_limits=context.session_resources_limits,
         )
         self.store.append(self.session_id, node)
         entry = entry_from_node(self.session_id, node)
@@ -502,6 +508,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         self.image_uuid = entry.image_uuid
         self.cwd = entry.cwd
         self.env = dict(entry.env)
+        self.resources_limits = deepcopy(entry.resources_limits)
         self._network_policy_uuids = entry.network_policy_uuids
         self._network_enabled = entry.network_enabled
 
@@ -561,6 +568,14 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         """
         enabled = validate_network_enabled(enabled)
         self._network_enabled = enabled
+        self._save_configuration()
+
+    def change_resources_limits(self, limits: InstanceResourcesLimits | None) -> None:
+        """Replace saved VM resource defaults; None selects service defaults.
+
+        Use the lazy wrapper's method while it owns a VM.
+        """
+        self.resources_limits = deepcopy(limits)
         self._save_configuration()
 
     def set_cwd(self, cwd: str | None) -> None:
@@ -691,6 +706,9 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         """
         effective_env = self.prepare_environment(request.env)
         effective_cwd = request.cwd if request.cwd is not None else self.cwd
+        effective_resources_limits = deepcopy(
+            request.resources_limits if request.resources_limits is not None else self.resources_limits
+        )
         effective_network_enabled = (
             self.network_enabled
             if request.network_enabled is None
@@ -707,9 +725,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             cwd=effective_cwd,
             network_enabled=effective_network_enabled,
             network_policy=effective_network_policy_uuids,
-            resources_limits=request.resources_limits
-            if request.resources_limits is not None
-            else self.resources_limits,
+            resources_limits=effective_resources_limits,
         )
 
     def create_inspector(self, image_uuid: str) -> ImageInspector:
@@ -788,6 +804,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         parent_id = self.tip_id
         position_version = self._position_version
         session_cwd, session_env = self.cwd, dict(self.env)
+        session_resources_limits = deepcopy(self.resources_limits)
         session_network_enabled = self.network_enabled
         session_network_policy_uuids = self.network_policy_uuids
         branch = self._active_branch
@@ -797,8 +814,10 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
         files.update(self.file_transfer.prepare_files(request.files) or {})
         stdin = None
         if request.stdin is not None or request.stdin_open:
-            data = self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b""
-            stdin = stream_repr_for_stdin(data, close=not request.stdin_open)
+            stdin = stream_repr_for_stdin(
+                self.file_transfer.read_stdin(request.stdin) if request.stdin is not None else b"",
+                close=not request.stdin_open,
+            )
         context = OperationContext(
             request,
             self.session_id,
@@ -810,6 +829,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             position_version=position_version,
             session_cwd=session_cwd,
             session_env=session_env,
+            session_resources_limits=session_resources_limits,
             session_network_enabled=session_network_enabled,
             session_network_policy_uuids=session_network_policy_uuids,
         )
@@ -923,6 +943,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
                 network_policy_uuids=self.resolve_network_policy(initial_network_policy),
                 cwd=self.cwd,
                 env=self.env,
+                resources_limits=self.resources_limits,
             )
             try:
                 self.store.append(self.session_id, root)
@@ -949,6 +970,8 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             self.cwd = self.cwd_override
         if self.env_override is not None:
             self.env = dict(self.env_override)
+        if self.resources_limits_override is not None:
+            self.resources_limits = self.resources_limits_override
         self._branches = {"main": self.tip_id}
 
     def get_entry(self, node_id: str) -> HistoryEntry:
@@ -981,6 +1004,7 @@ class ContreeSession(SyncExecutor):  # noqa: PLR0904 - public extension contract
             created_at=time.time(),
             cwd=self.cwd,
             env=self.env,
+            resources_limits=self.resources_limits,
             network_enabled=self.network_enabled,
             network_policy_uuids=self.network_policy_uuids,
         )

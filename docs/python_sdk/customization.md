@@ -153,7 +153,8 @@ It passes the prepared inputs to `submit_request()`, then constructs the handle
 through `create_operation()`. The `OperationContext` holds the effective request
 and the source image, history entry, and branch used for the eventual commit.
 Its `session_network_policy_uuids` and `session_network_enabled` capture session defaults before
-tag lookup and uploads, like `session_cwd` and `session_env`. The prepared
+tag lookup and uploads, like `session_cwd`, `session_env`, and
+`session_resources_limits`. The prepared
 `context.request` contains effective networking: resolved UUIDs in
 `network_policy` and a concrete `network_enabled` flag. Committing saves session
 defaults from the context in the history node, like `cwd` and `env`. Detached

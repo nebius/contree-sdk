@@ -70,7 +70,7 @@ def test_shared_vm_snapshot_and_next_image():
         assert len(base.history()[0]) == 2
         lazy.run("third")
         assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
-        assert all(call.kwargs["resources_limits"] is resources for call in client.calls_for("spawn_instance"))
+        assert all(call.kwargs["resources_limits"] == resources for call in client.calls_for("spawn_instance"))
     assert lazy.phase == "closed"
     assert lazy.worker is not None
     assert not lazy.worker.is_alive()

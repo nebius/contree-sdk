@@ -168,7 +168,9 @@ Minimize idle VM resource use. Snapshot policies let the SDK stop idle execution
 
 The effective `keepalive_request` must be non-disposable and have a finite timeout longer than the snapshot allowance.
 
-The saved session owns VM resource defaults. Apply them on each VM start, including lazy restarts after snapshots. An explicit saved-session request model replaces the default model as a whole. Per-command lazy requests cannot resize the shared VM. Preserve `keepalive_request` overrides and the wrapped session's VM startup request preparation.
+The saved session owns VM resource defaults. Persist these defaults with history and restore them on reopening and navigation. Capture defaults separately from per-operation overrides so an override does not become session state, including after detached completion. Apply them on each VM start, including lazy restarts after snapshots. An explicit saved-session request model replaces the default model as a whole. Per-command lazy requests cannot resize the shared VM. Preserve `keepalive_request` overrides and the wrapped session's VM startup request preparation.
+
+Resource and network change methods persist configuration history. On lazy sessions, serialize these changes with each other, close command admission until saving finishes, and snapshot the active VM before selecting new defaults. Snapshot failure preserves the previous settings.
 
 Lazy `spawn`/`spawn_request` returns a subprocess contract. It does not return the operation that owns the whole VM. Do not mutate the wrapped saved session while the lazy VM is active.
 
@@ -475,7 +477,7 @@ Reuse every existing SDK entity at its public boundary when its contract fits th
 - Keep domain values with their consumers and shared contracts small. Do not persist live SDK objects.
 - Prefer direct imports and explicit public exports. Resolve dependency cycles structurally rather than hiding them with typing-only imports. Centralize Python-version compatibility imports.
 - Preserve supported host platforms. Separate local filesystem behavior from guest path semantics.
-- Write comments on one line. Do not introduce underscore-prefixed names except required special methods. Follow the repository's Python formatting and typing configuration.
+- Write comments on one line. Keep implementation state private; reserve public names for supported APIs and extension points. Follow the repository's Python formatting and typing configuration.
 - Keep authored technical text in English and preserve unrelated working-tree changes. Do not commit or push without explicit user approval.
 - Pull request descriptions explain the problem and resulting behavior; omit test-plan sections and test-command/result lists.
 
