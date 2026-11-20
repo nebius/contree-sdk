@@ -145,10 +145,10 @@ assert capsys.readouterr().out == "1\n"
 ::::
 
 The session calls `prepare_request()` before uploading files or submitting work.
-The hook applies cwd, environment, and networking defaults and resolves policy
+The hook applies cwd, environment, resource, and networking defaults and resolves policy
 tags. On `ContreeAsyncSession` and `AsyncLazySession`, it is async: override it
 with `async def` and await `super().prepare_request(request)`. Lazy wrappers
-reject explicit networking overrides before the base hook fills in defaults.
+reject explicit networking and resource overrides before the base hook fills in defaults.
 It passes the prepared inputs to `submit_request()`, then constructs the handle
 through `create_operation()`. The `OperationContext` holds the effective request
 and the source image, history entry, and branch used for the eventual commit.
@@ -162,10 +162,6 @@ records also retain the effective request. Later session changes do not alter
 either captured value.
 If operation construction fails after submission, the session attempts remote
 cancellation and preserves the factory error.
-
-Lazy wrappers prepare subprocess requests independently using the saved session's
-`cwd` and `env` defaults. Override the lazy wrapper's `prepare_request()` for
-subprocess policy; the saved session's hook applies only when starting the VM.
 
 `create_store()` and `create_file_transfer()` supply defaults only when no component
 was passed explicitly. Constructor-time factories must not depend on attributes

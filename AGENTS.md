@@ -154,17 +154,17 @@ Preserve its single-consumption rule and the effective request captured by the o
 
 ### `LazySession` and `AsyncLazySession`
 
-These executor implementations provide continuity within an active VM and compose a saved session for history. They own admission, active commands, filesystem reservations, snapshot coordination, and restart decisions. The wrapper owns subprocess request policy. The wrapped session owns VM startup request policy, operation creation, history, and commits.
+These executor implementations provide continuity within an active VM and compose a saved session for history. They own admission, active commands, filesystem reservations, snapshot coordination, and restart decisions. The wrapped session owns request policy, operation creation, history, and commits.
 
 Minimize idle VM resource use. Snapshot policies let the SDK stop idle execution and resume from saved files when work returns. Do not require an indefinitely running VM to preserve filesystem continuity.
 
-| Extension point               | Responsibility                                                                                                                                      |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prepare_request`             | Use the wrapped session's cwd/env defaults and validate subprocess options. It is synchronous for `LazySession` and awaited for `AsyncLazySession`. |
-| `keepalive_request`           | Select the main process for the shared VM. Preserve a lifecycle that can be stopped and saved.                                                      |
-| `observe`                     | Process operation events and completion notifications. Preserve bookkeeping required to drain accepted work.                                        |
-| `inspection_source`           | Select a saved image or reserve a live operation for a filesystem request. Release the reservation on completion, close, or failure.                |
-| `inspect`, `inspect_snapshot` | Expose current-state access or an explicitly saved, pinned image view. Preserve that distinction.                                                   |
+| Extension point               | Responsibility                                                                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prepare_request`             | Delegate shared request policy, then enforce the options valid for commands inside an existing VM. It is synchronous for `LazySession` and awaited for `AsyncLazySession`. |
+| `keepalive_request`           | Select the main process for the shared VM. Preserve a lifecycle that can be stopped and saved.                                                                             |
+| `observe`                     | Process operation events and completion notifications. Preserve bookkeeping required to drain accepted work.                                                               |
+| `inspection_source`           | Select a saved image or reserve a live operation for a filesystem request. Release the reservation on completion, close, or failure.                                       |
+| `inspect`, `inspect_snapshot` | Expose current-state access or an explicitly saved, pinned image view. Preserve that distinction.                                                                          |
 
 The effective `keepalive_request` must be non-disposable and have a finite timeout longer than the snapshot allowance.
 

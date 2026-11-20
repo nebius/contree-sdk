@@ -7,7 +7,6 @@ from collections.abc import Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
 from copy import deepcopy
-from dataclasses import replace
 from functools import partial
 from math import isfinite
 from time import monotonic
@@ -160,7 +159,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                 self._notify()
 
     def prepare_request(self, request: RunRequest) -> RunRequest:
-        """Apply session cwd/env defaults and validate subprocess options.
+        """Apply the wrapped session's policy and validate shared-VM semantics.
 
         Returns:
             The effective request.
@@ -174,18 +173,14 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                 "LazySession commands cannot override networking; "
                 "use change_network_policy() or change_network_enabled()"
             )
-        if request.disposable:
-            raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
         if request.resources_limits is not None:
             raise ValueError("LazySession commands cannot override resources_limits; use change_resources_limits()")
+        request = self.session.prepare_request(request)
+        if request.disposable:
+            raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
         if request.preserve_env or request.hostname is not None:
             raise ValueError("preserve_env and hostname require VM startup configuration")
-        env = {**self.session.env, **(request.env or {})}
-        return replace(
-            request,
-            env=env if env or request.env is not None else None,
-            cwd=request.cwd if request.cwd is not None else self.session.cwd,
-        )
+        return request
 
     def keepalive_request(self) -> RunRequest:
         """Supply a long-running main process available in the base image.
