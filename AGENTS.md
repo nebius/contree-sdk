@@ -485,7 +485,7 @@ Use clear names and structure to explain code. Keep comments, docstrings, and gu
 
 Use `uv` for Python environments and commands. Read current dependency and tool configuration in `pyproject.toml`, available Make targets, pytest configuration, and CI before selecting checks. Use the relevant Make target where it runs the required tests. Do not copy the current command inventory or CI matrix into this guide.
 
-Before pushing, run the applicable CI linters, formatters, and type checks after the final edit. Check their actual file coverage, including embedded code in documentation. Passing tests or one formatter does not replace these checks.
+Before pushing, run the full unit test suite and the applicable CI linters, formatters, and type checks after the final edit. Targeted test subsets do not replace the full unit suite. Check their actual file coverage, including embedded code in documentation. Passing tests or one formatter does not replace these checks.
 
 Read existing tests before adding a case or module. Extend an appropriate scenario when possible. Add tests for a specific risk or contract, not to mirror implementation details. Organize tests by responsibility; shared contract and integration tests can span modules.
 

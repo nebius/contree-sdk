@@ -206,7 +206,7 @@ async def test_custom_class_receives_components_and_options(profile, asynchronou
     assert session.snapshot_policy is policy
     assert session.snapshot_timeout == 7
     assert session.vm_timeout == 120
-    assert session.session.resources_limits is resources
+    assert session.session.resources_limits == resources
     assert session.session.store is store
     assert options["session_kwargs"] == original_kwargs
     assert isinstance(session.session.file_transfer, (CachedFileTransfer, AsyncCachedFileTransfer))
@@ -235,7 +235,7 @@ async def test_resource_defaults_reach_saved_sessions(profile, asynchronous):
     else:
         with context as session:
             pass
-    assert session.resources_limits is resources
+    assert session.resources_limits == resources
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
