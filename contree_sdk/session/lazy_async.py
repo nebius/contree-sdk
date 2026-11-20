@@ -95,6 +95,18 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
     def network_enabled(self) -> bool:
         return self.session.network_enabled
 
+    @asynccontextmanager
+    async def _configuration_change_guard(self) -> AsyncIterator[None]:
+        async with self.condition:
+            await self.condition.wait_for(lambda: not self._changing_configuration)
+            self.state.check()
+            self._changing_configuration = True
+            try:
+                yield
+            finally:
+                self._changing_configuration = False
+                self._notify()
+
     async def change_network_policy(self, policy: str | Sequence[str] | None) -> None:
         """Resolve UUIDs/tag:name references, snapshot, then replace the policies.
 
@@ -105,18 +117,11 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         in memory. Running processes end on snapshot.
         """
         references = validate_policy_references(policy)
-        async with self.condition:
-            await self.condition.wait_for(lambda: not self._changing_configuration)
+        async with self._configuration_change_guard():
+            selected_uuids = await self.session.resolve_network_policy(references)
+            await self._snapshot_locked()
             self.state.check()
-            self._changing_configuration = True
-            try:
-                selected_uuids = await self.session.resolve_network_policy(references)
-                await self._snapshot_locked()
-                self.state.check()
-                await self.session._set_network_policy_uuids(selected_uuids)
-            finally:
-                self._changing_configuration = False
-                self._notify()
+            await self.session._set_network_policy_uuids(selected_uuids)
 
     async def change_network_enabled(self, enabled: bool) -> None:
         """Snapshot the active VM, then persist the setting for subsequent VMs.
@@ -126,17 +131,10 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         in memory. Running processes end on snapshot.
         """
         enabled = validate_network_enabled(enabled)
-        async with self.condition:
-            await self.condition.wait_for(lambda: not self._changing_configuration)
+        async with self._configuration_change_guard():
+            await self._snapshot_locked()
             self.state.check()
-            self._changing_configuration = True
-            try:
-                await self._snapshot_locked()
-                self.state.check()
-                await self.session.change_network_enabled(enabled)
-            finally:
-                self._changing_configuration = False
-                self._notify()
+            await self.session.change_network_enabled(enabled)
 
     async def change_resources_limits(self, limits: InstanceResourcesLimits | None) -> None:
         """Snapshot the active VM, then persist replacement resource defaults.
@@ -146,17 +144,10 @@ class AsyncLazySession(AsyncExecutor):  # noqa: PLR0904 - public lifecycle and i
         retains new settings in memory. Running processes end on snapshot.
         """
         limits = deepcopy(limits)
-        async with self.condition:
-            await self.condition.wait_for(lambda: not self._changing_configuration)
+        async with self._configuration_change_guard():
+            await self._snapshot_locked()
             self.state.check()
-            self._changing_configuration = True
-            try:
-                await self._snapshot_locked()
-                self.state.check()
-                await self.session.change_resources_limits(limits)
-            finally:
-                self._changing_configuration = False
-                self._notify()
+            await self.session.change_resources_limits(limits)
 
     async def prepare_request(self, request: RunRequest) -> RunRequest:
         """Apply the wrapped session's policy and validate shared-VM semantics.
