@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import PurePosixPath
@@ -84,10 +85,12 @@ class OperationContext:
     session_env: Mapping[str, str] = field(default_factory=dict)
     session_network_enabled: bool = True
     session_network_policy_uuids: tuple[str, ...] = ()
+    session_resources_limits: InstanceResourcesLimits | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "session_env", MappingProxyType(dict(self.session_env)))
         object.__setattr__(self, "session_network_policy_uuids", tuple(self.session_network_policy_uuids))
+        object.__setattr__(self, "session_resources_limits", deepcopy(self.session_resources_limits))
 
 
 def _file_write_request(path: str, content: bytes) -> RunRequest:

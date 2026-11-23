@@ -6,12 +6,13 @@ import threading
 from collections.abc import Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
+from copy import deepcopy
 from functools import partial
 from math import isfinite
 from time import monotonic
 from typing import Literal
 
-from contree_client.models import DirectoryList, GrepResult, InstanceResult, OperationEvent
+from contree_client.models import DirectoryList, GrepResult, InstanceResourcesLimits, InstanceResult, OperationEvent
 
 from contree_sdk.compat import Self
 from contree_sdk.execution import RunRequest, SyncExecutor
@@ -68,7 +69,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         self.operation: OperationContract | None = None
         self.worker: threading.Thread | None = None
         self.last_entry: HistoryEntry | None = None
-        self._changing_network = False
+        self._changing_configuration = False
         self._snapshot_future: Future[None] | None = None
         self._changed = threading.Event()
 
@@ -83,12 +84,28 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
             return self.state.error
 
     @property
+    def resources_limits(self) -> InstanceResourcesLimits | None:
+        return deepcopy(self.session.resources_limits)
+
+    @property
     def network_policy_uuids(self) -> tuple[str, ...]:
         return self.session.network_policy_uuids
 
     @property
     def network_enabled(self) -> bool:
         return self.session.network_enabled
+
+    @contextmanager
+    def _configuration_change_guard(self) -> Iterator[None]:
+        with self.condition:
+            self.condition.wait_for(lambda: not self._changing_configuration)
+            self.state.check()
+            self._changing_configuration = True
+            try:
+                yield
+            finally:
+                self._changing_configuration = False
+                self._notify()
 
     def change_network_policy(self, policy: str | Sequence[str] | None) -> None:
         """Resolve UUIDs/tag:name references, snapshot, then replace the policies.
@@ -100,18 +117,11 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         in memory. Running processes end on snapshot.
         """
         references = validate_policy_references(policy)
-        with self.condition:
-            self.condition.wait_for(lambda: not self._changing_network)
+        with self._configuration_change_guard():
+            selected_uuids = self.session.resolve_network_policy(references)
+            self._snapshot_locked()
             self.state.check()
-            self._changing_network = True
-            try:
-                selected_uuids = self.session.resolve_network_policy(references)
-                self._snapshot_locked()
-                self.state.check()
-                self.session._set_network_policy_uuids(selected_uuids)
-            finally:
-                self._changing_network = False
-                self._notify()
+            self.session._set_network_policy_uuids(selected_uuids)
 
     def change_network_enabled(self, enabled: bool) -> None:
         """Snapshot the active VM, then persist the setting for subsequent VMs.
@@ -121,17 +131,23 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         in memory. Running processes end on snapshot.
         """
         enabled = validate_network_enabled(enabled)
-        with self.condition:
-            self.condition.wait_for(lambda: not self._changing_network)
+        with self._configuration_change_guard():
+            self._snapshot_locked()
             self.state.check()
-            self._changing_network = True
-            try:
-                self._snapshot_locked()
-                self.state.check()
-                self.session.change_network_enabled(enabled)
-            finally:
-                self._changing_network = False
-                self._notify()
+            self.session.change_network_enabled(enabled)
+
+    def change_resources_limits(self, limits: InstanceResourcesLimits | None) -> None:
+        """Snapshot the active VM, then persist replacement resource defaults.
+
+        None selects service defaults. Commands wait until the change finishes.
+        Snapshot failure preserves previous settings; a failed Store write
+        retains new settings in memory. Running processes end on snapshot.
+        """
+        limits = deepcopy(limits)
+        with self._configuration_change_guard():
+            self._snapshot_locked()
+            self.state.check()
+            self.session.change_resources_limits(limits)
 
     def prepare_request(self, request: RunRequest) -> RunRequest:
         """Apply the wrapped session's policy and validate shared-VM semantics.
@@ -148,11 +164,13 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
                 "LazySession commands cannot override networking; "
                 "use change_network_policy() or change_network_enabled()"
             )
+        if request.resources_limits is not None:
+            raise ValueError("LazySession commands cannot override resources_limits; use change_resources_limits()")
         request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
-        if request.preserve_env or request.hostname is not None or request.resources_limits is not None:
-            raise ValueError("preserve_env, hostname and resources_limits require VM startup configuration")
+        if request.preserve_env or request.hostname is not None:
+            raise ValueError("preserve_env and hostname require VM startup configuration")
         return request
 
     def keepalive_request(self) -> RunRequest:
@@ -235,7 +253,7 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         with self.condition:
             while True:
                 self.state.check()
-                if self._changing_network:
+                if self._changing_configuration:
                     self.condition.wait()
                     continue
                 starting = self.state.phase == "cold"

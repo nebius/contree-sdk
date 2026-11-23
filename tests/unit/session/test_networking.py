@@ -4,7 +4,7 @@ import asyncio
 import inspect
 
 import pytest
-from contree_client.models import InstanceNetworking, NetworkPolicyTag
+from contree_client.models import InstanceNetworking, InstanceResourcesLimits, NetworkPolicyTag
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
 from contree_sdk import AsyncLazySession, ContreeAsyncSession, ContreeSession, LazySession, create_sandbox_session
@@ -263,7 +263,13 @@ async def test_async_tag_lookup_preserves_submission_context(monkeypatch):
     client.mock("spawn_instance", spawn_response())
     mock_completion(client, operation_response())
     session = ContreeAsyncSession(
-        client, image="base", cwd="/workspace", env={"MODE": "initial"}, network_policy=POLICY_A, network_enabled=False
+        client,
+        image="base",
+        cwd="/workspace",
+        env={"MODE": "initial"},
+        network_policy=POLICY_A,
+        network_enabled=False,
+        resources_limits=InstanceResourcesLimits(cpu=2),
     )
     await session.ensure_ready()
     entered = asyncio.Event()
@@ -279,6 +285,7 @@ async def test_async_tag_lookup_preserves_submission_context(monkeypatch):
     spawning = asyncio.create_task(session.spawn("first", network_policy="tag:temporary", network_enabled=True))
     try:
         await asyncio.wait_for(entered.wait(), 2)
+        await session.change_resources_limits(InstanceResourcesLimits(cpu=1))
         await session.change_network_policy(None)
         await session.change_network_enabled(True)
         await session.set_cwd("/later")
@@ -293,6 +300,11 @@ async def test_async_tag_lookup_preserves_submission_context(monkeypatch):
             assert operation.context.session_network_enabled is False
             assert operation.context.session_cwd == "/workspace"
             assert operation.context.session_env == {"MODE": "initial"}
+            assert (
+                operation.context.session_resources_limits
+                == operation.context.request.resources_limits
+                == InstanceResourcesLimits(cpu=2)
+            )
             assert operation.context.request.cwd == "/workspace"
             assert operation.context.request.env == {"MODE": "initial"}
             assert operation.context.request.network_policy == (POLICY_B,)
@@ -303,7 +315,7 @@ async def test_async_tag_lookup_preserves_submission_context(monkeypatch):
             await operation.shutdown()
         assert session.tip_id == selected_tip
         assert session.network_policy_uuids == ()
-        assert session.network_enabled is True
+        assert (session.network_enabled, session.resources_limits) == (True, InstanceResourcesLimits(cpu=1))
     finally:
         proceed.set()
         await spawning
@@ -761,12 +773,17 @@ async def test_failed_policy_lookup_keeps_active_vm_and_previous_policies(
     assert len(client.calls_for("spawn_instance")) == 1
 
 
-async def test_snapshot_failure_does_not_record_requested_network_change(lazy_session):
+@pytest.mark.parametrize(
+    ("method", "value"),
+    [("change_network_policy", POLICY_B), ("change_resources_limits", InstanceResourcesLimits(cpu=1))],
+)
+async def test_snapshot_failure_does_not_record_requested_configuration(lazy_session, method, value):
     client, base, lazy = lazy_session
     await invoke(lazy.run, "first")
     client.wait_error = OSError("snapshot unavailable")
     with pytest.raises(RuntimeError, match="snapshot failed"):
-        await invoke(lazy.change_network_policy, POLICY_B)
+        await invoke(getattr(lazy, method), value)
+    assert lazy.resources_limits is None
     assert lazy.network_policy_uuids == (POLICY_A,)
     entries, _ = await invoke(base.history)
     assert [entry.kind for entry in entries] == ["init"]
@@ -850,3 +867,27 @@ async def test_async_upload_cannot_change_inflight_network_selection():
         proceed.set()
         await spawning
         await session.store.close()
+
+
+@pytest.mark.parametrize("active", [False, True], ids=["cold", "running"])
+async def test_lazy_resource_changes_persist_and_apply_to_next_vm(lazy_session, active):
+    client, base, lazy = lazy_session
+    if active:
+        await invoke(lazy.run, "first")
+    limits = InstanceResourcesLimits(cpu=1, memory_mib=2048, max_layer_bytes=1024**3)
+    await invoke(lazy.change_resources_limits, limits)
+    limits.cpu = 4
+    assert lazy.phase == "cold"
+    entries, _ = await invoke(base.history)
+    assert [entry.kind for entry in entries] == (["init", "run", "config"] if active else ["init", "config"])
+    assert entries[-2].resources_limits is None
+    assert entries[-1].resources_limits == InstanceResourcesLimits(cpu=1, memory_mib=2048, max_layer_bytes=1024**3)
+    assert len(client.calls_for("spawn_instance")) == int(active)
+    await invoke(lazy.run, "changed")
+    await invoke(lazy.change_resources_limits, None)
+    assert lazy.resources_limits is None
+    assert lazy.network_policy_uuids == (POLICY_A,)
+    await invoke(lazy.run, "cleared")
+    calls = client.calls_for("spawn_instance")
+    assert [call.kwargs["resources_limits"] for call in calls[-2:]] == [entries[-1].resources_limits, Ellipsis]
+    assert calls[-1].args[1] == ("image-op-2" if active else "image-op-1")

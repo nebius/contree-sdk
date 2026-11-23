@@ -6,6 +6,8 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from typing import Any, cast
 
+from contree_client.models import InstanceResourcesLimits
+
 from contree_sdk.files import StagedFile
 from contree_sdk.store import JSONValue
 
@@ -34,6 +36,7 @@ class OperationRecord:
     session_env: dict[str, str] = field(default_factory=dict)
     session_network_enabled: bool = True
     session_network_policy_uuids: tuple[str, ...] = ()
+    session_resources_limits: InstanceResourcesLimits | None = None
     files: tuple[str, ...] = ()
     attachments: tuple[StagedFile, ...] = ()
     response: dict[str, JSONValue] | None = None
@@ -56,6 +59,7 @@ class OperationRecord:
         object.__setattr__(self, "files", tuple(self.files))
         object.__setattr__(self, "attachments", tuple(self.attachments))
         object.__setattr__(self, "session_network_policy_uuids", tuple(self.session_network_policy_uuids))
+        object.__setattr__(self, "session_resources_limits", deepcopy(self.session_resources_limits))
 
     @property
     def pending(self) -> bool:
@@ -65,6 +69,9 @@ class OperationRecord:
         data = asdict(self)
         data["files"] = list(self.files)
         data["session_network_policy_uuids"] = list(self.session_network_policy_uuids)
+        data["session_resources_limits"] = (
+            self.session_resources_limits.to_dict() if self.session_resources_limits is not None else None
+        )
         data["attachments"] = [asdict(item) for item in self.attachments]
         return data
 
@@ -72,4 +79,6 @@ class OperationRecord:
     def from_dict(cls, payload: dict[str, JSONValue]) -> OperationRecord:
         data = cast("dict[str, Any]", dict(payload))
         data["attachments"] = tuple(StagedFile(**item) for item in data.get("attachments", ()))
+        if data.get("session_resources_limits") is not None:
+            data["session_resources_limits"] = InstanceResourcesLimits.from_dict(data["session_resources_limits"])
         return cls(**data)

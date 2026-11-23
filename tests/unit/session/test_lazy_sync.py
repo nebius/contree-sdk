@@ -3,9 +3,15 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
-from contree_client.models import FileResponse, InstanceResultState, OperationStatus, StreamRepr
+from contree_client.models import (
+    FileResponse,
+    InstanceResourcesLimits,
+    InstanceResultState,
+    OperationStatus,
+    StreamRepr,
+)
 
-from contree_sdk import ContreeSession, LazySession
+from contree_sdk import ContreeSession, LazySession, RunRequest
 from contree_sdk.files import UploadedFile, UploadFileSpec
 from contree_sdk.session import AbstractSnapshotPolicy, CommandCountSnapshotPolicy, IdleSnapshotPolicy
 from contree_sdk.session.base import exit_code_of
@@ -21,10 +27,12 @@ def wait_state(lazy, predicate):
 
 
 def test_shared_vm_snapshot_and_next_image():
+    resources = InstanceResourcesLimits(cpu=2, memory_mib=2048)
     client = LiveClient()
-    base = ContreeSession(client, image="base")
+    base = ContreeSession(client, image="base", resources_limits=resources)
     with LazySession(base) as lazy:
         assert not client.calls_for("spawn_instance")
+        assert (lazy.prepare_request(RunRequest(command="first"))).resources_limits == resources
         assert lazy.run("first").stdout == StreamRepr(value="first", encoding="ascii", truncated=False)
         assert lazy.run("second").stdout == StreamRepr(value="second", encoding="ascii", truncated=False)
         assert len(client.calls_for("spawn_instance")) == 1
@@ -38,10 +46,31 @@ def test_shared_vm_snapshot_and_next_image():
         assert len(base.history()[0]) == 2
         lazy.run("third")
         assert client.calls_for("spawn_instance")[1].args[1] == "image-op-1"
+        assert all(call.kwargs["resources_limits"] == resources for call in client.calls_for("spawn_instance"))
+        assert all(
+            call.kwargs.get("resources_limits", ...) is Ellipsis
+            for call in client.calls_for("operation_subprocess_create")
+        )
     assert lazy.phase == "closed"
     assert lazy.worker is not None
     assert not lazy.worker.is_alive()
     assert len(base.history()[0]) == 3
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("resources", [InstanceResourcesLimits(), InstanceResourcesLimits(cpu=1)])
+def test_explicit_resource_limits_are_rejected_before_submission(warm, resources):
+    client = LiveClient()
+    base = ContreeSession(client, image="base", resources_limits=InstanceResourcesLimits(cpu=2))
+    with LazySession(base) as session:
+        if warm:
+            session.run("first")
+        with pytest.raises(ValueError, match="resources_limits"):
+            session.execute(RunRequest(command="echo", resources_limits=resources))
+        assert len(client.calls_for("spawn_instance")) == int(warm)
+        assert len(client.calls_for("operation_subprocess_create")) == int(warm)
+        assert exit_code_of(session.run("next")) == 0
+        assert len(client.calls_for("spawn_instance")) == 1
 
 
 def test_run_files_are_applied_before_subprocess_on_cold_and_running_vm(tmp_path):

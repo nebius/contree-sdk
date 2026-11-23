@@ -145,15 +145,16 @@ assert capsys.readouterr().out == "1\n"
 ::::
 
 The session calls `prepare_request()` before uploading files or submitting work.
-The hook applies cwd, environment, and networking defaults and resolves policy
+The hook applies cwd, environment, resource, and networking defaults and resolves policy
 tags. On `ContreeAsyncSession` and `AsyncLazySession`, it is async: override it
 with `async def` and await `super().prepare_request(request)`. Lazy wrappers
-reject explicit networking overrides before the base hook fills in defaults.
+reject explicit networking and resource overrides before the base hook fills in defaults.
 It passes the prepared inputs to `submit_request()`, then constructs the handle
 through `create_operation()`. The `OperationContext` holds the effective request
 and the source image, history entry, and branch used for the eventual commit.
 Its `session_network_policy_uuids` and `session_network_enabled` capture session defaults before
-tag lookup and uploads, like `session_cwd` and `session_env`. The prepared
+tag lookup and uploads, like `session_cwd`, `session_env`, and
+`session_resources_limits`. The prepared
 `context.request` contains effective networking: resolved UUIDs in
 `network_policy` and a concrete `network_enabled` flag. Committing saves session
 defaults from the context in the history node, like `cwd` and `env`. Detached
