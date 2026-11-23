@@ -477,7 +477,7 @@ Reuse every existing SDK entity at its public boundary when its contract fits th
 - Keep domain values with their consumers and shared contracts small. Do not persist live SDK objects.
 - Prefer direct imports and explicit public exports. Resolve dependency cycles structurally rather than hiding them with typing-only imports. Centralize Python-version compatibility imports.
 - Preserve supported host platforms. Separate local filesystem behavior from guest path semantics.
-- Write comments on one line. Keep implementation state private; reserve public names for supported APIs and extension points. Follow the repository's Python formatting and typing configuration.
+- Write comments on one line. Do not introduce underscore-prefixed names except required special methods. Follow the repository's Python formatting and typing configuration.
 - Keep authored technical text in English and preserve unrelated working-tree changes. Do not commit or push without explicit user approval.
 - Pull request descriptions explain the problem and resulting behavior; omit test-plan sections and test-command/result lists.
 
