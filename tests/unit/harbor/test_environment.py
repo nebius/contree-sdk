@@ -1,21 +1,23 @@
 import asyncio
 import io
 import tarfile
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
-from contree_client.models import FileResponse, InstanceResourcesLimits, StreamRepr
+from contree_client.models import FileResponse, InstanceResourcesLimits, InstanceResult, InstanceResultState, StreamRepr
+from contree_client.types import ContreeAsyncClient
 
 
 pytest.importorskip("harbor")
 
 from harbor.environments.capabilities import EnvironmentResourceCapabilities
 from harbor.environments.factory import EnvironmentFactory
-from harbor.models.task.config import EnvironmentConfig
+from harbor.models.task.config import EnvironmentConfig, NetworkMode
 from harbor.models.trial.paths import TrialPaths
 from tests.unit.session.lazy_clients import LiveAsyncClient
 
+from contree_sdk import AsyncLazySession
 from contree_sdk.harbor import ConTreeEnvironment
 
 
@@ -91,7 +93,9 @@ async def test_harbor_factory(backend, task_resources, options, expected):
         **options,
     )
     assert isinstance(created, ConTreeEnvironment)
-    assert not any(created.capabilities.model_dump().values())
+    capabilities = created.capabilities.model_dump()
+    assert capabilities.pop("disable_internet") is True
+    assert not any(capabilities.values())
     assert created.resource_capabilities() == EnvironmentResourceCapabilities(cpu_limit=True, memory_limit=True)
     try:
         await created.start(force_build=False)
@@ -99,6 +103,55 @@ async def test_harbor_factory(backend, task_resources, options, expected):
         assert spawn["resources_limits"] == expected
     finally:
         await created.stop()
+
+
+@pytest.mark.parametrize(
+    ("network_mode", "network_enabled"),
+    [(NetworkMode.PUBLIC, True), (NetworkMode.NO_NETWORK, False)],
+)
+async def test_network_mode_is_forwarded_to_sdk(tmp_path, monkeypatch, network_mode, network_enabled):
+    session = AsyncMock(spec=AsyncLazySession)
+    session.execute.return_value = InstanceResult(state=InstanceResultState(exit_code=0))
+    context = MagicMock()
+    context.__aenter__.return_value = session
+    factory = Mock(return_value=context)
+    monkeypatch.setattr("contree_sdk.harbor.environment.create_async_sandbox_session", factory)
+    monkeypatch.setattr("contree_sdk.harbor.environment.async_import_image", AsyncMock(return_value="base"))
+    environment_dir = tmp_path / "environment"
+    environment_dir.mkdir()
+    task_config = EnvironmentConfig(docker_image="alpine:latest", network_mode=network_mode)
+    environment = EnvironmentFactory.create_environment_from_import_path(
+        "contree_sdk.harbor:ConTreeEnvironment",
+        environment_dir=environment_dir,
+        environment_name="test",
+        session_id=f"network-{network_mode.value}",
+        trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
+        task_env_config=task_config,
+        network_policy=task_config.resolve_baseline(),
+        contree_client=Mock(spec=ContreeAsyncClient),
+    )
+    try:
+        await environment.start(force_build=False)
+        assert factory.call_args.kwargs["network_enabled"] is network_enabled
+    finally:
+        await environment.stop(delete=True)
+
+
+def test_network_allowlist_is_rejected_before_start(tmp_path):
+    task_config = EnvironmentConfig(
+        docker_image="alpine:latest",
+        network_mode=NetworkMode.ALLOWLIST,
+        allowed_hosts=["example.com"],
+    )
+    with pytest.raises(ValueError, match="network_mode='allowlist'"):
+        ConTreeEnvironment(
+            environment_dir=tmp_path,
+            environment_name="test",
+            session_id="network-allowlist",
+            trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
+            task_env_config=task_config,
+            network_policy=task_config.resolve_baseline(),
+        )
 
 
 @pytest.mark.parametrize("resource", ["cpu", "memory"])

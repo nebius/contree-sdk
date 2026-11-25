@@ -68,7 +68,7 @@ Image imports have a 10-minute timeout, configurable via `ConTreeEnvironment.IMA
   image containing Bash and `sleep`. Dockerfile builds are not supported.
 - Commands use the image's default user. Harbor can override it with `root` or
   a numeric UID; other user names are not supported.
-- Compose, GPUs, custom host mounts, and restricted networking are not supported.
+- Compose, GPUs, custom host mounts, and network allowlists are not supported.
 - Storage is capped per writable layer, rather than across the full filesystem.
 - Docker inside the VM is not exposed by this integration.
 - `--no-delete` currently behaves like `--delete`: stopping cancels the VM and
