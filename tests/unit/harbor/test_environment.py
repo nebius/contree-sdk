@@ -1,11 +1,12 @@
 import asyncio
 import io
 import tarfile
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from contree_client.exceptions import ConflictError, TooEarlyError
-from contree_client.models import FileResponse, InstanceResourcesLimits, StreamRepr
+from contree_client.models import FileResponse, InstanceResourcesLimits, InstanceResult, InstanceResultState, StreamRepr
+from contree_client.types import ContreeAsyncClient
 
 
 pytest.importorskip("harbor")
@@ -16,6 +17,7 @@ from harbor.models.task.config import EnvironmentConfig, NetworkMode
 from harbor.models.trial.paths import TrialPaths
 from tests.unit.session.lazy_clients import LiveAsyncClient
 
+from contree_sdk import AsyncLazySession
 from contree_sdk.harbor import ConTreeEnvironment
 
 
@@ -107,55 +109,35 @@ async def test_harbor_factory(backend, task_resources, options, expected):
     ("network_mode", "network_enabled"),
     [(NetworkMode.PUBLIC, True), (NetworkMode.NO_NETWORK, False)],
 )
-async def test_network_mode_is_forwarded_to_contree(backend, network_mode, network_enabled):
-    client, template = backend
+async def test_network_mode_is_forwarded_to_sdk(tmp_path, monkeypatch, network_mode, network_enabled):
+    session = AsyncMock(spec=AsyncLazySession)
+    session.execute.return_value = InstanceResult(state=InstanceResultState(exit_code=0))
+    context = MagicMock()
+    context.__aenter__.return_value = session
+    factory = Mock(return_value=context)
+    monkeypatch.setattr("contree_sdk.harbor.environment.create_async_sandbox_session", factory)
+    monkeypatch.setattr("contree_sdk.harbor.environment.async_import_image", AsyncMock(return_value="base"))
+    environment_dir = tmp_path / "environment"
+    environment_dir.mkdir()
     task_config = EnvironmentConfig(docker_image="alpine:latest", network_mode=network_mode)
     environment = EnvironmentFactory.create_environment_from_import_path(
         "contree_sdk.harbor:ConTreeEnvironment",
-        environment_dir=template.environment_dir,
+        environment_dir=environment_dir,
         environment_name="test",
         session_id=f"network-{network_mode.value}",
-        trial_paths=template.trial_paths,
+        trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
         task_env_config=task_config,
         network_policy=task_config.resolve_baseline(),
-        contree_client=client,
+        contree_client=Mock(spec=ContreeAsyncClient),
     )
     try:
         await environment.start(force_build=False)
-        networking = client.calls_for("spawn_instance")[0].kwargs["networking"]
-        assert networking.to_dict() == {"enabled": network_enabled, "policy": []}
+        assert factory.call_args.kwargs["network_enabled"] is network_enabled
     finally:
         await environment.stop(delete=True)
 
 
-async def test_disabled_networking_is_preserved_after_idle_snapshot(backend):
-    client, template = backend
-    task_config = EnvironmentConfig(docker_image="alpine:latest", network_mode=NetworkMode.NO_NETWORK)
-    environment = ConTreeEnvironment(
-        environment_dir=template.environment_dir,
-        environment_name="test",
-        session_id="network-disabled-restart",
-        trial_paths=template.trial_paths,
-        task_env_config=task_config,
-        network_policy=task_config.resolve_baseline(),
-        snapshot_idle_sec=0.02,
-        contree_client=client,
-    )
-    try:
-        await environment.start(force_build=False)
-        await asyncio.wait_for(client.saving.wait(), 1)
-        await environment._require_lazy().snapshot(timeout=1)
-        assert (await environment.exec("echo resumed")).return_code == 0
-        assert [call.kwargs["networking"].to_dict() for call in client.calls_for("spawn_instance")] == [
-            {"enabled": False, "policy": []},
-            {"enabled": False, "policy": []},
-        ]
-    finally:
-        await environment.stop()
-
-
-def test_network_allowlist_is_rejected_before_start(backend):
-    client, template = backend
+def test_network_allowlist_is_rejected_before_start(tmp_path):
     task_config = EnvironmentConfig(
         docker_image="alpine:latest",
         network_mode=NetworkMode.ALLOWLIST,
@@ -163,15 +145,13 @@ def test_network_allowlist_is_rejected_before_start(backend):
     )
     with pytest.raises(ValueError, match="network_mode='allowlist'"):
         ConTreeEnvironment(
-            environment_dir=template.environment_dir,
+            environment_dir=tmp_path,
             environment_name="test",
             session_id="network-allowlist",
-            trial_paths=template.trial_paths,
+            trial_paths=TrialPaths(trial_dir=tmp_path / "trial"),
             task_env_config=task_config,
             network_policy=task_config.resolve_baseline(),
-            contree_client=client,
         )
-    assert not client.calls_for("spawn_instance")
 
 
 @pytest.mark.parametrize("resource", ["cpu", "memory"])

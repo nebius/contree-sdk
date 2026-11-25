@@ -804,7 +804,7 @@ async def test_invalid_inputs_do_not_stop_active_vm(lazy_session):
 
 
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
-async def test_factory_initializes_lazy_base_networking(asynchronous):
+async def test_factory_networking_survives_lazy_snapshot(asynchronous):
     client = LiveAsyncClient() if asynchronous else LiveClient()
     client.mock("get_network_policy")
     client.mock("get_network_policy_tag", NetworkPolicyTag(tag="restricted", uuid=POLICY_B))
@@ -816,15 +816,21 @@ async def test_factory_initializes_lazy_base_networking(asynchronous):
             await session.run("first")
             assert session.network_policy_uuids == (POLICY_A, POLICY_B)
             assert session.network_enabled is False
+            await session.snapshot(timeout=2)
+            await session.run("resumed")
     else:
         with context as session:
             session.run("first")
             assert session.network_policy_uuids == (POLICY_A, POLICY_B)
             assert session.network_enabled is False
-    assert client.calls_for("spawn_instance")[0].kwargs["networking"].to_dict() == {
-        "enabled": False,
-        "policy": [POLICY_A, POLICY_B],
-    }
+            session.snapshot(timeout=2)
+            session.run("resumed")
+    spawns = client.calls_for("spawn_instance")
+    assert len(spawns) == 2
+    assert spawns[1].args[1] == "image-op-1"
+    assert all(
+        call.kwargs["networking"].to_dict() == {"enabled": False, "policy": [POLICY_A, POLICY_B]} for call in spawns
+    )
 
 
 async def test_async_upload_cannot_change_inflight_network_selection():
