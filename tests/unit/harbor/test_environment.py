@@ -12,7 +12,7 @@ pytest.importorskip("harbor")
 
 from harbor.environments.capabilities import EnvironmentResourceCapabilities
 from harbor.environments.factory import EnvironmentFactory
-from harbor.models.task.config import EnvironmentConfig
+from harbor.models.task.config import EnvironmentConfig, NetworkMode
 from harbor.models.trial.paths import TrialPaths
 from tests.unit.session.lazy_clients import LiveAsyncClient
 
@@ -91,7 +91,9 @@ async def test_harbor_factory(backend, task_resources, options, expected):
         **options,
     )
     assert isinstance(created, ConTreeEnvironment)
-    assert not any(created.capabilities.model_dump().values())
+    capabilities = created.capabilities.model_dump()
+    assert capabilities.pop("disable_internet") is True
+    assert not any(capabilities.values())
     assert created.resource_capabilities() == EnvironmentResourceCapabilities(cpu_limit=True, memory_limit=True)
     try:
         await created.start(force_build=False)
@@ -99,6 +101,77 @@ async def test_harbor_factory(backend, task_resources, options, expected):
         assert spawn["resources_limits"] == expected
     finally:
         await created.stop()
+
+
+@pytest.mark.parametrize(
+    ("network_mode", "network_enabled"),
+    [(NetworkMode.PUBLIC, True), (NetworkMode.NO_NETWORK, False)],
+)
+async def test_network_mode_is_forwarded_to_contree(backend, network_mode, network_enabled):
+    client, template = backend
+    task_config = EnvironmentConfig(docker_image="alpine:latest", network_mode=network_mode)
+    environment = EnvironmentFactory.create_environment_from_import_path(
+        "contree_sdk.harbor:ConTreeEnvironment",
+        environment_dir=template.environment_dir,
+        environment_name="test",
+        session_id=f"network-{network_mode.value}",
+        trial_paths=template.trial_paths,
+        task_env_config=task_config,
+        network_policy=task_config.resolve_baseline(),
+        contree_client=client,
+    )
+    try:
+        await environment.start(force_build=False)
+        networking = client.calls_for("spawn_instance")[0].kwargs["networking"]
+        assert networking.to_dict() == {"enabled": network_enabled, "policy": []}
+    finally:
+        await environment.stop(delete=True)
+
+
+async def test_disabled_networking_is_preserved_after_idle_snapshot(backend):
+    client, template = backend
+    task_config = EnvironmentConfig(docker_image="alpine:latest", network_mode=NetworkMode.NO_NETWORK)
+    environment = ConTreeEnvironment(
+        environment_dir=template.environment_dir,
+        environment_name="test",
+        session_id="network-disabled-restart",
+        trial_paths=template.trial_paths,
+        task_env_config=task_config,
+        network_policy=task_config.resolve_baseline(),
+        snapshot_idle_sec=0.02,
+        contree_client=client,
+    )
+    try:
+        await environment.start(force_build=False)
+        await asyncio.wait_for(client.saving.wait(), 1)
+        await environment._require_lazy().snapshot(timeout=1)
+        assert (await environment.exec("echo resumed")).return_code == 0
+        assert [call.kwargs["networking"].to_dict() for call in client.calls_for("spawn_instance")] == [
+            {"enabled": False, "policy": []},
+            {"enabled": False, "policy": []},
+        ]
+    finally:
+        await environment.stop()
+
+
+def test_network_allowlist_is_rejected_before_start(backend):
+    client, template = backend
+    task_config = EnvironmentConfig(
+        docker_image="alpine:latest",
+        network_mode=NetworkMode.ALLOWLIST,
+        allowed_hosts=["example.com"],
+    )
+    with pytest.raises(ValueError, match="network_mode='allowlist'"):
+        ConTreeEnvironment(
+            environment_dir=template.environment_dir,
+            environment_name="test",
+            session_id="network-allowlist",
+            trial_paths=template.trial_paths,
+            task_env_config=task_config,
+            network_policy=task_config.resolve_baseline(),
+            contree_client=client,
+        )
+    assert not client.calls_for("spawn_instance")
 
 
 @pytest.mark.parametrize("resource", ["cpu", "memory"])

@@ -73,7 +73,7 @@ class ConTreeEnvironment(BaseEnvironment):
 
     @cached_property
     def capabilities(self) -> EnvironmentCapabilities:
-        return EnvironmentCapabilities()
+        return EnvironmentCapabilities(disable_internet=True)
 
     @classmethod
     def resource_capabilities(cls) -> EnvironmentResourceCapabilities:
@@ -155,6 +155,7 @@ class ConTreeEnvironment(BaseEnvironment):
                 image=contree_image,
                 session_id=self.session_id,
                 client=client,
+                network_enabled=not self._network_disabled,
                 resources_limits=resources_limits,
                 session_kwargs={"snapshot_policy": snapshot_policy},
             )
