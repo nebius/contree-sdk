@@ -169,8 +169,8 @@ class LazySession(SyncExecutor):  # noqa: PLR0904 - public lifecycle and inspect
         request = self.session.prepare_request(request)
         if request.disposable:
             raise ValueError("LazySession commands cannot be disposable; use a separate ContreeSession")
-        if request.preserve_env or request.hostname is not None:
-            raise ValueError("preserve_env and hostname require VM startup configuration")
+        if request.preserve_env or request.preserve_cwd or request.hostname is not None:
+            raise ValueError("preserve_env, preserve_cwd and hostname require VM startup configuration")
         return request
 
     def keepalive_request(self) -> RunRequest:

@@ -162,3 +162,18 @@ errors = [{ line = 1, code = "no-matching-overload" }]
 code = '''
 create_sandbox_session(session_type=ContreeAsyncSession, file_transfer=ClientFileTransfer(ContreeClient()))
 '''
+
+[[cases]]
+name = "image_workdir_preservation"
+code = '''
+from contree_sdk import RunRequest
+
+def sync_use(session: ContreeSession):
+    assert_type(RunRequest(shell=":", preserve_cwd=True).preserve_cwd, bool)
+    session.run(shell=":", cwd="/app", preserve_cwd=True)
+    session.spawn(shell=":", cwd="/app", preserve_cwd=True)
+
+async def async_use(session: ContreeAsyncSession):
+    await session.run(shell=":", cwd="/app", preserve_cwd=True)
+    await session.spawn(shell=":", cwd="/app", preserve_cwd=True)
+'''

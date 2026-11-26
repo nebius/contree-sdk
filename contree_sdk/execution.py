@@ -43,6 +43,7 @@ class RunRequest:
     disposable: bool = False
     truncate_output_at: int | None = None
     preserve_env: bool = False
+    preserve_cwd: bool = False
     hostname: str | None = None
     uid: int | None = None
     gid: int | None = None

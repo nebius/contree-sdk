@@ -2,7 +2,7 @@ import os
 
 import pytest
 from contree_client.asyncio import ContreeAsyncClient
-from contree_client.models import StreamRepr
+from contree_client.models import InstanceResultState, StreamRepr
 from contree_client.sync import ContreeClient
 
 from contree_sdk.session import ContreeAsyncSession, ContreeSession
@@ -15,6 +15,21 @@ def image() -> str:
     if not image:
         pytest.skip("Set CONTREE_E2E_IMAGE to a shell-capable image and configure a ConTree profile")
     return image
+
+
+def test_image_preserves_initial_workdir_in_new_session(image):
+    with ContreeClient.from_profile() as client:
+        session = ContreeSession(client, image=image)
+        saved = session.run(shell="cd /tmp", cwd="/app", preserve_cwd=True, timeout=30)
+        assert isinstance(saved.state, InstanceResultState)
+        assert saved.state.exit_code == 0
+
+        fresh = ContreeSession(client, image=session.image_uuid)
+        result = fresh.run("pwd", disposable=True, timeout=30)
+        assert isinstance(result.state, InstanceResultState)
+        assert result.state.exit_code == 0
+        assert isinstance(result.stdout, StreamRepr)
+        assert result.stdout.as_text().strip() == "/app"
 
 
 def test_files_branching_and_persistent_resume(image, tmp_path):

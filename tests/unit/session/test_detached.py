@@ -175,6 +175,7 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
         disposable=False,
         env={"KEY": "value"},
         cwd="/work",
+        preserve_cwd=True,
         uid=123,
         gid=456,
         timeout=timedelta(seconds=10),
@@ -195,6 +196,7 @@ async def test_streams_are_not_serialized_but_effective_metadata_is(session, tmp
     assert context.request.files is None
     assert context.request.timeout == 10
     assert context.request.env == {"KEY": "value"}
+    assert context.request.preserve_cwd is True
     assert (context.request.cwd, context.request.uid, context.request.gid) == ("/work", 123, 456)
     assert context.session_network_enabled is True
     assert context.request.network_enabled is False
