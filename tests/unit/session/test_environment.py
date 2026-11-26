@@ -7,7 +7,7 @@ import pytest
 from contree_client.models import InstanceResourcesLimits
 from contree_client.testing import ContreeAsyncClient, ContreeClient
 
-from contree_sdk import ContreeAsyncSession, ContreeSession, RunRequest
+from contree_sdk import AsyncLazySession, ContreeAsyncSession, ContreeSession, LazySession, RunRequest
 from contree_sdk.store import Node
 from tests.unit.session.factories import mock_completion, operation_response, spawn_response
 
@@ -76,6 +76,28 @@ async def test_command_overlay_reaches_transport_and_keeps_session_defaults(sess
     assert resumed.cwd == "/app"
     assert resumed.env == session.env
     assert resumed.resources_limits == defaults
+
+
+@pytest.mark.parametrize("method", ["run", "spawn"])
+@pytest.mark.parametrize(
+    ("options", "expected"), [({}, False), ({"preserve_cwd": True}, True)], ids=["default", "enabled"]
+)
+async def test_image_workdir_preservation_reaches_transport(session, method, options, expected):
+    mock_completion(session.client, operation_response())
+
+    await call(session, method, shell=":", cwd="/work", **options)
+
+    sent = session.client.calls_for("spawn_instance")[0].kwargs
+    assert sent["preserve_cwd"] is expected
+
+
+async def test_lazy_command_rejects_image_workdir_preservation_before_start(session):
+    lazy = AsyncLazySession(session) if isinstance(session, ContreeAsyncSession) else LazySession(session)
+
+    with pytest.raises(ValueError, match="preserve_cwd"):
+        await call(lazy, "execute", RunRequest(shell=":", preserve_cwd=True))
+
+    assert not session.client.calls_for("spawn_instance")
 
 
 async def test_navigation_restores_saved_defaults(session):
