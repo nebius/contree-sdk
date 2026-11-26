@@ -64,8 +64,6 @@ Image imports have a 10-minute timeout, configurable via `ConTreeEnvironment.IMA
 
 ## Current limitations
 
-- Each task needs `[environment].docker_image` set to a prebuilt OCI registry
-  image containing Bash and `sleep`. Dockerfile builds are not supported.
 - Commands use the image's default user. Harbor can override it with `root` or
   a numeric UID; other user names are not supported.
 - Compose, GPUs, custom host mounts, and network allowlists are not supported.
