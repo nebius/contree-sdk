@@ -16,10 +16,21 @@ from contree_client.models import InstanceResourcesLimits, InstanceResultState, 
 from contree_client.types import ContreeAsyncClient
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.environments.capabilities import EnvironmentCapabilities, EnvironmentResourceCapabilities
-from harbor.environments.definition import COMPOSE_FILE_NAME, DOCKERFILE_NAME, should_upload_environment_dir
+from harbor.environments.definition import (
+    COMPOSE_FILE_NAME,
+    DOCKERFILE_NAME,
+    should_upload_environment_dir,
+    should_use_prebuilt_docker_image,
+)
 from harbor.models.trial.paths import EnvironmentPaths
 
-from contree_sdk import AsyncLazySession, RunRequest, async_import_image, create_async_sandbox_session
+from contree_sdk import (
+    AsyncLazySession,
+    RunRequest,
+    async_build_image,
+    async_import_image,
+    create_async_sandbox_session,
+)
 from contree_sdk.connection import ConnectionConfig, owned_resources_async
 from contree_sdk.file_io import run_file_io, write_download_async
 from contree_sdk.session import IdleSnapshotPolicy
@@ -81,8 +92,8 @@ class ConTreeEnvironment(BaseEnvironment):
 
     def _validate_definition(self) -> None:
         config = self.task_env_config
-        if not config.docker_image:
-            raise ValueError("ConTree requires [environment].docker_image; build and publish Dockerfiles separately.")
+        if not config.docker_image and not (self.environment_dir / DOCKERFILE_NAME).is_file():
+            raise ValueError("ConTree requires [environment].docker_image or environment/Dockerfile.")
         if (self.environment_dir / COMPOSE_FILE_NAME).exists():
             raise ValueError("ConTree does not support Docker Compose environments.")
         if config.gpu_types:
@@ -121,28 +132,29 @@ class ConTreeEnvironment(BaseEnvironment):
         if self._lazy_session is not None:
             raise RuntimeError("ConTree environment is already started.")
 
-        if force_build and (self.environment_dir / DOCKERFILE_NAME).exists():
-            raise ValueError("ConTree cannot force-build a Dockerfile; use the prebuilt docker_image.")
-
         try:
             self._closing = False
-            await self._start()
+            await self._start(force_build)
         except BaseException:
             self._lazy_session = None
             await self._stack.__aexit__(*sys.exc_info())
             raise
 
-    async def _start(self) -> None:
+    async def _start(self, force_build: bool) -> None:
         docker_image = self.task_env_config.docker_image
-        if docker_image is None:
-            raise RuntimeError("ConTree startup requires a prebuilt image.")
-
         resources = await self._stack.enter_async_context(owned_resources_async())
         client = await ConnectionConfig(
             client=self._contree_client,
             client_type=HttpxAsyncClient if self._contree_client is None else None,
         ).open_async(resources)
-        contree_image = await async_import_image(docker_image, client=client, timeout=self.IMAGE_IMPORT_TIMEOUT_SEC)
+        if docker_image and should_use_prebuilt_docker_image(
+            self.environment_dir, docker_image=docker_image, force_build=force_build
+        ):
+            contree_image = await async_import_image(docker_image, client=client, timeout=self.IMAGE_IMPORT_TIMEOUT_SEC)
+        else:
+            contree_image = await async_build_image(
+                self.environment_dir, client=client, timeout=math.ceil(self.task_env_config.build_timeout_sec)
+            )
 
         resources_limits = InstanceResourcesLimits(
             cpu=self._effective_cpus if self._effective_cpus is not None else ...,
