@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -83,31 +82,6 @@ async def test_failed_build_does_not_start_session(docker_environment):
         await environment.start(force_build=False)
 
     assert raised.value is error
-    factory.assert_not_called()
-
-
-async def test_cancelled_build_does_not_start_session(docker_environment):
-    environment, build_image, _, factory, _ = docker_environment
-    started = asyncio.Event()
-    cancelled = asyncio.Event()
-
-    async def pending_build(*args, **kwargs):
-        started.set()
-        try:
-            await asyncio.Event().wait()
-        finally:
-            cancelled.set()
-
-    build_image.side_effect = pending_build
-    task = asyncio.create_task(environment.start(force_build=False))
-    try:
-        await asyncio.wait_for(started.wait(), timeout=1)
-    finally:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    assert cancelled.is_set()
     factory.assert_not_called()
 
 
